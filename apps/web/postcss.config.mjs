@@ -1,6 +1,8 @@
+/** @type {import('postcss-load-config').Config} */
 const config = {
   plugins: {
-    "@tailwindcss/postcss": {},
+    // Δεν χρησιμοποιούμε Tailwind προς το παρόν.
+    // Αφήνουμε κενό ώστε το Next να μην προσπαθεί να φορτώσει επιπλέον plugins.
   },
 };
 
