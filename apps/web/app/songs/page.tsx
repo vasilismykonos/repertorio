@@ -1,34 +1,30 @@
+// app/songs/page.tsx
+import Link from "next/link";
 import { fetchJson } from "@/lib/api";
-
-type Category = {
-  id: number;
-  title: string;
-};
-
-type Song = {
-  id: number;
-  title: string;
-  firstLyrics: string | null;
-  lyrics: string | null;
-  views: number;
-  status: string;
-  category: Category | null;
-};
+import type { Song } from "@/lib/types";
 
 export const metadata = {
   title: "Τραγούδια | Repertorio Next",
-  description: "Λίστα τραγουδιών από το νέο NestJS API",
+  description: "Λίστα τραγουδιών από το νέο NestJS API (PostgreSQL).",
 };
 
 export default async function SongsPage() {
-  // Θα ζητήσουμε τα πρώτα 50 τραγούδια
+  // Παίρνουμε τα πρώτα 50 τραγούδια από το NestJS API
   const songs = await fetchJson<Song[]>("/songs?take=50&skip=0");
 
   return (
-    <section>
-      <h2>Λίστα τραγουδιών (πρώτα 50)</h2>
-      <p style={{ opacity: 0.8, marginBottom: "16px" }}>
-        Τα δεδομένα έρχονται live από το NestJS API (PostgreSQL).
+    <main
+      style={{
+        maxWidth: "960px",
+        margin: "40px auto",
+        padding: "0 16px",
+        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+      }}
+    >
+      <h1 style={{ fontSize: "28px", marginBottom: "10px" }}>Τραγούδια</h1>
+
+      <p style={{ marginBottom: "20px", opacity: 0.8 }}>
+        Τα δεδομένα προέρχονται ζωντανά από το NestJS API (PostgreSQL).
       </p>
 
       {songs.length === 0 ? (
@@ -46,16 +42,7 @@ export default async function SongsPage() {
               <th
                 style={{
                   textAlign: "left",
-                  borderBottom: "1px solid #1f2937",
-                  padding: "8px",
-                }}
-              >
-                ID
-              </th>
-              <th
-                style={{
-                  textAlign: "left",
-                  borderBottom: "1px solid #1f2937",
+                  borderBottom: "1px solid #ddd",
                   padding: "8px",
                 }}
               >
@@ -64,7 +51,7 @@ export default async function SongsPage() {
               <th
                 style={{
                   textAlign: "left",
-                  borderBottom: "1px solid #1f2937",
+                  borderBottom: "1px solid #ddd",
                   padding: "8px",
                 }}
               >
@@ -73,29 +60,22 @@ export default async function SongsPage() {
               <th
                 style={{
                   textAlign: "left",
-                  borderBottom: "1px solid #1f2937",
+                  borderBottom: "1px solid #ddd",
                   padding: "8px",
+                  width: "40%",
                 }}
               >
-                Πρώτοι στίχοι
+                Πρώτος στίχος
               </th>
               <th
                 style={{
                   textAlign: "right",
-                  borderBottom: "1px solid #1f2937",
+                  borderBottom: "1px solid #ddd",
                   padding: "8px",
+                  whiteSpace: "nowrap",
                 }}
               >
-                Views
-              </th>
-              <th
-                style={{
-                  textAlign: "left",
-                  borderBottom: "1px solid #1f2937",
-                  padding: "8px",
-                }}
-              >
-                Status
+                Προβολές
               </th>
             </tr>
           </thead>
@@ -104,35 +84,37 @@ export default async function SongsPage() {
               <tr key={song.id}>
                 <td
                   style={{
+                    borderBottom: "1px solid #f0f0f0",
                     padding: "8px",
-                    borderBottom: "1px solid #111827",
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {song.id}
+                  <Link
+                    href={`/songs/${song.id}`}
+                    style={{
+                      color: "#0070f3",
+                      textDecoration: "none",
+                    }}
+                  >
+                    {song.title}
+                  </Link>
                 </td>
                 <td
                   style={{
+                    borderBottom: "1px solid #f0f0f0",
                     padding: "8px",
-                    borderBottom: "1px solid #111827",
+                    fontSize: "12px",
+                    color: "#555",
                   }}
                 >
-                  {song.title}
+                  {song.category ? song.category.title : "—"}
                 </td>
                 <td
                   style={{
+                    borderBottom: "1px solid #f0f0f0",
                     padding: "8px",
-                    borderBottom: "1px solid #111827",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {song.category?.title ?? "—"}
-                </td>
-                <td
-                  style={{
-                    padding: "8px",
-                    borderBottom: "1px solid #111827",
-                    maxWidth: "280px",
+                    color: "#555",
+                    maxWidth: "0",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
@@ -143,28 +125,20 @@ export default async function SongsPage() {
                 </td>
                 <td
                   style={{
+                    borderBottom: "1px solid #f0f0f0",
                     padding: "8px",
-                    borderBottom: "1px solid #111827",
                     textAlign: "right",
+                    fontVariantNumeric: "tabular-nums",
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {song.views}
-                </td>
-                <td
-                  style={{
-                    padding: "8px",
-                    borderBottom: "1px solid #111827",
-                    textTransform: "lowercase",
-                  }}
-                >
-                  {song.status.toLowerCase()}
+                  {song.views.toLocaleString("el-GR")}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
-    </section>
+    </main>
   );
 }
