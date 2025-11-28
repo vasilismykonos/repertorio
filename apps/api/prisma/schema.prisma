@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================
+// Enums
+// =====================
+
+enum SongStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  ARCHIVED
+}
+
+enum VersionArtistRole {
+  SINGER_FRONT
+  SINGER_BACK
+  SOLOIST
+  MUSICIAN
+  COMPOSER
+}
+
+// =====================
+// Core models
+// =====================
+
+model User {
+  id          Int      @id @default(autoincrement())
+  email       String?  @unique
+  username    String?  @unique
+  displayName String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  createdSongs   Song[]
+  createdVersions SongVersion[]
+}
+
+model Artist {
+  id             Int      @id @default(autoincrement())
+  legacyArtistId Int?
+  title          String
+  firstName      String?
+  lastName       String?
+  sex            String?
+  bornYear       Int?
+  dieYear        Int?
+  imageUrl       String?
+  biography      String?
+  wikiUrl        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  versionRoles   SongVersionArtist[]
+}
+
+model Category {
+  id        Int      @id @default(autoincrement())
+  title     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  songs     Song[]
+}
+
+model Rythm {
+  id        Int      @id @default(autoincrement())
+  title     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  songs     Song[]
+}
+
+model Makam {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  songs     Song[]
+}
+
+model Song {
+  id               Int        @id @default(autoincrement())
+  title            String
+  firstLyrics      String?
+  lyrics           String?
+  chords           String?
+  characteristics  String?
+  status           SongStatus @default(PENDING_APPROVAL)
+
+  originalKey      String?    // από Tune_Writed
+  defaultKey       String?    // από Default_Tune
+  basedOn          String?    // BasedOn
+  scoreFile        String?    // Partiture (π.χ. path σε MusicXML / SVG)
+  highestVocalNote String?    // Highest_Vocal_Note
+
+  views            Int        @default(0)
+  legacySongId     Int?       // Song_ID_old αν το χρειαστούμε
+
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  createdByUserId  Int?
+  categoryId       Int?
+  rythmId          Int?
+  makamId          Int?
+
+  // Relations
+  category   Category? @relation(fields: [categoryId], references: [id])
+  rythm      Rythm?    @relation(fields: [rythmId], references: [id])
+  makam      Makam?    @relation(fields: [makamId], references: [id])
+  createdBy  User?     @relation(fields: [createdByUserId], references: [id])
+
+  versions   SongVersion[]
+}
+
+model SongVersion {
+  id                Int      @id @default(autoincrement())
+  songId            Int
+
+  title             String?      // snapshot από SongTitle
+  year              Int?
+  youtubeUrl        String?
+  youtubeSearch     String?
+  playerCode        String?      // από Player
+
+  legacyComposerOld String?
+  legacySongIdOld   Int?
+  legacyNewId       Int?
+
+  createdAt         DateTime @default(now())
+  createdByUserId   Int?
+
+  // Relations
+  song      Song  @relation(fields: [songId], references: [id])
+  createdBy User? @relation(fields: [createdByUserId], references: [id])
+
+  artists   SongVersionArtist[]
+}
+
+model SongVersionArtist {
+  versionId Int
+  artistId  Int
+  role      VersionArtistRole
+  order     Int @default(0)
+
+  // Relations
+  version SongVersion @relation(fields: [versionId], references: [id])
+  artist  Artist      @relation(fields: [artistId], references: [id])
+
+  @@id([versionId, artistId, role])
+}
