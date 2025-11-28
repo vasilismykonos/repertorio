@@ -1,0 +1,14 @@
+[0;1;32m●[0m repertorio-api.service - Repertorio NestJS API (port 3000)
+   Loaded: loaded (/etc/systemd/system/repertorio-api.service; enabled; vendor preset: disabled)
+   Active: [0;1;32mactive (running)[0m since Fri 2025-11-28 17:42:00 EET; 6s ago
+ Main PID: 2493685 (node)
+    Tasks: 22 (limit: 23132)
+   Memory: 226.2M
+   CGroup: /system.slice/repertorio-api.service
+           ├─2493685 node /root/.nvm/versions/node/v22.21.1/bin/pnpm run start:dev
+           └─2494352 node /home/reperto/repertorio/apps/api/node_modules/.bin/../@nestjs/cli/bin/nest.js start --watch
+
+Nov 28 17:42:00 mail.it2.gr systemd[1]: Started Repertorio NestJS API (port 3000).
+Nov 28 17:42:02 mail.it2.gr start-api.sh[2493685]: > api@0.0.1 start:dev /home/reperto/repertorio/apps/api
+Nov 28 17:42:02 mail.it2.gr start-api.sh[2493685]: > nest start --watch
+Nov 28 17:42:03 mail.it2.gr start-api.sh[2494352]: [61B blob data]
