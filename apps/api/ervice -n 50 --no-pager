@@ -1,0 +1,21 @@
+[0;1;32m●[0m repertorio-api.service - Repertorio NestJS API (port 3000)
+   Loaded: loaded (/etc/systemd/system/repertorio-api.service; enabled; vendor preset: disabled)
+   Active: [0;1;32mactive (running)[0m since Fri 2025-11-28 23:00:34 EET; 4min 19s ago
+ Main PID: 2642092 (node)
+    Tasks: 36 (limit: 23132)
+   Memory: 419.2M
+   CGroup: /system.slice/repertorio-api.service
+           ├─2642092 node /root/.nvm/versions/node/v22.21.1/bin/pnpm run start:dev
+           ├─2642420 node /home/reperto/repertorio/apps/api/node_modules/.bin/../@nestjs/cli/bin/nest.js start --watch
+           └─2642470 node --enable-source-maps /home/reperto/repertorio/apps/api/dist/src/main
+
+Nov 28 23:00:43 mail.it2.gr start-api.sh[2642470]: [Nest] 2642470  - 11/28/2025, 11:00:43 PM     LOG [RouterExplorer] Mapped {/api/v1/health, GET} route +1ms
+Nov 28 23:00:43 mail.it2.gr start-api.sh[2642470]: [Nest] 2642470  - 11/28/2025, 11:00:43 PM     LOG [RoutesResolver] RythmsController {/api/v1/rythms}: +0ms
+Nov 28 23:00:43 mail.it2.gr start-api.sh[2642470]: [Nest] 2642470  - 11/28/2025, 11:00:43 PM     LOG [RouterExplorer] Mapped {/api/v1/rythms, GET} route +1ms
+Nov 28 23:00:43 mail.it2.gr start-api.sh[2642470]: [Nest] 2642470  - 11/28/2025, 11:00:43 PM     LOG [RoutesResolver] CategoriesController {/api/v1/categories}: +0ms
+Nov 28 23:00:43 mail.it2.gr start-api.sh[2642470]: [Nest] 2642470  - 11/28/2025, 11:00:43 PM     LOG [RouterExplorer] Mapped {/api/v1/categories, GET} route +0ms
+Nov 28 23:00:43 mail.it2.gr start-api.sh[2642470]: [Nest] 2642470  - 11/28/2025, 11:00:43 PM     LOG [RoutesResolver] ArtistsController {/api/v1/artists}: +0ms
+Nov 28 23:00:43 mail.it2.gr start-api.sh[2642470]: [Nest] 2642470  - 11/28/2025, 11:00:43 PM     LOG [RouterExplorer] Mapped {/api/v1/artists, GET} route +1ms
+Nov 28 23:00:43 mail.it2.gr start-api.sh[2642470]: [Nest] 2642470  - 11/28/2025, 11:00:43 PM     LOG [RoutesResolver] SongsController {/api/v1/songs}: +0ms
+Nov 28 23:00:43 mail.it2.gr start-api.sh[2642470]: [Nest] 2642470  - 11/28/2025, 11:00:43 PM     LOG [RouterExplorer] Mapped {/api/v1/songs/search, GET} route +1ms
+Nov 28 23:00:43 mail.it2.gr start-api.sh[2642470]: [Nest] 2642470  - 11/28/2025, 11:00:43 PM     LOG [NestApplication] Nest application successfully started +261ms

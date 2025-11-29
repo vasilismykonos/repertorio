@@ -1,19 +1,37 @@
 // src/songs/songs.controller.ts
-import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
-import { SongsService } from './songs.service';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  NotFoundException,
+} from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
 
-@Controller('songs')
+@Controller("songs")
 export class SongsController {
-  constructor(private readonly songsService: SongsService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  @Get()
-  async getAllSongs() {
-    return this.songsService.findAll();
-  }
+  @Get(":id")
+  async getSongById(@Param("id", ParseIntPipe) id: number) {
+    const song = await this.prisma.song.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        firstLyrics: true,
+        lyrics: true,
+        characteristics: true,
+        originalKey: true,
+        chords: true,
+        status: true,
+      },
+    });
 
-  @Get(':id')
-  async getSongById(@Param('id', ParseIntPipe) id: number) {
-    return this.songsService.findOne(id);
+    if (!song) {
+      throw new NotFoundException(`Song with id ${id} not found`);
+    }
+
+    return song;
   }
 }
-
