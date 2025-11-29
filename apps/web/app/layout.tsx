@@ -1,27 +1,55 @@
-import "./global.css";
+// app/layout.tsx
+import "./globals.css";
 import type { ReactNode } from "react";
+import type { Metadata } from "next";
 
-export const metadata = {
-  title: "Repertorio Next",
-  description: "Νέο Repertorio frontend πάνω στο NestJS API"
+import Header from "./components/Header";
+import Footer from "./components/Footer";
+import Providers from "./Providers";
+import { PwaProvider } from "./PwaProvider";
+import { PwaInstallLinkHandler } from "./components/PwaInstallLinkHandler";
+
+export const metadata: Metadata = {
+  title: "Repertorio.net",
+  description: "Πλατφόρμα μουσικής για επαγγελματίες και ερασιτέχνες μουσικούς",
+  manifest: "/manifest.webmanifest",
+  themeColor: "#111111",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="el">
-      <body>
-        <main>
-          <header style={{ marginBottom: "24px" }}>
-            <h1>Repertorio Next</h1>
-            <p style={{ opacity: 0.8 }}>
-              Prototype frontend συνδεδεμένο με το νέο NestJS API.
-            </p>
-            <nav style={{ marginTop: "8px" }}>
-              <a href="/">Αρχική</a> | <a href="/songs">Τραγούδια</a>
-            </nav>
-          </header>
-          {children}
-        </main>
+      <head>
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <meta name="theme-color" content="#111111" />
+
+        <link
+          rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+        />
+      </head>
+      <body
+        style={{
+          margin: 0,
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: "#000",
+          color: "#fff",
+          fontFamily: "Verdana, sans-serif",
+        }}
+      >
+        {/* Service worker */}
+        <PwaProvider />
+
+        {/* Σύνδεση του link #installAppLink με το PWA install */}
+        <PwaInstallLinkHandler />
+
+        <Providers>
+          <Header />
+          <main style={{ flex: 1 }}>{children}</main>
+          <Footer />
+        </Providers>
       </body>
     </html>
   );

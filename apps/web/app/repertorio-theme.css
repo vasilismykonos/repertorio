@@ -1,0 +1,879 @@
+/*
+Theme Name: Repertorio Theme
+Theme URI: https://repertorio.net/
+Author: Vasilis Antoniou
+Author URI: https://computerservice.com.gr
+Description: Custom theme for Repertorio.
+Version: 1.0
+License: GNU General Public License v2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: repertorio
+*/
+/* Στυλ για το container του header */
+h4, p, a, div, span, ul, li, button, main, article  {
+    font-size: 15px;
+    color: white;
+}
+ label,input,  {
+    font-size: 15px;
+    color: rgb(0, 0, 0);
+}
+main, article, .profile  {
+    background-color: #000000;
+}
+a {
+    text-decoration: none;
+    transition: transform 0.2s ease, text-shadow 0.2s ease;
+}
+
+a:hover {
+    transform: translateY(-2px); /* Υπερύψωση κατά 2px */
+    text-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2); /* Ελαφριά σκιά */
+}
+
+.header-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background-color: #333;
+    color: #fff;
+    flex-wrap: wrap; /* Επιτρέπει στο περιεχόμενο να "τυλίγεται" σε δεύτερη σειρά αν χρειαστεί */
+}
+
+/* Προσαρμογές για κινητά */
+@media (max-width: 768px) {
+    /* Τοποθετεί την αναζήτηση σε νέα σειρά */
+    .header-search {
+        flex-basis: 100%; /* Καταλαμβάνει όλη τη σειρά */
+        order: 1; /* Εμφανίζεται στη δεύτερη σειρά */
+        margin-top: 10px; /* Απόσταση από τα υπόλοιπα στοιχεία */
+    }
+
+    /* Τα υπόλοιπα στοιχεία του header (π.χ., λογότυπο και κουμπιά) παραμένουν στην πρώτη σειρά */
+    .header-logo, .header-buttons, .header-main-menu {
+        flex-basis: auto;
+        margin-top: 0;
+        order: 0; /* Εξασφαλίζει ότι θα παραμείνουν στην πρώτη σειρά */
+    }
+}
+#search-filters {
+    display: flex;
+    flex-direction: column; /* Κατακόρυφη στοίχιση */
+    align-items: flex-start;
+    gap: 2;
+    width: 100%;
+}
+
+.search-group-filters {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 20px;
+    padding: 5px;
+}
+.search-group-filters-dropbox label {
+    text-align: left;
+    display: block; /* Σιγουρεύει ότι το label καταλαμβάνει όλη τη γραμμή */
+}
+
+.search-group-filters-dropbox select {
+    border-radius: 10px;
+    border: 1px solid #ccc;
+    background-color: #f0f0f0;
+    color: #333;
+    cursor: pointer;
+    width: 100%; /* Προαιρετικό για πλήρη πλάτος */
+}
+
+.search-filter-option {
+    border-radius: 10px!important;
+}
+.search-filter-option, #apply-filters {
+    padding: 8px 16px;
+    cursor: pointer;
+    border: none;
+    background-color: #f0f0f0;
+    color: #333;
+    border-radius: 10px; /* Στρογγυλεμένες γωνίες */
+    transition: background-color 0.3s;
+}
+
+.search-filter-option.selected {
+    background-color: #4c7aaf;
+    color: white;
+    border-radius: 10px; /* Στρογγυλεμένες γωνίες */
+
+}
+
+.search-filter-option:hover, #apply-filters:hover {
+    background-color: #4c7aaf;
+    border-radius: 10px; /* Στρογγυλεμένες γωνίες */
+}
+#apply-filters {
+    margin-top: auto; /* Τοποθετεί το κουμπί "Εφαρμογή" στο τέλος του container */
+    align-self: flex-end;
+    background-color: #4c7aaf;
+    color: white;
+    font-size: 16px;
+    height: 30px;
+}
+
+
+.header-logo img {
+    max-width: 31px; /* Προσαρμογή του μέγιστου πλάτους */
+    height: auto;     /* Διατήρηση αναλογιών */
+}
+
+/* Στυλ για το πεδίο αναζήτησης */
+.header-search {
+    display: flex;
+    align-items: center;
+    max-width: 300px;
+    flex-grow: 10; /* Προσαρμόζει το πλάτος ώστε να γεμίσει τον διαθέσιμο χώρο */
+    margin: 0 20px;
+    align-items: stretch; /* Διατηρεί τα παιδιά στο ίδιο ύψος */
+    margin-left: auto;
+    background-color: #fff; /* Φόντο του πεδίου αναζήτησης */
+    border-radius: 5px;
+    height: 40px; /* Σταθερό ύψος για να ταιριάζει με το κουμπί */
+    border-radius: 30px 30px 30px 30px; /* Στρογγυλεμένες γωνίες αριστερά */
+}
+
+.header-search input[type="text"] {
+    padding: 10px;
+    font-size: 16px;
+    border: none;
+    outline: none;
+    background: transparent; /* Διαφανές φόντο για να ταιριάζει με το container */
+    color: #000000;
+    height: 100%; /* Ίδιο ύψος με το container */
+    box-sizing: border-box;
+    border-radius: 5px 0 0 5px; /* Στρογγυλεμένες γωνίες αριστερά */
+}
+
+.header-search button {
+    background-color: #ffffff;
+    border: none;
+    padding: 0 12px 0 5px; /* Περισσότερο padding δεξιά, λιγότερο αριστερά */
+    cursor: pointer;
+    border-radius: 0 5px 5px 0;
+    color: #040000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%; /* Ίδιο ύψος με το container */
+    box-sizing: border-box;
+}
+
+/* Clear search button styling */
+.clear-search {
+    position: absolute;
+    right: 35px; /* Τοποθέτηση πριν το κουμπί του φακού */
+    top: 50%; /* Κάθετη κεντροθέτηση */
+    transform: translateY(-50%);
+    font-size: 18px;
+    cursor: pointer;
+    color: #aaa;
+}
+
+
+.clear-search:hover {
+    color: #333; /* Αλλαγή χρώματος κατά το hover */
+}
+
+
+/* Στοίχιση κουμπιών δεξιά */
+.header-buttons {
+    margin-left: auto; /* Ωθεί τα κουμπιά δεξιά */
+    display: flex;
+    gap: 13px; /* Απόσταση μεταξύ των κουμπιών */
+    align-items: center;
+}
+.header-buttons > :last-child {
+    margin-right: 10px; /* Προσθέτει κενό δεξιά στο τελευταίο κουμπί */
+}
+.header-buttons button,
+.header-buttons a {
+    width: 30px; /* Σταθερό πλάτος για όλα τα κουμπιά */
+    height: 30px; /* Σταθερό ύψος για όλα τα κουμπιά */
+    background-color: #bdbcbc;
+    color: #fff;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    border-radius: 50%; /* Κάνει τα κουμπιά κυκλικά */
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.header-buttons button:hover,
+.header-buttons a:hover {
+    background-color: #9a9a9a; /* Αλλάζει το χρώμα κατά το hover */
+    transform: translateY(0px); /* Ελαφριά ανύψωση */
+    box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.15);
+    }
+
+
+/* Αύξηση μεγέθους για το .header-main-menu */
+.header-main-menu {
+    font-size: 1.2em; /* Αύξηση μεγέθους γραμματοσειράς */
+    padding: 10px 1px; /* Αύξηση padding για μεγαλύτερο "κλικ" */
+    margin-left: 5px;
+    transform: scale(1.2); /* Μεγέθυνση κατά 10% */
+    transition: transform 0.3s ease, color 0.3s ease, background-color 0.3s ease;
+}
+#filters {
+    display: flex; /* Ενεργοποίηση του flexbox */
+    flex-direction: row; /* Οριζόντια στοίχιση */
+    align-items: center; /* Κεντράρισμα κάθετα */
+    justify-content: left; /* Κεντράρισμα οριζόντια */
+    gap: 1px; /* Απόσταση μεταξύ των κουμπιών */
+    flex-wrap: wrap; /* Επιτρέπει τη συνέχιση σε νέα γραμμή */
+}
+
+#filters button {
+    height: 40px; /* Σταθερό ύψος για όλα τα κουμπιά */
+    width: 40px; /* Σταθερό πλάτος */
+    display: flex;
+    align-items: center; /* Κεντράρισμα περιεχομένου */
+    justify-content: center; /* Κεντράρισμα περιεχομένου */
+    background-color: #444;
+    color: #fff;
+    border: 1px solid #fff;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+/* Προαιρετικά στυλ hover */
+#filters button:hover {
+    background-color: #005bb5;
+    transform: translateY(-2px);
+}
+
+#filters button {
+    gap: 5px; /* Μικρότερη απόσταση μεταξύ των κουμπιών */
+    height: 40px; /* Καθορισμένο ύψος */
+    width: auto; /* Εναλλακτικά, μπορείς να ορίσεις και πλάτος */
+    display: flex; /* Χρήση flex για σωστή στοίχιση περιεχομένου */
+    align-items: center; /* Κεντράρισμα περιεχομένου κατακόρυφα */
+    justify-content: center; /* Κεντράρισμα περιεχομένου οριζόντια */
+    padding: 5px 10px; /* Εσωτερικά περιθώρια για καλύτερη εμφάνιση */
+    text-align: center; /* Στοίχιση κειμένου */
+    box-sizing: border-box; /* Περιλαμβάνει padding και border στις διαστάσεις */
+    font-size: 14px; /* Μέγεθος γραμματοσειράς */
+    border-radius: 8px; /* Στρογγυλεμένες γωνίες */
+    cursor: pointer; /* Δείκτης χεριού */
+    background-color: #444; /* Φόντο κουμπιού */
+    color: #fff; /* Χρώμα κειμένου */
+    transition: all 0.3s ease; /* Απαλή μετάβαση σε hover */
+}
+
+/* Προαιρετικά στυλ για hover */
+#filters button:hover {
+    background-color: #005bb5; /* Αλλαγή χρώματος κατά το hover */
+    transform: translateY(-2px); /* Ελαφριά ανύψωση */
+}
+
+
+
+div.list-buttons button {
+    height: 60px; /* Σταθερό ύψος για όλα τα κουμπιά */
+} 
+
+/* Γενικό container για κουμπιά */
+.button-container {
+    display: flex; /* Ενεργοποίηση του flexbox */
+    flex-direction: row; /* Οριζόντια στοίχιση */
+    align-items: center; /* Κεντράρισμα κάθετα */
+    justify-content: flex-start; /* Ευθυγράμμιση προς τα αριστερά */
+    gap: 1px; /* Απόσταση μεταξύ των κουμπιών */
+    flex-wrap: wrap; /* Επιτρέπει τη συνέχιση σε νέα γραμμή */
+}
+
+/* Γενικά στυλ για κουμπιά */
+.button-container .button {
+    height: 60px; /* Σταθερό ύψος για όλα τα κουμπιά */
+    display: flex;
+    align-items: center; /* Κεντράρισμα περιεχομένου */
+    justify-content: center; /* Κεντράρισμα περιεχομένου */
+    background-color: #444; /* Χρώμα φόντου */
+    color: #fff; /* Χρώμα κειμένου */
+    border: 1px solid #fff; /* Περιγράμματα */
+    border-radius: 8px; /* Στρογγυλεμένες γωνίες */
+    cursor: pointer; /* Δείκτης χεριού */
+    transition: all 0.3s ease; /* Μετάβαση */
+    padding: 5px 10px; /* Εσωτερικό padding */
+    text-align: center; /* Στοίχιση κειμένου */
+    box-sizing: border-box; /* Συμπερίληψη padding και border */
+    font-size: 14px; /* Μέγεθος γραμματοσειράς */
+}
+.button-container button,
+.button-container .song-sheet-button button,
+.button-container .youtube-button,
+.button-container .menu-button-wrapper > button {
+    height: 55px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+}
+
+/* Προαιρετικά στυλ hover */
+.button-container .button:hover {
+    background-color: #005bb5; /* Αλλαγή χρώματος φόντου */
+    transform: translateY(-2px); /* Ελαφριά ανύψωση */
+}
+
+/* Κουμπιά μικρού ύψους */
+.small-button-container {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Όλα τα μικρά κουμπιά */
+.small-button-container button {
+    background-color: #444;
+    border: 1px solid #fff;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    height: auto;
+    line-height: 1.1;
+}
+
+/* Ειδικά για new_button — πιο δυνατός selector */
+.small-button-container button.new_button {
+    padding: 3px 8px;   /* override */
+    font-size: 13px;
+    height: auto;
+    line-height: 1.1;
+}
+
+/* Hover */
+.small-button-container button:hover,
+.small-button-container button.new_button:hover {
+    background-color: #005bb5;
+    transform: translateY(-1px);
+}
+
+
+
+
+/* Προαιρετικά, αν θέλεις να αλλάξεις το μέγεθος του κουμπιού menu */
+.header-main-menu button.menu-toggle {
+    font-size: 20px; /* Αύξηση του μεγέθους εικονιδίου μενού */
+    padding: 10px 15px; /* Αύξηση του padding για να είναι πιο εμφανές */
+    width: 40px; /* Σταθερό πλάτος για όλα τα κουμπιά */
+    height: 40px; /* Σταθερό ύψος για όλα τα κουμπιά */
+}
+
+
+.header-main-menu button.menu-toggle {
+    background-color: #444;
+    color: #fff;
+    padding: 8px;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+    font-size: 18px;
+}
+
+/* Sidebar Styling */
+.site-sidebar {
+    position: fixed;
+    right: 0;
+    top: 0;
+    width: 300px;
+    height: 100%;
+    background-color: #333;
+    color: #fff;
+    padding: 20px;
+    box-shadow: -5px 0 10px rgba(0, 0, 0, 0.3);
+    transition: transform 0.3s ease;
+    transform: translateX(100%); /* Απόκρυψη */
+    z-index: 10;
+}
+.site-sidebar a {
+    color: #fff;
+    text-decoration: none;
+}
+.site-sidebar.visible {
+    transform: translateX(0); /* Εμφάνιση */
+}
+
+
+
+#overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    z-index: 5;
+}
+
+#overlay.visible {
+    display: block;
+}
+
+
+.user-avatar img {
+    border-radius: 50%; /* Στρογγυλό avatar */
+    width: 32px; /* Πλάτος avatar */
+    height: 32px; /* Ύψος avatar */
+    border: 1.5px solid #fff; /* Προαιρετικό: Λευκό περίγραμμα */
+}
+
+.user-icon {
+    font-size: 24px; /* Μέγεθος default εικονιδίου */
+    color: #fff;
+}
+
+body {
+    font-family: Verdana, sans-serif;
+}
+/* Στυλ για το σώμα και το container */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.site-footer {
+    background-color: #333;
+    color: #fff;
+    text-align: center;
+    padding: 8px 0;
+    position: relative;
+    width: 100%;
+}
+
+main {
+    flex: 1; /* Επεκτείνει το main περιεχόμενο ώστε να γεμίζει τον χώρο */
+}
+
+/* Βασικό στυλ κουμπιού */
+button, .header-main-menu button.menu-toggle ,
+.button-style,
+input[type="button"],
+input[type="submit"],
+a.button-style, button.menu-button {
+    display: inline-block;
+    padding: 10px 8px;
+    margin: 1px; 
+    font-size: 12px;
+    font-weight: 200;
+    text-align: center;
+    color: #fff;
+    background-color: #444; /* Βασικό χρώμα κουμπιού */
+    border: 1px solid #fff; /* Λευκή γραμμή εξωτερικά */
+    border-radius: 8px; /* Στρογγυλεμένες γωνίες */
+    text-decoration: none;
+    transition: background-color 0.3s ease, transform 0.1s ease;
+    box-shadow: 0px 4px 6px rgba(135, 132, 132, 0.1);
+    cursor: pointer;
+}
+
+
+/* Hover effect */
+button:hover,
+.button-style:hover,
+input[type="button"]:hover,
+input[type="submit"]:hover,
+a.button-style:hover {
+    background-color: #005bb5; /* Χρώμα κατά το hover */
+    box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Ενεργή κατάσταση (όταν πατηθεί) */
+button:active,
+.button-style:active,
+input[type="button"]:active,
+input[type="submit"]:active,
+a.button-style:active {
+    background-color: #003a80; /* Σκούρο χρώμα για το πάτημα */
+    box-shadow: 0px 3px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Απενεργοποιημένα κουμπιά */
+button:disabled,
+.button-style:disabled,
+input[type="button"]:disabled,
+input[type="submit"]:disabled {
+    background-color: #ccc;
+    color: #666;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+/* Προσαρμογή για κουμπιά που μοιάζουν με links */
+a.button-style {
+    color: #fff;
+    padding: 8px 16px;
+}
+.icon-left {
+    direction: ltr;
+    text-align: left;
+}
+
+button.edit-button {
+    margin: 0;
+    transform: translateY(-5px); /* Αύξησε ή μείωσε την τιμή ανάλογα με το επιθυμητό αποτέλεσμα */
+    background-color: transparent;
+    font-size: 10px !important;
+    font-weight: 100;
+    box-shadow: none;
+    padding: 0%; /* Μικρό padding για μικρότερο μέγεθος */
+    padding-left: 5px;
+    border: none; /* Αφαιρεί περίγραμμα αν υπάρχει */
+    cursor: pointer; /* Δείκτης χεριού για καλύτερη εμπειρία */
+    border-radius: 4px; /* Προαιρετικά: Στρογγυλεμένες γωνίες */
+}
+
+
+.buttons {
+    display: flex!important;
+    align-items: center!important; /* Κεντρική κατακόρυφη στοίχιση */
+    gap: 1px!important; /* Αλλάξτε το 10px με την απόσταση που θέλετε */
+}
+.buttons > * {
+    padding: 5px 8px; /* Επάνω/Κάτω: 5px, Αριστερά/Δεξιά: 8px */
+}
+.buttons form button {
+    padding: 5px 8px; /* Επάνω/Κάτω: 5px, Αριστερά/Δεξιά: 8px */
+}
+
+  /* Autocomplete Styles */
+  .ui-autocomplete {
+    background-color: #333;
+    color: black;
+    border: 1px solid #ccc;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+ }
+ div[role="status"][aria-live="assertive"] {
+    display: none !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
+    font-size: 0 !important;
+}
+
+.ui-autocomplete li {
+    padding: 8px 12px;
+    cursor: pointer;
+    width: 300px;
+}
+.ui-autocomplete li:hover {
+    transform: translateY(0px); /* Ελαφριά ανύψωση */
+    box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.15);
+    color: lightblue;
+}
+.ui-autocomplete.ui-menu {
+    width: 100% ;
+}
+.ui-autocomplete .no-results {
+    color: red ;
+}
+/*-------------------------------------------*/
+/* Κουμπί Κλεισίματος */
+#closeSidebar {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 24px!important;
+    color: #fff;
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+/* Γενικό στυλ για κουμπί κλεισίματος */
+.close-btn, .close {
+    position: absolute!important;
+    top: 10px!important;
+    right: 10px!important;
+    background: none!important;
+    border: none!important;
+    font-size: 24px !important;
+    color: white!important;
+    cursor: pointer!important;
+}
+
+/* Γενικό στυλ για overlay */
+.overlay {
+    display: none!important; /* Κρυφό αρχικά */
+    position: fixed!important;
+    top: 0!important;
+    left: 0!important;
+    width: 100%!important;
+    height: 100%!important;
+    background: rgba(0, 0, 0, 0.5)!important;
+    z-index: 999!important;
+}
+
+#debug-steps, #debug-steps * {
+    color: black !important; /* Εξασφαλίζει ότι όλα τα στοιχεία μέσα στο debug-steps είναι μαύρα */
+}
+/* Βασικό στιλ για το modal */
+.modal {
+    display: none; /* Αρχικά κρύβεται το modal */
+    position: fixed; /* Σταθερή θέση */
+    z-index: 1001; /* Τοποθετείται πάνω από άλλα στοιχεία */
+    left: 0;
+    top: 0;
+    width: 100%; /* Πλήρες πλάτος */
+    height: 100%; /* Πλήρες ύψος */
+    overflow: auto; /* Ενεργοποίηση κύλισης αν χρειαστεί */
+    background-color: rgba(0,0,0,0.4); /* Χρώμα φόντου με αδιαφάνεια */
+}
+
+/* Στιλ για το περιεχόμενο του modal */
+.modal-content {
+  position: absolute!important;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  max-width: 500px;
+  min-height: 1em;
+  padding: 20px;
+  pointer-events: auto;
+  background-color: #333;
+  background-clip: padding-box;
+  border: 1px solid white;
+  border-radius: 0.3rem;
+  outline: 0;
+  max-height: 95%;
+  overflow-y: auto; /* Προσθέτει αυτόματη κατακόρυφη κύλιση */
+}
+
+/* Αλλαγή φόντου σε όλα τα <li> του Select2 */
+.select2-container .select2-results__option {
+    background-color: #f0f0f0; /* Το νέο χρώμα φόντου */
+    color: #333; /* Χρώμα κειμένου (προαιρετικό) */
+}
+
+.select2-container--default .select2-selection--multiple .select2-selection__choice {
+    background-color:#333333;
+}
+
+/*------modal στοιχεια της λιστας------*/
+li {
+    display: flex;
+    align-items: center;
+}
+a.song-title {
+    font-weight: 700;
+    white-space: nowrap; /* Αποτρέπει την αναδίπλωση του κειμένου */
+    margin-right: 10px;
+}
+#title {
+    padding-left: 5px; 
+ }
+#song-info, #chords-info  {
+   padding-left: 5px; 
+   padding-bottom: 20px;
+}
+#lyrics {
+    padding-left: 5px; 
+ }
+ .song-item  {
+    display: flex;
+    flex-wrap: wrap; /* Τα στοιχεία μεταφέρονται στην επόμενη γραμμή αν δεν χωρούν */
+}
+.song-item .song-title {
+    white-space: nowrap; /* Αποτρέπει την αναδίπλωση του τίτλου */
+    overflow: hidden; /* Κόβει τον τίτλο αν δεν χωράει */
+    text-overflow: ellipsis; /* Προσθέτει "..." στο τέλος αν κοπεί */
+    flex: 1 1 auto;
+}
+.song-item .icons-and-title {
+    display: flex; /* Δημιουργεί εσωτερικό flex container */
+    flex-wrap: nowrap; /* Κρατά τα εικονίδια και τον τίτλο μαζί */
+    align-items: center;
+}
+#chords {
+    color: lightblue;
+    padding-bottom: 10px;
+    padding-top: 10px;
+    font-style: italic;
+    font-weight: 400;
+}
+
+ul {
+    padding-inline-start: 10px;
+}
+
+.active-filters-item {
+    display: inline-block;
+    padding: 5px 8px!important; /* Ελαφρώς μικρότερο padding */
+    margin: 1px; 
+    font-size: 0.7em!important; /* Μείωση μεγέθους κειμένου στο 90% */
+    font-weight: 200;
+    text-align: center;
+    color: #fff;
+    background-color: #444; /* Βασικό χρώμα κουμπιού */
+    border: 1px solid #fff;
+    border-radius: 8px; /* Στρογγυλεμένες γωνίες */
+    text-decoration: none;
+    transition: background-color 0.3s ease, transform 0.1s ease;
+    box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+}
+.active-filters-item:hover {
+    background-color: #0056b3; /* Σκούρο μπλε στο hover */
+}
+.active-filters-item a {
+    font-size: 0.9em!important; /* Μικρότερο μέγεθος */
+    vertical-align: center; /* Υπερυψωμένο */
+    text-decoration: none; /* Αφαίρεση υπογράμμισης */
+    margin-left: 5px; /* Απόσταση από το κείμενο του φίλτρου */
+}
+.active-filters, .navigation-buttons{
+    display: flex;
+    align-items: stretch; /* Ίδιο ύψος για όλα τα αντικείμενα */
+    justify-content: flex-start; /* Ευθυγράμμιση αριστερά */
+    flex-wrap: wrap; /* Επιτρέπεται η αναδίπλωση */
+    margin-top: 5px;
+    max-width: 100%; /* Μη υπέρβαση του πλάτους της οθόνης */
+}
+
+.active-filters > * {
+    white-space: nowrap; /* Αποτρέπει την αναδίπλωση του κειμένου */
+}
+
+.navigation-buttons {
+    display: flex;
+    justify-content: flex-start; /* Ευθυγράμμιση αντικειμένων στα αριστερά */
+    align-items: center; /* Κεντράρισμα των αντικειμένων κάθετα */
+    flex-wrap: wrap; /* Επιτρέπεται η αναδίπλωση */
+    max-width: 100%; /* Μη υπέρβαση του πλάτους της οθόνης */
+    height: 40px; /* Καθορισμένο ύψος για το κοντέινερ */
+    box-sizing: border-box; /* Συμπερίληψη padding και borders στο συνολικό πλάτος */
+    margin: 0; /* Στοίχιση του div στα αριστερά */
+}
+.navigation-buttons > * {
+    height: 100%; /* Τα παιδιά καταλαμβάνουν το πλήρες ύψος του κοντέινερ */
+    flex: 0 1 auto; /* Επιτρέπει στα στοιχεία να μεγαλώνουν ή να μικραίνουν κατά ανάγκη */
+    margin: 5px; /* Απόσταση μεταξύ των κουμπιών */
+    box-sizing: border-box; /* Συμπερίληψη padding και borders στο συνολικό πλάτος */
+}
+
+/* Εμφανιση του Modal των active-filters */
+.filter-modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.filter-modal-content {
+    background-color: #000000;
+    margin: auto;
+    padding: 10px;
+    border: 1px solid #888;
+    width: 300px;
+    max-height: 95%;
+    overflow-y: auto; /* Προσθήκη scroll αν το περιεχόμενο υπερβεί το 95% */
+}
+
+.filter-close {
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+.filter-close:hover,
+.filter-close:focus {
+    color: black;
+    text-decoration: none;
+    cursor: pointer;
+}
+.filter-modal-content ul {
+    padding: 0px; /* Καταργεί την εσωτερική εσοχή της λίστας */
+    margin: 0px;  /* Καταργεί την εξωτερική εσοχή της λίστας */
+    padding-bottom: 5px;
+    list-style-position: inside; /* Τοποθετεί τα bullets πιο μέσα */
+}
+
+.filter-modal-content li {
+    padding-left: 0; /* Αφαιρεί την εσωτερική εσοχή από τα στοιχεία της λίστας */
+    margin-left: 0; /* Αφαιρεί την εξωτερική εσοχή από τα στοιχεία της λίστας */
+}
+
+/* ---------------------------------------- */
+
+.tonicities {
+    display: flex;
+    flex-direction: column;
+    align-items: left;
+}
+
+.natural-tonicities, .sharp-tonicities {
+    display: flex;
+    justify-content: left;
+}
+
+.tonicity-button {
+    font-size: 0.9em !important;
+    margin: 2px;
+    padding: 5px;
+    font-weight: 600;
+    width: 40px; /* Προσαρμογή του πλάτους για στοίχιση */
+    text-align: center;
+}
+
+.sharp-tonicities .tonicity-button:empty {
+    visibility: hidden; /* Απόκρυψη των κενών κουμπιών στις διέσεις */
+}
+
+#roomModal {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 300px;
+    background: #222;
+    color: #bbb;
+    padding: 20px;
+    border-radius: 8px;
+    z-index: 1000;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    text-align: center;
+}
+#closeRoomModal {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    cursor: pointer;
+    font-size: 24px;
+    color: #fff;
+}
+.navigation-buttons {
+    display: flex;
+    transform: scale(0.7);
+    justify-content: center; /* Κεντράρισμα οριζόντια */
+    align-items: center; /* Κεντράρισμα κατακόρυφα αν χρειάζεται */
+    gap: 10px; /* Προαιρετικά, για να δώσεις */
+}
+
+

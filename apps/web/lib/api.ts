@@ -1,31 +1,34 @@
-// apps/web/lib/api.ts
+// app/lib/api.ts
 
-// Βάση URL του NestJS API.
-// Σε production θα το χτυπάμε σαν https://repertorio.net/api/v1,
-// που θα γίνεται proxy από το Nginx προς το Nest (localhost:PORT/api/v1).
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://repertorio.net/api/v1";
+// ΠΡΟΣΩΡΙΝΑ: Καρφωμένη βάση URL για το NestJS API
+// Αγνοούμε τα env για να είμαστε 100% σίγουροι που χτυπάει.
+const API_BASE_URL = "http://127.0.0.1:3000/api/v1";
 
-
-export async function fetchJson<T>(path: string): Promise<T> {
-  const url = `${API_BASE_URL}${path}`;
+export async function fetchJson<T>(
+  path: string,
+  init?: RequestInit
+): Promise<T> {
+  // Αν το path είναι σχετικό (π.χ. "/songs/search?..."), το ενώνουμε με το API_BASE_URL
+  const url = path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
 
   const res = await fetch(url, {
-    // Να μην κάνει caching σε dev
-    next: { revalidate: 0 },
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+    cache: "no-store",
   });
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const body = await res.text();
     throw new Error(
-      `API error ${res.status} ${res.statusText} for ${url} – body: ${text}`,
+      `API error ${res.status} ${res.statusText} for ${url} – body: ${body.slice(
+        0,
+        500
+      )}`
     );
   }
 
   return (await res.json()) as T;
-}
-
-// ΝΕΑ ΣΥΝΑΡΤΗΣΗ για χρήση στη σελίδα /songs/[id]
-export async function fetchSongById(id: number | string) {
-  return fetchJson(`/songs/${id}`);
 }

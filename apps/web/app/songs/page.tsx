@@ -1,144 +1,194 @@
 // app/songs/page.tsx
 import Link from "next/link";
 import { fetchJson } from "@/lib/api";
-import type { Song } from "@/lib/types";
+
+// Τύποι όπως γυρίζουν από το NestJS /songs/search
+type SongSearchItem = {
+  song_id: number;
+  title: string;
+  firstLyrics: string;
+  lyrics: string;
+  characteristics: string;
+  originalKey: string;
+  chords: number;
+  partiture: number;
+  status: string;
+  score: number;
+};
+
+type SongsSearchResponse = {
+  total: number;
+  items: SongSearchItem[];
+};
 
 export const metadata = {
   title: "Τραγούδια | Repertorio Next",
-  description: "Λίστα τραγουδιών από το νέο NestJS API (PostgreSQL).",
+  description: "Λίστα τραγουδιών από το νέο NestJS API (PostgreSQL / Elasticsearch).",
 };
 
-export default async function SongsPage() {
-  // Παίρνουμε τα πρώτα 50 τραγούδια από το NestJS API
-  const songs = await fetchJson<Song[]>("/songs?take=50&skip=0");
+type SongsPageProps = {
+  searchParams?: {
+    q?: string;
+    search_term?: string;
+    skip?: string;
+    take?: string;
+  };
+};
+
+export default async function SongsPage({ searchParams }: SongsPageProps) {
+  const take = Number(searchParams?.take ?? "50");
+  const skip = Number(searchParams?.skip ?? "0");
+
+  // Υποστήριξη και q και search_term από το URL
+  const q = (searchParams?.q || searchParams?.search_term || "").trim();
+
+  // Χτίζουμε τα query params για το Nest API
+  const params = new URLSearchParams();
+  params.set("take", String(take));
+  params.set("skip", String(skip));
+  if (q) {
+    params.set("q", q);
+  }
+
+  // Καλούμε το NestJS API: /api/v1/songs/search
+  const data = await fetchJson<SongsSearchResponse>(
+    "/songs/search?" + params.toString()
+  );
+
+  const songs = data.items;
 
   return (
-    <main
+    <section
       style={{
-        maxWidth: "960px",
-        margin: "40px auto",
-        padding: "0 16px",
-        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        padding: "24px 16px",
+        maxWidth: 1200,
+        margin: "0 auto",
       }}
     >
-      <h1 style={{ fontSize: "28px", marginBottom: "10px" }}>Τραγούδια</h1>
-
-      <p style={{ marginBottom: "20px", opacity: 0.8 }}>
-        Τα δεδομένα προέρχονται ζωντανά από το NestJS API (PostgreSQL).
-      </p>
+      <header style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: "1.8rem", fontWeight: 700, marginBottom: 8 }}>
+          Τραγούδια
+        </h1>
+        <p style={{ opacity: 0.8 }}>
+          Τα δεδομένα προέρχονται ζωντανά από το νέο NestJS API (PostgreSQL / Elasticsearch).
+        </p>
+        {q && (
+          <p style={{ marginTop: 8 }}>
+            Φράση αναζήτησης: <strong>{q}</strong> (σύνολο: {data.total})
+          </p>
+        )}
+      </header>
 
       {songs.length === 0 ? (
         <p>Δεν βρέθηκαν τραγούδια.</p>
       ) : (
-        <table
+        <div
           style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontSize: "14px",
+            borderRadius: 8,
+            border: "1px solid #e0e0e0",
+            overflow: "hidden",
+            backgroundColor: "#111",
           }}
         >
-          <thead>
-            <tr>
-              <th
-                style={{
-                  textAlign: "left",
-                  borderBottom: "1px solid #ddd",
-                  padding: "8px",
-                }}
-              >
-                Τίτλος
-              </th>
-              <th
-                style={{
-                  textAlign: "left",
-                  borderBottom: "1px solid #ddd",
-                  padding: "8px",
-                }}
-              >
-                Κατηγορία
-              </th>
-              <th
-                style={{
-                  textAlign: "left",
-                  borderBottom: "1px solid #ddd",
-                  padding: "8px",
-                  width: "40%",
-                }}
-              >
-                Πρώτος στίχος
-              </th>
-              <th
-                style={{
-                  textAlign: "right",
-                  borderBottom: "1px solid #ddd",
-                  padding: "8px",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Προβολές
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {songs.map((song) => (
-              <tr key={song.id}>
-                <td
-                  style={{
-                    borderBottom: "1px solid #f0f0f0",
-                    padding: "8px",
-                    whiteSpace: "nowrap",
-                  }}
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: "0.95rem",
+            }}
+          >
+            <thead
+              style={{
+                backgroundColor: "#222",
+                textAlign: "left",
+                borderBottom: "1px solid #444",
+              }}
+            >
+              <tr>
+                <th style={{ padding: "10px 12px" }}>Τίτλος</th>
+                <th style={{ padding: "10px 12px" }}>Πρώτοι στίχοι</th>
+                <th style={{ padding: "10px 12px", textAlign: "right" }}>
+                  Βαθμολογία (score)
+                </th>
+                <th style={{ padding: "10px 12px" }}>Κατάσταση</th>
+                <th style={{ padding: "10px 12px" }}>Ενέργειες</th>
+              </tr>
+            </thead>
+            <tbody>
+              {songs.map((song) => (
+                <tr
+                  key={song.song_id}
+                  style={{ borderBottom: "1px solid #333" }}
                 >
-                  <Link
-                    href={`/songs/${song.id}`}
+                  <td style={{ padding: "8px 12px", fontWeight: 600 }}>
+                    <Link
+                      href={`/songs/${song.song_id}`}
+                      style={{ color: "#4dabff", textDecoration: "none" }}
+                    >
+                      {song.title}
+                    </Link>
+                  </td>
+                  <td
                     style={{
-                      color: "#0070f3",
-                      textDecoration: "none",
+                      padding: "8px 12px",
+                      maxWidth: 380,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                    title={song.firstLyrics || song.lyrics || ""}
+                  >
+                    {song.firstLyrics || song.lyrics || "—"}
+                  </td>
+                  <td
+                    style={{
+                      padding: "8px 12px",
+                      textAlign: "right",
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    {song.title}
-                  </Link>
-                </td>
-                <td
-                  style={{
-                    borderBottom: "1px solid #f0f0f0",
-                    padding: "8px",
-                    fontSize: "12px",
-                    color: "#555",
-                  }}
-                >
-                  {song.category ? song.category.title : "—"}
-                </td>
-                <td
-                  style={{
-                    borderBottom: "1px solid #f0f0f0",
-                    padding: "8px",
-                    color: "#555",
-                    maxWidth: "0",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                  title={song.firstLyrics ?? undefined}
-                >
-                  {song.firstLyrics ?? "—"}
-                </td>
-                <td
-                  style={{
-                    borderBottom: "1px solid #f0f0f0",
-                    padding: "8px",
-                    textAlign: "right",
-                    fontVariantNumeric: "tabular-nums",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {song.views.toLocaleString("el-GR")}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    {song.score?.toFixed(2) ?? "—"}
+                  </td>
+                  <td style={{ padding: "8px 12px" }}>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        fontSize: "0.78rem",
+                        border: "1px solid #555",
+                        backgroundColor: "#222",
+                      }}
+                    >
+                      {song.status}
+                    </span>
+                  </td>
+                  <td style={{ padding: "8px 12px" }}>
+                    <Link
+                      href={`/songs/${song.song_id}`}
+                      style={{
+                        display: "inline-block",
+                        padding: "4px 10px",
+                        borderRadius: 999,
+                        border: "1px solid #4dabff",
+                        fontSize: "0.82rem",
+                        textDecoration: "none",
+                        color: "#4dabff",
+                      }}
+                    >
+                      Προβολή
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </main>
+
+      <p style={{ marginTop: 16, fontSize: "0.85rem", opacity: 0.7 }}>
+        Αυτή τη στιγμή εμφανίζονται τα πρώτα {take} τραγούδια (skip {skip}).
+      </p>
+    </section>
   );
 }

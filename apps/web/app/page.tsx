@@ -1,40 +1,31 @@
-// app/songs/page.tsx
-import Link from "next/link";
+// app/page.tsx
 
-export const metadata = {
-  title: "Τραγούδια | Repertorio Next",
-  description: "Απλή δοκιμαστική σελίδα λίστας τραγουδιών.",
-};
-
-export default function SongsPage() {
+export default function HomePage() {
   return (
-    <main
+    <section
       style={{
-        maxWidth: "900px",
-        margin: "40px auto",
-        padding: "0 16px",
-        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        padding: "40px 20px",
       }}
     >
-      <h1 style={{ fontSize: "28px", marginBottom: "16px" }}>Τραγούδια</h1>
+      <h1
+        style={{
+          fontSize: "1.2rem",
+          fontWeight: 700,
+          margin: 0,
+          marginBottom: "10px",
+        }}
+      >
+        Καλώς ήρθατε στο Repertorio.net
+      </h1>
 
-      <p style={{ marginBottom: "16px" }}>
-        Αυτή είναι μια δοκιμαστική σελίδα <strong>/songs</strong> στο
-        Repertorio Next. Απλώς ελέγχουμε ότι το routing με{" "}
-        <code>basePath =&quot;/nextgen&quot;</code> δουλεύει σωστά.
+      <p
+        style={{
+          fontSize: "0,6rem",
+          margin: 0,
+        }}
+      >
+        Πλατφόρμα για επαγγελματίες &amp; ερασιτέχνες μουσικούς.
       </p>
-
-      <p style={{ marginBottom: "24px" }}>
-        <Link href="/" style={{ marginRight: "12px" }}>
-          ← Πίσω στην αρχική
-        </Link>
-      </p>
-
-      <ul>
-        <li>Τραγούδι 1 (placeholder)</li>
-        <li>Τραγούδι 2 (placeholder)</li>
-        <li>Τραγούδι 3 (placeholder)</li>
-      </ul>
-    </main>
+    </section>
   );
 }
