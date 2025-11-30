@@ -1,5 +1,6 @@
 // app/layout.tsx
 import "./globals.css";
+import "./score-player.css";
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
 
