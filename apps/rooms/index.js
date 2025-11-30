@@ -170,31 +170,51 @@ app.get("/status", (req, res) => {
 
 
 // Manage the Node process via pm2 (restricted to a secret key)
+// Manage the Rooms server process via systemd (restricted to a secret key)
 app.post("/manage-server", (req, res) => {
   const { key, action } = req.body || {};
   const SECRET_KEY = "RepertorioSecretRestartKey";
+
   if (key !== SECRET_KEY) {
-    return res.status(403).json({ success: false, message: "Μη εξουσιοδοτημένο αίτημα." });
+    return res
+      .status(403)
+      .json({ success: false, message: "Μη εξουσιοδοτημένο αίτημα." });
   }
+
   let command;
-  if (action === "restart") command = "pm2 restart rooms-ws";
-  else if (action === "stop") command = "pm2 stop rooms-ws";
-  else if (action === "start") command = "pm2 start rooms-ws";
-  else {
-    return res.status(400).json({ success: false, message: "Μη έγκυρη ενέργεια." });
+  if (action === "restart") {
+    command = "systemctl restart repertorio-rooms";
+  } else if (action === "stop") {
+    command = "systemctl stop repertorio-rooms";
+  } else if (action === "start") {
+    command = "systemctl start repertorio-rooms";
+  } else {
+    return res
+      .status(400)
+      .json({ success: false, message: "Μη έγκυρη ενέργεια." });
   }
-  // Immediately respond; run pm2 command asynchronously
-  res.json({ success: true, message: `Η ενέργεια '${action}' ξεκίνησε...` });
+
+  // Απαντάμε αμέσως στον client
+  res.json({
+    success: true,
+    message: `Η ενέργεια '${action}' ξεκίνησε...`,
+  });
+
+  // Τρέχουμε την εντολή systemctl ασύγχρονα
   setTimeout(() => {
     exec(command, (err, stdout, stderr) => {
       if (err) {
-        console.error(`PM2 ${action} error:`, err);
+        console.error(`systemctl ${action} error:`, err);
       } else {
-        console.log(`PM2 ${action} επιτυχές:`, stdout || stderr);
+        console.log(
+          `systemctl ${action} επιτυχές:`,
+          stdout || stderr || ""
+        );
       }
     });
   }, 1000);
 });
+
 
 // -----------------------------------------------------------------------------
 // HTTP & WebSocket server setup

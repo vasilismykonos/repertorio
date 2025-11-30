@@ -129,6 +129,12 @@ export class SongsService {
       chords: song.chords,
       status: song.status,
 
+      // Expose the optional scoreFile (path to MusicXML/MXL) so the
+      // client knows if there is a score to display. Without this
+      // property the Next.js frontend cannot determine whether to
+      // enable the score button for a song.
+      scoreFile: song.scoreFile,
+
       categoryTitle: song.category ? song.category.title : null,
       composerName,
       lyricistName,

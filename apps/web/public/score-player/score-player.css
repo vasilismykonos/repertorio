@@ -1,0 +1,465 @@
+/* --- Repertorio Score Player UI (CSS) --- */
+
+/* Wrapper */
+.score-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-family: sans-serif;
+  margin: 10px 0;
+}
+
+/* Controls row */
+.sp-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px; /* σχεδόν κολλημένα */
+  flex-wrap: wrap; /* να σπάνε σε δεύτερη γραμμή όταν δεν χωράνε */
+}
+
+/* Πάνω σειρά: Transport + Προβολή + Εκτύπωση */
+.sp-controls-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap; /* κι εδώ να σπάει αν δεν χωράει */
+}
+
+/* Buttons (βάση) */
+.sp-controls button,
+.sp-controls .sp-btn {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  background: #1e1e1e;
+  color: #fff;
+  border: 1px solid #333;
+  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, transform 0.06s, box-shadow .2s;
+  margin: 1px;
+}
+.sp-controls button:hover { background: #2e2e2e; }
+.sp-controls button:active { transform: translateY(1px) scale(0.98); }
+.sp-controls button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* --- Transport: ενεργό κουμπί (Play/Pause/Stop) να ξεχωρίζει, όπως στα View buttons --- */
+.sp-controls .sp-btn.sp-play.is-active,
+.sp-controls .sp-btn.sp-pause.is-active,
+.sp-controls .sp-btn.sp-stop.is-active,
+.sp-controls .sp-btn.sp-play[aria-pressed="true"],
+.sp-controls .sp-btn.sp-pause[aria-pressed="true"],
+.sp-controls .sp-btn.sp-stop[aria-pressed="true"] {
+  background: #444 !important;
+  border-color: #5c5c5c !important;
+  color: #fff !important;
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px rgba(0,188,212,.45) inset,
+    0 1px 0 rgba(255,255,255,.05);
+}
+
+/* Transpose value */
+.sp-transpose-val {
+  width: 26px;
+  text-align: center;
+  font-weight: bold;
+  color: #ffffff;
+  margin-left: 2px;
+}
+
+/* Tempo input + label */
+.sp-tempo-wrap {
+  display: inline-flex;
+  align-items: center;
+   margin-left: 10px;
+  gap: 4px;
+}
+
+.sp-tempo {
+  width: 60px;
+  height: 28px;
+  padding: 2px 4px;
+  font-size: 13px;
+  text-align: center;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #111;
+  color: #fff;
+}
+
+.sp-tempo-val {
+  font-size: 13px;
+  color: #ffffff;
+  margin-left: 4px;
+}
+/* Κουτί για να φιλοξενεί input + ένδειξη bpm μέσα στο textbox */
+.sp-tempo-box {
+  position: relative;
+  display: inline-block;
+}
+
+/* Περισσότερο padding δεξιά για να χωράει η λέξη "bpm" */
+.sp-tempo {
+  padding-right: 28px;
+}
+
+/* Η ένδειξη "bpm" μέσα στο κουτί */
+.sp-tempo-unit {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: #ffffff;      /* άσπρο */
+  opacity: 0.85;       /* λίγο πιο ήπιο */
+  pointer-events: none;
+}
+
+
+/* Όταν το textbox έχει focus, κρύψε το "bpm" για να μη μπερδεύει το βλέμμα */
+.sp-tempo:focus + .sp-tempo-unit {
+  opacity: 0;
+}
+
+/* Zoom input + label */
+.sp-zoom-wrap {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 10px;
+  gap: 4px;
+}
+
+/* Κουτί για input + ένδειξη % μέσα στο textbox */
+.sp-zoom-box {
+  position: relative;
+  display: inline-block;
+}
+
+.sp-zoom {
+  width: 60px;
+  height: 28px;
+  padding: 2px 4px;
+  padding-right: 22px;       /* χώρο για το % */
+  font-size: 13px;
+  text-align: center;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #111;
+  color: #fff;
+}
+
+/* Η ένδειξη % μέσα στο κουτί */
+.sp-zoom-suffix {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: #ffffff;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* Όταν το textbox έχει focus, κρύψε το % όπως και στο tempo */
+.sp-zoom:focus + .sp-zoom-suffix {
+  opacity: 0;
+}
+
+/* Score renderer box (default) */
+.sp-renderer {
+  min-width: 0;                 /* ✅ για να μη “σκάει” το layout */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  width: 90%;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 85vh;
+  background: #ffffff!important;
+  border: 1px solid #ddd;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+/* Σελίδες – λίγο κενό μεταξύ */
+.sp-page { margin-bottom: 16px; }
+
+/* Icon font για απλά σύμβολα */
+.sp-icon {
+  font-family: "Lucida Console", monospace;
+  font-weight: bold;
+  pointer-events: none;
+}
+
+/* -------- Note highlight -------- */
+.note-highlight,
+.note-highlight * {
+  fill: #f32121 !important;
+  stroke: #2196f3 !important;
+  transition: fill 0.2s, stroke 0.2s;
+}
+
+/* ΜΗΝ κλειδώνεις stroke-width στο CSS — ρυθμίζεται με JS */
+.stem, [class*="stem"]{
+  stroke: #000000 !important;
+  vector-effect: non-scaling-stroke;
+}
+rect.stem, g.stem rect {
+  fill: #000000 !important;
+  paint-order: stroke fill;
+}
+
+/* Κάνει κάθε SVG σελίδας πιο στενή ώστε να κεντράρει όμορφα */
+.score-player .sp-page svg {
+  display: block;
+  width: 96% !important;
+  height: auto !important;
+  margin: 0 auto;
+  touch-action: auto; /* επιστρέφουμε σε default συμπεριφορά */
+}
+
+/* Επιστροφή σε default touch handling για scroll/zoom του browser */
+.score-player .sp-renderer,
+.score-player .sp-renderer * {
+  touch-action: auto;
+  -ms-touch-action: auto;
+}
+
+/* --- View modes --- */
+/* Οριζόντια */
+.score-player.sp-mode-horizontal .sp-renderer {
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 62vh;
+}
+.score-player.sp-mode-horizontal .sp-page {
+  display: inline-block;
+  margin: 0 16px 0 0;
+  vertical-align: top;
+}
+.score-player.sp-mode-horizontal .sp-page svg {
+  width: auto !important;
+  height: 58vh !important; /* ~4vh λιγότερο από το container */
+}
+
+/* Σελίδες */
+.score-player.sp-mode-paged .sp-renderer {
+  white-space: normal;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.score-player.sp-mode-paged .sp-page {
+  display: block;
+  margin: 0 0 16px 0;
+}
+.score-player.sp-mode-paged .sp-page svg {
+  display: block;
+  width: 96% !important;
+  height: auto !important;
+  margin: 0 auto;
+}
+
+/* --- View Toggle UI (2η σειρά) --- */
+.sp-controls .sp-btn { /* βάση: auto width για όλα */
+  width: auto;
+  padding: 0 10px;
+}
+/* Κράτα τα 36px ΜΟΝΟ για icon buttons */
+.sp-controls .sp-play,
+.sp-controls .sp-pause,
+.sp-controls .sp-stop,
+.sp-controls .sp-transpose-up,
+.sp-controls .sp-transpose-down,
+.sp-controls .sp-zoom-in,
+.sp-controls .sp-zoom-out {
+  width: 36px;
+  padding: 0;
+}
+
+.sp-controls-row2 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* Γραμμή με Play / Pause / Stop δίπλα στο Οριζόντια / Σελίδες */
+.sp-transport-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-right: 8px;  /* λίγο κενό πριν από Οριζόντια / Σελίδες */
+}
+
+.sp-view-label { font-size: 14px; margin-right: 2px; white-space: nowrap; }
+.sp-view-toggle { display: inline-flex; gap: 4px; }
+
+/* Ενεργό view κουμπί */
+.sp-controls .sp-view-toggle .sp-btn[aria-pressed="true"],
+.sp-controls .sp-view-toggle .sp-btn.is-active {
+  background: #444 !important;
+  border-color: #5c5c5c !important;
+  color: #fff !important;
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px rgba(0,188,212,.45) inset,
+    0 1px 0 rgba(255,255,255,.05);
+}
+/* Segmented look */
+.sp-view-toggle .sp-btn:first-child {
+  border-top-right-radius: 0; border-bottom-right-radius: 0;
+}
+.sp-view-toggle .sp-btn:last-child {
+  border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px;
+}
+
+/* Σε “Σελίδες”: δείξε τα native Verovio/OSMD measure numbers */
+.score-player.sp-mode-paged .mNum,
+.score-player.sp-mode-paged text.mNum,
+.score-player.sp-mode-paged g.mNum {
+  display: inline !important;
+  visibility: visible !important;
+}
+/* και κρύψε μόνο τα overlay δικά μας */
+.score-player.sp-mode-paged .sp-mnum,
+.score-player.sp-mode-paged .sp-measure-num,
+.score-player.sp-mode-paged [data-sp-mnum] {
+  display: none !important;
+}
+
+/* Mobile tweaks */
+@media (max-width: 768px) {
+  .score-player .sp-page svg { width: 94% !important; }
+}
+@media (max-width: 600px) {
+  .sp-controls .sp-btn { height: 34px; font-size: 13px; }
+}
+
+/* Optional dark mode */
+@media (prefers-color-scheme: dark) {
+  .sp-renderer {
+    background: #111;
+    border-color: #2a2a2a;
+  }
+}
+
+/* Λίγο πιο αχνό για να ξεχωρίζει από τον τίτλο, αλλά να “δένει” */
+.sp-tonality-in-title {
+  fill: #111;
+  opacity: 0.9;
+}
+
+/* === Tonality badge (έξω από το SVG) === */
+.sp-key-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 8px;
+  border:1px solid #333;
+  border-radius:6px;
+  background:#1e1e1e;
+  color:#fff;
+  font-size:14px;
+  line-height:1;
+  min-height:28px;
+  white-space:nowrap;
+}
+.sp-key-badge::before{
+  font-size:14px;
+  opacity:.9;
+}
+
+/* OSMD cursor – πιο λεπτός & κυανός (fallback, το βασικό γίνεται από JS) */
+.score-player svg [id*="cursor"],
+.score-player svg [class*="cursor"] {
+  fill: rgba(0,188,212,0.35) !important;
+}
+/* Αφαίρεση spin buttons (Chrome, Edge, Safari, Opera) */
+.sp-tempo::-webkit-outer-spin-button,
+.sp-tempo::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Αφαίρεση spin buttons (Firefox) */
+.sp-tempo[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+.sp-btn.sp-print {
+    width: 36px;
+    font-size: 20px;
+}
+@media (max-width: 600px) {
+
+  /* Το wrapper να απλώνεται σε όλο το πλάτος */
+  .score-player {
+    align-items: stretch;
+  }
+
+  /* Και οι δύο σειρές controls πιο «μαζεμένες» */
+  .sp-controls,
+  .sp-controls-view {
+    justify-content: center;
+    gap: 4px;
+  }
+
+  /* Μέσα στην πάνω σειρά, αν χρειαστεί, σπάνε κι αυτά */
+  .sp-transport-top,
+  .sp-view-toggle {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* Ελαφρώς μικρότερα κουμπιά για κινητά */
+  .sp-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  /* Λίγο πιο στενά input για να χωράνε */
+  .sp-tempo,
+  .sp-zoom {
+    width: 52px;
+  }
+}
+/* Δικός μας δείκτης πάνω στην παρτιτούρα */
+svg .sp-playhead {
+  stroke: #00bcd4;
+  stroke-width: 2px;
+  opacity: 0.9;
+}
+/* ===========================
+   PRINT FIX – Replace title
+   =========================== */
+@media print {
+  @page {
+    /* Chrome/Edge print title override */
+    margin: 15mm;
+    size: auto;
+  }
+
+  /* Κρύβουμε τον τίτλο του browser */
+  body::before {
+    content: "Repertorio.net";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    font-size: 14pt;
+    font-weight: bold;
+    padding-top: 5mm;
+  }
+}

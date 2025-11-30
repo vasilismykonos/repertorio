@@ -25,6 +25,9 @@ export class SongsController {
         originalKey: true,
         chords: true,
         status: true,
+        // Include the scoreFile field so the client can determine if a
+        // MusicXML/MXL exists for this song.
+        scoreFile: true,
       },
     });
 

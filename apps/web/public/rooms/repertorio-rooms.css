@@ -1,0 +1,532 @@
+/* =======================
+   Βασικό wrapper / τίτλος
+   ======================= */
+
+#rooms-wrapper {
+  max-width: 850px;
+  margin: 0 auto;
+  color: #eee;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Roboto", sans-serif;
+}
+
+#rooms-wrapper h3 {
+  margin-bottom: 10px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* =======================
+   Server status / container
+   ======================= */
+
+#rooms-container {
+  margin-top: 10px;
+}
+
+#server-status-card {
+  background: #111;
+  border-radius: 10px;
+  padding: 10px 12px;
+  border: 1px solid #2c2c2c;
+  margin-bottom: 15px;
+}
+
+#server-status-card .meta {
+  font-size: 13px;
+  color: #ccc;
+  margin: 3px 0;
+}
+
+.ok {
+  color: #2ecc71;
+  font-weight: 600;
+}
+
+.warn {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+/* =======================
+   Topbar: search + "Νέο Room"
+   ======================= */
+
+#rooms-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center; /* κατακόρυφο κέντρο όλων των παιδιών */
+  gap: 12px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: #111;
+  border-radius: 10px;
+  border: 1px solid #272727;
+}
+
+#roomSearch {
+  width: 250px;            /* ΝΕΟ – καθορισμένο πλάτος */
+  height: 35px;
+  padding: 0 10px;
+  line-height: 35px;
+  border-radius: 20px;
+  border: 1px solid #333;
+  background: #ffffff;
+  color: #111;
+  outline: none;
+  font-weight: 500;
+  font-size: 14px;
+  box-sizing: border-box;
+  margin: 0;
+  display: block;
+}
+
+
+#roomSearch::placeholder {
+  color: #777;
+}
+
+.topbar-create-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: #2980b9;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.topbar-create-btn:hover {
+  background: #3498db;
+}
+
+@media (max-width: 480px) {
+  #rooms-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #roomSearch {
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  .topbar-create-btn {
+    align-self: flex-end;
+    width: auto;
+    padding: 8px 18px;
+  }
+}
+
+/* =======================
+   Create-box (δημιουργία room)
+   ======================= */
+
+#rooms-create-box {
+  background: #0f0f0f;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin: 20px 0 20px 0;
+  border: 1px solid #242424;
+}
+
+#rooms-create-box .rc-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #ddd;
+}
+
+/* Τα πεδία το ένα κάτω από το άλλο */
+#rooms-create-box .rc-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#rooms-create-box input.rc-input {
+  width: 170px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #333;
+  background: #050505;
+  color: #eee;
+  font-size: 13px;
+}
+
+#rooms-create-box input.rc-input::placeholder {
+  color: #777;
+}
+
+/* Το κουμπί σε δική του γραμμή */
+#rooms-create-box .rc-actions {
+  margin-top: 8px;
+  text-align: left;
+}
+
+#rooms-create-box .rc-actions .rc-btn-create {
+  padding: 6px 14px;
+  width: 150px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  background: #2980b9;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+#rooms-create-box .rc-actions .rc-btn-create:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#rooms-create-box .rc-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.rc-help-bottom {
+  margin-top: 10px;
+  margin-bottom: 10px;
+  text-align: left;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  #rooms-create-box .rc-row {
+    flex-direction: column;
+  }
+
+  #rooms-create-box .rc-actions .rc-btn-create {
+    width: 100%;
+  }
+}
+
+/* =======================
+   Λίστα rooms (cards)
+   ======================= */
+
+#rooms-list,
+#roomList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.room-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: #151515;
+  border: 1px solid #202020;
+  color: #ddd;
+}
+
+.room-row:hover {
+  background: #1d1d1d;
+}
+
+.current-room-row {
+  background: #0f3b23;
+  border-color: #1f7a3b;
+}
+
+.room-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.room-main-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.room-title {
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.room-count-badge {
+  font-size: 12px;
+  background: #333;
+  border-radius: 999px;
+  padding: 1px 8px;
+  color: #eee;
+}
+
+.room-users {
+  font-size: 12px;
+  color: #aaa;
+  margin-top: 2px;
+}
+
+.room-last-sync {
+  font-size: 12px;
+  color: #ccc;
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+.room-last-sync a {
+  color: #4aa3ff;
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.room-last-sync a:hover {
+  text-decoration: underline;
+}
+
+.room-last-sync-empty {
+  color: #666;
+}
+
+/* Λουκέτο / badge τρέχοντος room */
+
+.lock-icon {
+  color: #f1c40f;
+  margin-right: 4px;
+  font-size: 14px;
+}
+
+.current-room-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 2px 6px;
+  border-radius: 12px;
+  font-size: 11px;
+  background: #27ae60;
+  color: #fff;
+  vertical-align: middle;
+}
+
+/* Links / tags */
+
+.roomLink {
+  cursor: pointer;
+  color: #0af;
+  text-decoration: none;
+}
+
+.roomLink:hover {
+  text-decoration: underline;
+}
+
+.userTag {
+  color: #4af;
+  font-weight: 500;
+}
+
+/* Κουμπιά ενεργειών στις κάρτες */
+
+.room-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.room-action-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.connect-room-btn {
+  background: #27ae60;
+  color: #fff;
+}
+
+.connect-room-btn:hover:not([disabled]) {
+  background: #2ecc71;
+}
+
+.connect-room-btn.exit-btn {
+  background: #c0392b;
+}
+
+.connect-room-btn.exit-btn:hover {
+  background: #e74c3c;
+}
+
+.delete-room-btn {
+  background: #3b3b3b;
+  color: #fff;
+}
+
+.delete-room-btn:hover {
+  background: #555;
+}
+
+@media (max-width: 600px) {
+  .room-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .room-actions {
+    flex-direction: row;
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+}
+
+/* =======================
+   Server controls (Restart / Stop)
+   ======================= */
+
+#server-controls {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#server-controls button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+#server-controls button:first-child {
+  background: #f39c12;
+  color: #fff;
+}
+
+#server-controls button:last-child {
+  background: #c0392b;
+  color: #fff;
+}
+
+
+
+/* =======================
+   Μεγάλο modal (usersModal)
+   ======================= */
+
+#usersModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+#usersModal .modal-content {
+  background: #111;
+  border-radius: 12px;
+  padding: 16px 18px;
+  max-width: 420px;
+  width: 90%;
+  border: 1px solid #333;
+  color: #eee;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+
+#usersModal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+#usersModal .modal-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+#usersModal .modal-close {
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: #bbb;
+}
+
+#usersModal .modal-close:hover {
+  color: #fff;
+}
+
+#usersModal #modalUserList {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+#usersModal #modalLastSync {
+  font-size: 12px;
+  color: #bbb;
+} 
+/* ==============  Room Button (Header)  ============== */
+/* ==============  Room Button (Header)  ============== */
+.header-buttons .room-page-button {
+    display: inline-flex;
+    flex-direction: column;   /* default για "+ / Room" */
+    align-items: center;
+    justify-content: center;
+     background: transparent !important;   /* ❌ χωρίς φόντο */
+    border: none !important;              /* ❌ χωρίς περίγραμμα */
+    padding: 0 !important;                /* ❌ χωρίς padding */
+
+    gap: 2px;
+    color: #fff;
+    
+    border-radius: 999px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+/* Όταν ΕΧΕΙ room → αλλάζουμε μόνο το flex-direction */
+.header-buttons .room-page-button .room-inline {
+    display: inline-flex;
+    flex-direction: row;       /* ΕΙΚΟΝΙΔΙΟ + ΠΛΗΘΟΣ ΔΙΠΛΑ */
+    align-items: center;
+    gap: 4px;
+}
+
+/* Inline icon & count */
+.header-buttons .room-icon-inline {
+    font-size: 17px;
+}
+
+.header-buttons .room-count-inline {
+    font-size: 14px;
+}
+
+/* + πάνω / Room κάτω */
+.header-buttons .room-icon {
+    font-size: 18px;
+}
+.header-buttons .room-label {
+    font-size: 12px;
+}
+
+#room_button .room-label {
+    font-size: 10px !important;
+    transform: scale(0.9);
+    transform-origin: center;
+}
