@@ -2,6 +2,7 @@
 import { fetchJson } from "@/lib/api";
 import SongChordsClient from "./SongChordsClient";
 import SongInfoToggle from "./SongInfoToggle";
+import ScorePlayerClient from "./score/ScorePlayerClient";
 
 type SongVersion = {
   id: number;
@@ -177,6 +178,11 @@ export default async function SongPage({ params }: SongPageProps) {
     youtubeSearchQuery
   )}&app=revanced`;
 
+  // Ρύθμισε εδώ τη διαδρομή του αρχείου παρτιτούρας
+  // ανάλογα με το πώς τα έχεις ονομάσει στο /public/scores ή στο API.
+  // Π.χ. 294.mxl -> /scores/294.mxl
+  const scoreFileUrl = `/scores/${song.id}.mxl`;
+
   return (
     <section
       style={{
@@ -194,20 +200,24 @@ export default async function SongPage({ params }: SongPageProps) {
           marginBottom: 16,
         }}
       >
-        {/* Παρτιτούρα – αργότερα θα συνδεθεί με MXL player */}
-        <button
-          type="button"
+        {/* Προαιρετικό: link για full-screen παρτιτούρα, π.χ. /songs/[id]/score */}
+        <a
+          href={`/songs/${song.id}/score`}
+          target="_blank"
+          rel="noreferrer"
           style={{
             padding: "6px 10px",
             borderRadius: 6,
             border: "1px solid #333",
             background: "#111",
             color: "#fff",
-            cursor: "pointer",
+            textDecoration: "none",
+            fontWeight: 600,
           }}
+          title="Προβολή παρτιτούρας σε νέο παράθυρο"
         >
           📄 Παρτιτούρα
-        </button>
+        </a>
 
         {/* YouTube button όπως στο παλιό youtubetbutton */}
         <a
@@ -280,6 +290,22 @@ export default async function SongPage({ params }: SongPageProps) {
         >
           {finalLyrics}
         </pre>
+      </section>
+
+      {/* ===== Παρτιτούρα ΚΑΤΩ από τους στίχους, ΜΕ embed του ScorePlayerClient ===== */}
+      <section id="score-section" style={{ marginTop: "32px" }}>
+        <h2
+          style={{
+            fontSize: "1.2rem",
+            fontWeight: 600,
+            marginBottom: "12px",
+          }}
+        >
+          Παρτιτούρα
+        </h2>
+
+        {/* Εδώ ΔΕΝ χρησιμοποιούμε iframe, μόνο τον client player */}
+        <ScorePlayerClient fileUrl={scoreFileUrl} title={song.title} />
       </section>
 
       {/* Schema.org JSON-LD */}

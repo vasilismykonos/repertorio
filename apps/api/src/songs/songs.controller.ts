@@ -1,40 +1,21 @@
 // src/songs/songs.controller.ts
-import {
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  NotFoundException,
-} from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
+import { Controller, Get, Param, ParseIntPipe } from "@nestjs/common";
+import { SongsService } from "./songs.service";
 
 @Controller("songs")
 export class SongsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly songsService: SongsService) {}
 
+  /**
+   * Επιστρέφει ένα τραγούδι σε μορφή DTO, συμβατή
+   * με το SongDetail του Next (SongPage.tsx).
+   */
   @Get(":id")
   async getSongById(@Param("id", ParseIntPipe) id: number) {
-    const song = await this.prisma.song.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        title: true,
-        firstLyrics: true,
-        lyrics: true,
-        characteristics: true,
-        originalKey: true,
-        chords: true,
-        status: true,
-        // Include the scoreFile field so the client can determine if a
-        // MusicXML/MXL exists for this song.
-        scoreFile: true,
-      },
-    });
-
-    if (!song) {
-      throw new NotFoundException(`Song with id ${id} not found`);
-    }
-
-    return song;
+    // Δεν χρησιμοποιούμε πλέον απευθείας Prisma,
+    // αλλά το SongsService που:
+    // - κάνει include category, rythm, versions, artists
+    // - υπολογίζει categoryTitle, rythmTitle, composerName, lyricistName, versions κ.λπ.
+    return this.songsService.findOne(id);
   }
 }

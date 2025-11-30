@@ -1,7 +1,5 @@
-// app/songs/[id]/score/ScorePlayerClient.tsx
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
 import Script from "next/script";
 
 type Props = {
@@ -9,197 +7,190 @@ type Props = {
   title: string;
 };
 
-const ScorePlayerClient: React.FC<Props> = ({ fileUrl, title }) => {
-  const rendererRef = useRef<HTMLDivElement | null>(null);
-  const osmdInstanceRef = useRef<any>(null);
-
-  const [osmdReady, setOsmdReady] = useState(false);
-  const [jszipReady, setJszipReady] = useState(false);
-
-  const handleOsmdLoaded = () => {
-    setOsmdReady(true);
-  };
-
-  const handleJszipLoaded = () => {
-    setJszipReady(true);
-  };
-
-  useEffect(() => {
-    if (!osmdReady || !jszipReady) return;
-    if (typeof window === "undefined") return;
-    if (!rendererRef.current) return;
-
-    const anyWin = window as any;
-    const OSMDClass =
-      anyWin?.opensheetmusicdisplay?.OpenSheetMusicDisplay ??
-      anyWin?.OpenSheetMusicDisplay;
-    const JSZipClass = anyWin?.JSZip;
-
-    if (!OSMDClass) {
-      console.error("OSMD class not found on window");
-      return;
-    }
-
-    if (!JSZipClass) {
-      console.error("JSZip not found on window");
-      return;
-    }
-
-    async function loadAndRender() {
-      try {
-        // καθάρισε παλιό instance αν υπάρχει
-        if (osmdInstanceRef.current) {
-          try {
-            osmdInstanceRef.current.clear();
-          } catch {
-            // ignore
-          }
-        }
-
-        const osmd = new OSMDClass(rendererRef.current, {
-          autoResize: true,
-          drawTitle: false,
-          drawSubtitle: false,
-          drawComposer: false,
-          drawLyricist: false,
-          drawingParameters: "compact",
-        });
-
-        osmdInstanceRef.current = osmd;
-
-        const lower = fileUrl.toLowerCase();
-
-        // Αν είναι ήδη XML, φόρτωσέ το απευθείας
-        if (lower.endsWith(".xml") || lower.endsWith(".musicxml")) {
-          await osmd.load(fileUrl);
-          await osmd.render();
-          return;
-        }
-
-        // Διαφορετικά (.mxl = zip): fetch + unzip με JSZip
-        const resp = await fetch(fileUrl);
-        if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status} while fetching score file`);
-        }
-
-        const arrayBuffer = await resp.arrayBuffer();
-        const zip = await JSZipClass.loadAsync(arrayBuffer);
-
-        // Βρες το πρώτο .xml / .musicxml μέσα στο zip
-        let xmlFileName: string | null = null;
-        zip.forEach((relativePath: string) => {
-          const name = relativePath.toLowerCase();
-          if (
-            !xmlFileName &&
-            (name.endsWith(".xml") || name.endsWith(".musicxml"))
-          ) {
-            xmlFileName = relativePath;
-          }
-        });
-
-        if (!xmlFileName) {
-          throw new Error("No XML file found inside MXL archive");
-        }
-
-        const xmlFile = zip.file(xmlFileName);
-        if (!xmlFile) {
-          throw new Error("XML file entry not found (JSZip)");
-        }
-
-        const xmlString: string = await xmlFile.async("string");
-
-        await osmd.load(xmlString);
-        await osmd.render();
-      } catch (err) {
-        console.error("Error while loading/rendering score", err);
-      }
-    }
-
-    loadAndRender();
-  }, [osmdReady, jszipReady, fileUrl]);
+export default function ScorePlayerClient({ fileUrl, title }: Props) {
+  const safeFileUrl = fileUrl || "";
 
   return (
-    <>
-      {/* CSS του score-player (κουμπιά κτλ.) */}
-      <link rel="stylesheet" href="/score-player/score-player.css" />
-
-      <div
-        className="score-player"
-        data-file={fileUrl}
-        data-title={title}
-        data-transpose="0"
-        style={{
-          marginTop: 24,
-          marginBottom: 32,
-          backgroundColor: "#000",
-          padding: "12px",
-          borderRadius: 8,
-          border: "1px solid #333",
-        }}
-      >
-        <div className="sp-toolbar">
-          <div className="sp-transpose-group">
-            <button type="button" className="sp-transpose-down">
-              -
-            </button>
-            <span className="sp-transpose-val">0</span>
-            <button type="button" className="sp-transpose-up">
-              +
-            </button>
-          </div>
-
-          <div className="sp-tempo-group">
-            <label style={{ marginRight: 4 }}>Tempo:</label>
-            <input
-              type="number"
-              className="sp-tempo"
-              defaultValue={120}
-              min={40}
-              max={240}
-            />
-            <span className="sp-tempo-val" />
-          </div>
-
-          <div className="sp-playback-group">
-            <button type="button" className="sp-play" disabled>
-              ▶
-            </button>
-            <button type="button" className="sp-pause" disabled>
-              ⏸
-            </button>
-            <button type="button" className="sp-stop" disabled>
-              ⏹
-            </button>
-          </div>
-        </div>
-
+    <div className="score-player-embed">
+      {/* Wrapper του παλιού Repertorio score player */}
+      <div className="score-player-wrap">
         <div
-          className="sp-renderer"
-          ref={rendererRef}
-          style={{
-            marginTop: 16,
-            minHeight: 300,
-            backgroundColor: "#fff",
-            borderRadius: 8,
-          }}
-        />
+          className="score-player sp-mode-horizontal"
+          data-file={safeFileUrl}
+          data-title={title}
+          data-transpose="0"
+        >
+          {/* --- Κουμπιά plugin --- */}
+          <div className="sp-controls sp-controls-view">
+            <div className="sp-transport-top">
+              <button type="button" className="sp-btn sp-play" title="Play">
+                ▶
+              </button>
+              <button type="button" className="sp-btn sp-pause" title="Pause">
+                ⏸
+              </button>
+              <button type="button" className="sp-btn sp-stop" title="Stop">
+                ⏹
+              </button>
+            </div>
+
+            <div
+              className="sp-view-toggle"
+              role="group"
+              aria-label="Προβολή παρτιτούρας"
+            >
+              <button
+                type="button"
+                className="sp-btn sp-view-h"
+                aria-pressed={true}
+                title="Οριζόντια προβολή"
+              >
+                Γραμμή
+              </button>
+              <button
+                type="button"
+                className="sp-btn sp-view-p"
+                aria-pressed={false}
+                title="Προβολή σε σελίδες"
+              >
+                Σελίδες
+              </button>
+            </div>
+          </div>
+
+          <div className="sp-controls sp-controls-main">
+            {/* Transpose */}
+            <div className="sp-transpose-wrap">
+              <span style={{ marginRight: 4 }}>Μεταφορά:</span>
+              <button
+                type="button"
+                className="sp-btn sp-transpose-down"
+                title="Μεταφορά -1"
+              >
+                −
+              </button>
+              <span className="sp-transpose-val">0</span>
+              <button
+                type="button"
+                className="sp-btn sp-transpose-up"
+                title="Μεταφορά +1"
+              >
+                +
+              </button>
+            </div>
+
+            {/* Tempo */}
+            <div className="sp-tempo-wrap">
+              <span style={{ marginLeft: 12, marginRight: 4 }}>Tempo:</span>
+              <button
+                type="button"
+                className="sp-btn sp-tempo-dec"
+                title="Πιο αργά"
+              >
+                −
+              </button>
+              <input
+                type="number"
+                className="sp-tempo"
+                defaultValue={120}
+                min={30}
+                max={300}
+                step={1}
+                style={{ width: 60 }}
+              />
+              <button
+                type="button"
+                className="sp-btn sp-tempo-inc"
+                title="Πιο γρήγορα"
+              >
+                +
+              </button>
+              <span className="sp-tempo-val">120 BPM</span>
+            </div>
+
+            {/* Zoom */}
+            <div className="sp-zoom-wrap">
+              <span style={{ marginLeft: 12, marginRight: 4 }}>Zoom:</span>
+              <input
+                type="number"
+                className="sp-zoom"
+                defaultValue={100}
+                min={30}
+                max={200}
+                step={10}
+                style={{ width: 60 }}
+              />
+            </div>
+
+            {/* Τονικότητα */}
+            <div
+              className="sp-tonality-wrap"
+              style={{ marginLeft: 16, display: "inline-flex", gap: 4 }}
+            >
+              <span className="sp-tonality-label">Τονικότητα:</span>
+              <span className="sp-tonality">—</span>
+            </div>
+
+            {/* Προαιρετικό κουμπί εκτύπωσης, αν το χρησιμοποιείς */}
+            <button
+              type="button"
+              className="sp-btn sp-print"
+              title="Εκτύπωση παρτιτούρας"
+              style={{ marginLeft: 12 }}
+            >
+              🖨
+            </button>
+          </div>
+
+          {/* εδώ ζωγραφίζει ο OSMD το SVG */}
+          <div className="sp-renderer" aria-live="polite" />
+        </div>
       </div>
 
-      {/* OSMD από CDN */}
-      <Script
-        src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.9.1/build/opensheetmusicdisplay.min.js"
-        strategy="afterInteractive"
-        onLoad={handleOsmdLoaded}
-      />
+      {/* CSS του player */}
+      <link rel="stylesheet" href="/score-player/score-player.css" />
 
-      {/* JSZip για unzip των .mxl */}
+      {/* OSMD + Tone + JSZip + modules */}
+      <Script
+        src="/opensheetmusicdisplay.min.js"
+        strategy="afterInteractive"
+      />
+      <Script
+        src="https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.js"
+        strategy="afterInteractive"
+      />
       <Script
         src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
         strategy="afterInteractive"
-        onLoad={handleJszipLoaded}
       />
-    </>
-  );
-};
+      <Script src="/score-player/sp-constants.js" strategy="afterInteractive" />
+      <Script src="/score-player/sp-utils.js" strategy="afterInteractive" />
+      <Script src="/score-player/score-visual.js" strategy="afterInteractive" />
+      <Script
+        src="/score-player/score-analysis.js"
+        strategy="afterInteractive"
+      />
+      <Script
+        src="/score-player/score-transport.js"
+        strategy="afterInteractive"
+      />
+      <Script src="/score-player/score-audio.js" strategy="afterInteractive" />
+      <Script src="/score-player/score-player.js" strategy="afterInteractive" />
 
-export default ScorePlayerClient;
+      {/* Αρχικοποίηση plugin (ξύπνημα μετά το φόρτωμα των scripts) */}
+      <Script id="score-player-init" strategy="afterInteractive">
+        {`
+          function tryInit() {
+            if (!window.RepScore || !window.RepScore.initAllScores) return false;
+            window.RepScore.initAllScores();
+            return true;
+          }
+          // Λίγα retries για σιγουριά
+          setTimeout(tryInit, 400);
+          setTimeout(tryInit, 1200);
+          setTimeout(tryInit, 2500);
+        `}
+      </Script>
+    </div>
+  );
+}

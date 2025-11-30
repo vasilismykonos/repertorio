@@ -52,7 +52,9 @@ export class SongsSearchService {
   /**
    * Αναζήτηση τραγουδιών:
    * - Αν δεν υπάρχει q -> απλό read από PostgreSQL (Prisma)
-   * - Αν υπάρχει q -> Elasticsearch (index: songs_next)
+   * - Αν υπάρχει q -> Elasticsearch για ranking, αλλά τα δεδομένα
+   *   (τίτλος, στίχοι, κ.λπ.) έρχονται από PostgreSQL ώστε τα IDs
+   *   να ταιριάζουν 100% με τη σελίδα τραγουδιού.
    */
   async search(params: SearchParams): Promise<SearchResult> {
     const q = (params.q || "").trim();
@@ -74,6 +76,7 @@ export class SongsSearchService {
           originalKey: true,
           chords: true,
           status: true,
+          scoreFile: true,
         },
       });
 
@@ -81,7 +84,9 @@ export class SongsSearchService {
         let chordsValue = 0;
         if (s.chords) {
           const parsed = parseInt(s.chords as any, 10);
-          if (!isNaN(parsed)) chordsValue = parsed;
+          if (!isNaN(parsed)) {
+            chordsValue = parsed;
+          }
         }
 
         return {
@@ -90,9 +95,9 @@ export class SongsSearchService {
           firstLyrics: s.firstLyrics ?? "",
           lyrics: s.lyrics ?? "",
           characteristics: s.characteristics ?? "",
-          originalKey: (s as any).originalKey ?? "",
+          originalKey: s.originalKey ?? "",
           chords: chordsValue,
-          partiture: 0, // προς το παρόν 0 – στο μέλλον μπορείς να το γεμίσεις από DB
+          partiture: s.scoreFile ? 1 : 0,
           status: s.status ? String(s.status) : "",
           score: 0,
         };
@@ -104,9 +109,8 @@ export class SongsSearchService {
       };
     }
 
-    // 2) Με q → Elasticsearch (songs_next)
+    // 2) Με q → Elasticsearch (songs_next) αλλά δεδομένα από PostgreSQL
     try {
-      // Χρησιμοποιούμε any στο boundary για να παρακάμψουμε τα TS overload errors
       const esResp: any = await (this.es.search as any)({
         index: "songs_next",
         from: skip,
@@ -122,29 +126,84 @@ export class SongsSearchService {
         },
       });
 
+      const hits: any[] = esResp.hits?.hits ?? [];
+
       const total =
         typeof esResp.hits?.total === "number"
           ? esResp.hits.total
-          : esResp.hits?.total?.value ?? 0;
+          : esResp.hits?.total?.value ?? hits.length;
 
-      const hits = (esResp.hits?.hits ?? []) as any[];
+      // Μαζεύουμε όλα τα song_id από το ES (είναι τα παλιά Song_ID)
+      const esIds = Array.from(
+        new Set(
+          hits
+            .map((hit) => {
+              const src = (hit._source || {}) as EsSongSource;
+              return src.song_id;
+            })
+            .filter((id) => typeof id === "number" && !Number.isNaN(id))
+        )
+      ) as number[];
 
-      const items: SearchResultItem[] = hits.map((hit) => {
-        const src = (hit._source || {}) as EsSongSource;
-
-        return {
-          song_id: src.song_id,
-          title: src.Title ?? "",
-          firstLyrics: src.FirstLyrics ?? "",
-          lyrics: src.Lyrics ?? "",
-          characteristics: src.Characteristics ?? "",
-          originalKey: src.OriginalKey ?? "",
-          chords: src.Chords ?? 0,
-          partiture: src.Partiture ?? 0,
-          status: src.Status ?? "",
-          score: hit._score ?? 0,
-        };
+      // Τραβάμε από PostgreSQL τα αντίστοιχα τραγούδια με id IN (esIds)
+      const dbSongs = await this.prisma.song.findMany({
+        where: { id: { in: esIds } },
+        select: {
+          id: true,
+          title: true,
+          firstLyrics: true,
+          lyrics: true,
+          characteristics: true,
+          originalKey: true,
+          chords: true,
+          status: true,
+          scoreFile: true,
+        },
       });
+
+      const dbMap = new Map<number, (typeof dbSongs)[number]>();
+      for (const s of dbSongs) {
+        dbMap.set(s.id, s);
+      }
+
+      const items: SearchResultItem[] = [];
+
+      for (const hit of hits) {
+        const src = (hit._source || {}) as EsSongSource;
+        const esId = src.song_id;
+
+        if (typeof esId !== "number" || Number.isNaN(esId)) {
+          continue;
+        }
+
+        const dbSong = dbMap.get(esId);
+        if (!dbSong) {
+          // Αν για κάποιο λόγο δεν υπάρχει στο PostgreSQL, το παραλείπουμε
+          continue;
+        }
+
+        let chordsValue = 0;
+        if (dbSong.chords) {
+          const parsed = parseInt(dbSong.chords as any, 10);
+          if (!isNaN(parsed)) {
+            chordsValue = parsed;
+          }
+        }
+
+        items.push({
+          song_id: dbSong.id, // ΠΑΝΤΑ το ID της PostgreSQL
+          title: dbSong.title ?? src.Title ?? "",
+          firstLyrics: dbSong.firstLyrics ?? src.FirstLyrics ?? "",
+          lyrics: dbSong.lyrics ?? src.Lyrics ?? "",
+          characteristics:
+            dbSong.characteristics ?? src.Characteristics ?? "",
+          originalKey: dbSong.originalKey ?? src.OriginalKey ?? "",
+          chords: chordsValue,
+          partiture: dbSong.scoreFile ? 1 : src.Partiture ?? 0,
+          status: dbSong.status ? String(dbSong.status) : src.Status ?? "",
+          score: hit._score ?? 0,
+        });
+      }
 
       return { total, items };
     } catch (err: any) {

@@ -60,7 +60,8 @@
       viewMode: (localStorage.getItem(VIEW_KEY) === 'paged') ? 'paged' : 'horizontal',
 
       // cache
-      _xmlText: null,
+      _xmlText: null,      // για καθαρό MusicXML (text)
+      _mxlData: null,      // για binary MXL (ArrayBuffer)
       currentXmlDoc: null,
       _decidedTonality: null,
       _baseKeyInfo: null,
@@ -70,6 +71,7 @@
       _osmdRenderPatched: false
     };
   }
+
 
 
   // --------------------------- UI helpers ---------------------------
@@ -436,18 +438,53 @@
     }
   }
 
+  // Μετατροπή ArrayBuffer σε binary string (1 byte -> 1 char)
+  function arrayBufferToBinaryString(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.length;
+    const chunkSize = 0x8000; // 32K για να μην πεθαίνει η apply
+    let binary = "";
 
-  // --------------------------- OSMD renderWithOsmd ---------------------------
+    for (let i = 0; i < len; i += chunkSize) {
+      const sub = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, sub);
+    }
+    return binary;
+  }
+
+
+    // --------------------------- OSMD renderWithOsmd ---------------------------
   async function renderWithOsmd(state, horizontal) {
+    // 1. Φόρτωση αρχείου (μία φορά ανά state)
     if (!state._xmlText) {
       const res = await fetch(state.fileUrl);
-      state._xmlText = await res.text();
-      try {
-        state.currentXmlDoc = new DOMParser().parseFromString(
-          state._xmlText,
-          "application/xml"
-        );
-      } catch {}
+
+      const ct = (res.headers.get("Content-Type") || "").toLowerCase();
+      const isMxl =
+        state.fileUrl.toLowerCase().endsWith(".mxl") ||
+        ct.includes("application/vnd.recordare.musicxml") ||
+        ct.includes("application/zip") ||
+        ct.includes("mxl");
+
+      if (isMxl) {
+        // MXL (zip) → διαβάζουμε binary και το κάνουμε binary string για την OSMD
+        const buffer = await res.arrayBuffer();
+        state._xmlText = arrayBufferToBinaryString(buffer);
+
+        // ΔΕΝ προσπαθούμε να κάνουμε DOMParser εδώ, δεν είναι XML string
+        state.currentXmlDoc = null;
+      } else {
+        // Καθαρό MusicXML → text
+        state._xmlText = await res.text();
+        try {
+          state.currentXmlDoc = new DOMParser().parseFromString(
+            state._xmlText,
+            "application/xml"
+          );
+        } catch {
+          state.currentXmlDoc = null;
+        }
+      }
     }
 
     const options = {
@@ -460,6 +497,7 @@
       autoResize: true
     };
 
+    // 2. Δημιουργία OSMD ή ενημέρωση options
     if (!state.osmd) {
       try {
         const lib = w.opensheetmusicdisplay || window.opensheetmusicdisplay;
@@ -474,7 +512,7 @@
       } catch {}
     }
 
-    // Patch ΜΙΑ ΦΟΡΑ το osmd.render για log
+    // 3. Patch ΜΙΑ ΦΟΡΑ το osmd.render για log (όπως πριν)
     try {
       const osmd = state.osmd;
       if (!state._osmdRenderPatched && osmd && typeof osmd.render === "function") {
@@ -488,14 +526,7 @@
             callerHint = stack.trim();
           } catch {}
 
-          //console.log(
-          // "[OSMD render]",
-          //  "Zoom=",
-          //  this.Zoom ?? this.zoom,
-          //  "caller≈",
-          //  callerHint
-          //);
-
+          //console.log("[OSMD render]", "Zoom=", this.Zoom ?? this.zoom, "caller≈", callerHint);
           return origRender(...args);
         };
       }
@@ -503,10 +534,12 @@
       console.warn("[score-player] OSMD render patch error", e);
     }
 
+    // 4. Καθάρισμα προηγούμενου render
     try {
       state.osmd.clear();
     } catch {}
 
+    // 5. Φόρτωση δεδομένων στην OSMD (είτε MXL binary-string είτε XML string)
     try {
       await state.osmd.load(state._xmlText);
       setupOsmdTranspose(state);
@@ -523,7 +556,7 @@
       return;
     }
 
-    // Ορισμός Zoom με βάση πλάτος + mode
+    // 6. Ορισμός Zoom με βάση πλάτος + mode
     try {
       const wWrap   = state.wrap?.clientWidth     || 0;
       const wRender = state.renderEl?.clientWidth || 0;
@@ -535,39 +568,22 @@
       state.osmd.zoom = zoom;
       state.osmdZoom  = zoom;
 
-      // αρχικό sync textbox zoom (%)
       if (state.zoomInp) {
         state.zoomInp.value = String(Math.round(zoom * 100));
       }
-
-      //console.log(
-      //  "[SP zoom before render]",
-      //  "mode=",
-      //  horizontal ? "horizontal" : "paged",
-      //  "width=",
-       // effectiveWidth,
-       // "Zoom=",
-      //  zoom
-     // );
-
     } catch (e) {
       console.warn("[score-player] set zoom before render error", e);
     }
 
+    // 7. Render
     try {
-    //  console.log(
-   //     "[SP renderWithOsmd] πριν το render, horizontal=",
-    //    horizontal,
-   //     "Zoom=",
-   //     state.osmd.Zoom ?? state.osmd.zoom
-   //   );
       await state.osmd.render();
     } catch (e) {
       console.error("OSMD render error", e);
       return;
     }
 
-    // Τύλιγμα των svg σε div.sp-page
+    // 8. Τύλιγμα των svg σε div.sp-page (όπως πριν)
     try {
       const svgs = state.renderEl.querySelectorAll("svg");
       svgs.forEach((svg) => {
@@ -581,6 +597,9 @@
       });
     } catch {}
   }
+
+
+
 
   // --------------------------- Tonality badge έξω από το SVG ---------------------------
   (function (w) {
