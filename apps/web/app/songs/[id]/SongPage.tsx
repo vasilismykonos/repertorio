@@ -2,7 +2,6 @@
 import { fetchJson } from "@/lib/api";
 import SongChordsClient from "./SongChordsClient";
 import SongInfoToggle from "./SongInfoToggle";
-import Link from "next/link";
 
 type SongVersion = {
   id: number;
@@ -22,10 +21,6 @@ type SongDetail = {
   originalKey: string | null;
   chords: string | null;
   status: string | null;
-
-  // File name or path for the MusicXML/MXL score. If null there is no score
-  // available for this song. This property comes from the NestJS API.
-  scoreFile: string | null;
 
   // “εμπλουτισμένα” πεδία από το API
   categoryTitle: string | null;
@@ -199,38 +194,20 @@ export default async function SongPage({ params }: SongPageProps) {
           marginBottom: 16,
         }}
       >
-        {/* Παρτιτούρα – σύνδεση στη σελίδα score αν υπάρχει διαθέσιμη */}
-        {song.scoreFile ? (
-          <Link
-            href={`/songs/${song.id}/score`}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "1px solid #333",
-              background: "#111",
-              color: "#fff",
-              textDecoration: "none",
-              display: "inline-block",
-            }}
-            title="Προβολή παρτιτούρας"
-          >
-            📄 Παρτιτούρα
-          </Link>
-        ) : (
-          <span
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "1px solid #444",
-              background: "#222",
-              color: "#666",
-              display: "inline-block",
-            }}
-            title="Δεν υπάρχει διαθέσιμη παρτιτούρα"
-          >
-            📄 Παρτιτούρα
-          </span>
-        )}
+        {/* Παρτιτούρα – αργότερα θα συνδεθεί με MXL player */}
+        <button
+          type="button"
+          style={{
+            padding: "6px 10px",
+            borderRadius: 6,
+            border: "1px solid #333",
+            background: "#111",
+            color: "#fff",
+            cursor: "pointer",
+          }}
+        >
+          📄 Παρτιτούρα
+        </button>
 
         {/* YouTube button όπως στο παλιό youtubetbutton */}
         <a
