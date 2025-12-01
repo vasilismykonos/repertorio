@@ -6,6 +6,7 @@ import { RythmsModule } from './rythms/rythms.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ArtistsModule } from './artists/artists.module';
 import { SongsModule } from './songs/songs.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { SongsModule } from './songs/songs.module';
     CategoriesModule,
     ArtistsModule,
     SongsModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

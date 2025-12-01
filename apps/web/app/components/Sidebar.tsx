@@ -1,3 +1,4 @@
+// app/components/Sidebar.tsx
 "use client";
 
 import { useEffect } from "react";
@@ -51,13 +52,22 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
         {/* Links */}
         <nav className="mt-14 px-4 space-y-4 text-lg">
-          <Link href="/lists" className="block hover:text-[var(--repertorio-primary)]">
+          <Link
+            href="/lists"
+            className="block hover:text-[var(--repertorio-primary)]"
+          >
             📋 Λίστες
           </Link>
-          <Link href="/artists" className="block hover:text-[var(--repertorio-primary)]">
+          <Link
+            href="/artists"
+            className="block hover:text-[var(--repertorio-primary)]"
+          >
             🎵 Καλλιτέχνες
           </Link>
-          <Link href="/rooms" className="block hover:text-[var(--repertorio-primary)]">
+          <Link
+            href="/rooms"
+            className="block hover:text-[var(--repertorio-primary)]"
+          >
             🔄 Rooms
           </Link>
           <Link
@@ -66,20 +76,32 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           >
             🕒 Ιστορικό αλλαγών
           </Link>
-          <Link href="/profile" className="block hover:text-[var(--repertorio-primary)]">
-            🙍‍♂️ Προφίλ
-          </Link>
           <Link
-            href="mailto:repertorio.net@gmail.com"
+            href="/profile"
             className="block hover:text-[var(--repertorio-primary)]"
           >
-            ✉️ Επικοινωνία
+            🙍‍♂️ Προφίλ
           </Link>
 
           {/* Εγκατάσταση ως APP */}
           <div className="pt-2 border-t border-white/20 mt-4">
             <InstallAppButton />
           </div>
+
+          {/* ΝΕΟ: Χρήστες → /users */}
+          <Link
+            href="/users"
+            className="block hover:text-[var(--repertorio-primary)]"
+          >
+            👥 Χρήστες
+          </Link>
+
+          <Link
+            href="mailto:repertorio.net@gmail.com"
+            className="block hover:text-[var(--repertorio-primary)]"
+          >
+            ✉️ Επικοινωνία
+          </Link>
         </nav>
 
         {/* Footer */}

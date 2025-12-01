@@ -76,83 +76,274 @@
     // MusicXML → events
     // ===========================
     function parseMusicXML(xmlText) {
-      const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
-      const score = doc.documentElement;
-      const divisions = _num(score.querySelector('divisions')?.textContent, 480);
+      const doc = new DOMParser().parseFromString(xmlText, "application/xml");
 
+      // Αν υπάρχει parsererror, γύρνα κενά
+      if (doc.getElementsByTagName("parsererror").length) {
+        console.error("[score-audio] MusicXML parsererror");
+        return { ppq: DEFAULT_PPQ, bpm: 120, divisions: 1, events: [], onsetTicks: [] };
+      }
+
+      const score = doc.documentElement;
+
+      // Divisions (κοινό για partwise / timewise)
+      const divisions = _num(score.querySelector("divisions")?.textContent, 480);
+
+      // Βασικό BPM (θα μπορεί να αλλάζει σε measures)
       let bpm = 120;
       {
-        const snd = score.querySelector('sound[tempo]');
-        if (snd) bpm = clamp(_num(snd.getAttribute('tempo'), 120), 20, 300);
-        const pm = score.querySelector('direction metronome per-minute');
+        const snd = score.querySelector("sound[tempo]");
+        if (snd) bpm = clamp(_num(snd.getAttribute("tempo"), 120), 20, 300);
+        const pm = score.querySelector("direction metronome per-minute");
         if (!snd && pm) bpm = clamp(_num(pm.textContent, 120), 20, 300);
       }
 
-      const parts = Array.from(score.querySelectorAll('score-partwise > part, part'));
       const events = [];
 
-      parts.forEach((part, pIdx) => {
-        let curTick = 0;
-        const measures = Array.from(part.querySelectorAll('measure'));
+      // Για debug: πόσα <note> βλέπουμε ΓΕΝΙΚΑ στο MusicXML;
+      const totalNotes = doc.getElementsByTagName("note").length;
+      const rootName = score.localName || score.nodeName;
+      console.log("[score-audio] parseMusicXML root=", rootName, "total <note>=", totalNotes);
 
-        measures.forEach((m) => {
-          const snd = m.querySelector('sound[tempo]');
-          if (snd) bpm = clamp(_num(snd.getAttribute('tempo'), bpm), 20, 300);
+      // Αν δεν υπάρχουν ΚΑΘΟΛΟΥ notes, δεν έχει νόημα να συνεχίσουμε
+      if (!totalNotes) {
+        console.warn("[score-audio] Δεν βρέθηκαν <note> στο MusicXML.");
+      }
 
-          let lastChordTick = null;
+      // ====================================================
+      // 1) PARTWISE (<score-partwise>)
+      // ====================================================
+      if (rootName === "score-partwise" || score.querySelector("score-partwise")) {
+        const scorePartwise =
+          rootName === "score-partwise"
+            ? score
+            : score.querySelector("score-partwise");
 
-          for (const el of Array.from(m.children)) {
-            const name = el.localName;
+        const parts = Array.from(scorePartwise.getElementsByTagName("part"));
+        console.log("[score-audio] partwise mode, parts=", parts.length);
 
-            if (name === 'backup') {
-              curTick -= _num(el.querySelector('duration')?.textContent, 0);
-              if (curTick < 0) curTick = 0;
-            } else if (name === 'forward') {
-              curTick += _num(el.querySelector('duration')?.textContent, 0);
-            } else if (name === 'note') {
-              const isRest = !!el.querySelector('rest');
-              const dur    = _num(el.querySelector('duration')?.textContent, 0);
-              const voiceN = el.querySelector('voice')?.textContent || '1';
-              const staffN = el.querySelector('staff')?.textContent || '1';
-              const vel    = _num(el.querySelector('velocity')?.textContent, 0.85);
-              const chord  = !!el.querySelector('chord');
+        parts.forEach((part, pIdx) => {
+          let curTick = 0;
+          const measures = Array.from(part.getElementsByTagName("measure"));
 
-              let step=null, alter=0, oct=4;
-              if (!isRest) {
-                const p = el.querySelector('pitch');
-                step  = p?.querySelector('step')?.textContent || 'C';
-                alter = _num(p?.querySelector('alter')?.textContent, 0);
-                oct   = _num(p?.querySelector('octave')?.textContent, 4);
-              }
+          measures.forEach((m) => {
+            const snd = m.querySelector("sound[tempo]");
+            if (snd) bpm = clamp(_num(snd.getAttribute("tempo"), bpm), 20, 300);
 
-              const tTick = chord && lastChordTick != null ? lastChordTick : curTick;
+            let lastChordTick = null;
 
-              events.push({
-                part: pIdx, tTicks: tTick, dTicks: dur,
-                isRest, step, alter, oct,
-                voice: voiceN, staff: staffN, velocity: clamp(vel, 0, 1)
-              });
+            for (const el of Array.from(m.children)) {
+              const name = el.localName || el.tagName;
 
-              if (!chord) {
-                lastChordTick = curTick;
-                curTick += dur;
+              if (name === "backup") {
+                curTick -= _num(el.querySelector("duration")?.textContent, 0);
+                if (curTick < 0) curTick = 0;
+              } else if (name === "forward") {
+                curTick += _num(el.querySelector("duration")?.textContent, 0);
+              } else if (name === "note") {
+                const isRest = !!el.querySelector("rest");
+                const dur    = _num(el.querySelector("duration")?.textContent, 0);
+                const voiceN = el.querySelector("voice")?.textContent || "1";
+                const staffN = el.querySelector("staff")?.textContent || "1";
+                const vel    = _num(el.querySelector("velocity")?.textContent, 0.85);
+                const chord  = !!el.querySelector("chord");
+
+                let step = null, alter = 0, oct = 4;
+                if (!isRest) {
+                  const p = el.querySelector("pitch");
+                  step  = p?.querySelector("step")?.textContent || "C";
+                  alter = _num(p?.querySelector("alter")?.textContent, 0);
+                  oct   = _num(p?.querySelector("octave")?.textContent, 4);
+                }
+
+                const tTick = chord && lastChordTick != null ? lastChordTick : curTick;
+
+                events.push({
+                  part: pIdx,
+                  tTicks: tTick,
+                  dTicks: dur,
+                  isRest,
+                  step,
+                  alter,
+                  oct,
+                  voice: voiceN,
+                  staff: staffN,
+                  velocity: clamp(vel, 0, 1),
+                });
+
+                if (!chord) {
+                  lastChordTick = curTick;
+                  curTick += dur;
+                }
               }
             }
-          }
+          });
         });
-      });
+      }
+      // ====================================================
+      // 2) TIMEWISE (<score-timewise>)
+      // ====================================================
+      else if (rootName === "score-timewise" || score.querySelector("score-timewise")) {
+        const scoreTimewise =
+          rootName === "score-timewise"
+            ? score
+            : score.querySelector("score-timewise");
 
-      // divisions → ppq/tone ticks
+        const measures = Array.from(scoreTimewise.getElementsByTagName("measure"));
+        console.log("[score-audio] timewise mode, measures=", measures.length);
+
+        // part-id -> { index, curTick, lastChordTick }
+        const partIndexMap = new Map();
+        const partStateMap = new Map();
+        let nextPartIndex = 0;
+
+        measures.forEach((m) => {
+          const snd = m.querySelector("sound[tempo]");
+          if (snd) bpm = clamp(_num(snd.getAttribute("tempo"), bpm), 20, 300);
+
+          const partNodes = Array.from(m.getElementsByTagName("part"));
+          partNodes.forEach((partNode) => {
+            const pid = partNode.getAttribute("id") || "P?" + nextPartIndex;
+
+            if (!partIndexMap.has(pid)) {
+              partIndexMap.set(pid, nextPartIndex++);
+            }
+            const pIdx = partIndexMap.get(pid);
+
+            let st = partStateMap.get(pid);
+            if (!st) {
+              st = { curTick: 0, lastChordTick: null };
+              partStateMap.set(pid, st);
+            }
+
+            for (const el of Array.from(partNode.children)) {
+              const name = el.localName || el.tagName;
+
+              if (name === "backup") {
+                st.curTick -= _num(el.querySelector("duration")?.textContent, 0);
+                if (st.curTick < 0) st.curTick = 0;
+              } else if (name === "forward") {
+                st.curTick += _num(el.querySelector("duration")?.textContent, 0);
+              } else if (name === "note") {
+                const isRest = !!el.querySelector("rest");
+                const dur    = _num(el.querySelector("duration")?.textContent, 0);
+                const voiceN = el.querySelector("voice")?.textContent || "1";
+                const staffN = el.querySelector("staff")?.textContent || "1";
+                const vel    = _num(el.querySelector("velocity")?.textContent, 0.85);
+                const chord  = !!el.querySelector("chord");
+
+                let step = null, alter = 0, oct = 4;
+                if (!isRest) {
+                  const p = el.querySelector("pitch");
+                  step  = p?.querySelector("step")?.textContent || "C";
+                  alter = _num(p?.querySelector("alter")?.textContent, 0);
+                  oct   = _num(p?.querySelector("octave")?.textContent, 4);
+                }
+
+                const tTick =
+                  chord && st.lastChordTick != null ? st.lastChordTick : st.curTick;
+
+                events.push({
+                  part: pIdx,
+                  tTicks: tTick,
+                  dTicks: dur,
+                  isRest,
+                  step,
+                  alter,
+                  oct,
+                  voice: voiceN,
+                  staff: staffN,
+                  velocity: clamp(vel, 0, 1),
+                });
+
+                if (!chord) {
+                  st.lastChordTick = st.curTick;
+                  st.curTick += dur;
+                }
+              }
+            }
+          });
+        });
+      }
+      // ====================================================
+      // 3) Fallback: άγνωστη ρίζα → αντιμετώπισέ το σαν partwise
+      // ====================================================
+      else {
+        const parts = Array.from(score.getElementsByTagName("part"));
+        console.log("[score-audio] fallback mode, parts=", parts.length);
+
+        parts.forEach((part, pIdx) => {
+          let curTick = 0;
+          const measures = Array.from(part.getElementsByTagName("measure"));
+
+          measures.forEach((m) => {
+            const snd = m.querySelector("sound[tempo]");
+            if (snd) bpm = clamp(_num(snd.getAttribute("tempo"), bpm), 20, 300);
+
+            let lastChordTick = null;
+
+            for (const el of Array.from(m.children)) {
+              const name = el.localName || el.tagName;
+
+              if (name === "backup") {
+                curTick -= _num(el.querySelector("duration")?.textContent, 0);
+                if (curTick < 0) curTick = 0;
+              } else if (name === "forward") {
+                curTick += _num(el.querySelector("duration")?.textContent, 0);
+              } else if (name === "note") {
+                const isRest = !!el.querySelector("rest");
+                const dur    = _num(el.querySelector("duration")?.textContent, 0);
+                const voiceN = el.querySelector("voice")?.textContent || "1";
+                const staffN = el.querySelector("staff")?.textContent || "1";
+                const vel    = _num(el.querySelector("velocity")?.textContent, 0.85);
+                const chord  = !!el.querySelector("chord");
+
+                let step = null, alter = 0, oct = 4;
+                if (!isRest) {
+                  const p = el.querySelector("pitch");
+                  step  = p?.querySelector("step")?.textContent || "C";
+                  alter = _num(p?.querySelector("alter")?.textContent, 0);
+                  oct   = _num(p?.querySelector("octave")?.textContent, 4);
+                }
+
+                const tTick = chord && lastChordTick != null ? lastChordTick : curTick;
+
+                events.push({
+                  part: pIdx,
+                  tTicks: tTick,
+                  dTicks: dur,
+                  isRest,
+                  step,
+                  alter,
+                  oct,
+                  voice: voiceN,
+                  staff: staffN,
+                  velocity: clamp(vel, 0, 1),
+                });
+
+                if (!chord) {
+                  lastChordTick = curTick;
+                  curTick += dur;
+                }
+              }
+            }
+          });
+        });
+      }
+
+      // ====================================================
+      // Κοινό post-processing: divisions → Tone ticks
+      // ====================================================
       const ppq = DEFAULT_PPQ;
-      const tickToTone = (t) => Math.max(1, Math.round((t / divisions) * ppq));
+      const tickToTone = (t) =>
+        Math.max(1, Math.round((t / divisions) * ppq));
 
-      events.sort((a,b)=> a.tTicks - b.tTicks || (a.isRest - b.isRest));
-      events.forEach(e => {
+      events.sort((a, b) => a.tTicks - b.tTicks || (a.isRest - b.isRest));
+      events.forEach((e) => {
         e.tTone = tickToTone(e.tTicks);
         e.dTone = tickToTone(e.dTicks);
       });
 
-      // distinct onsets για visual
       const onsetTicks = [];
       let last = -1;
       for (const e of events) {
@@ -161,8 +352,19 @@
           last = e.tTone;
         }
       }
+
+      console.log(
+        "[score-audio] parseMusicXML done:",
+        "events=", events.length,
+        "onsets=", onsetTicks.length,
+        "divisions=", divisions,
+        "bpm=", bpm
+      );
+
       return { ppq, bpm, divisions, events, onsetTicks };
     }
+
+
 
     // ===========================
     // Διαχείριση Tone/legacy
@@ -212,15 +414,138 @@
     }
 
     async function _loadXmlText(state) {
-      if (state._xmlText && state._xmlText.length > 40) return state._xmlText;
-      if (state.fileUrl) {
-        try { const res = await fetch(state.fileUrl, { credentials: 'same-origin' }); return await res.text(); }
-        catch {}
+      // 1) Αν έχουμε ήδη κάτι στο state._xmlText (από score-player.js)
+      if (state._xmlText && state._xmlText.length > 40) {
+        const t = state._xmlText.trim().slice(0, 100);
+
+        // Αν φαίνεται καθαρό XML, το επιστρέφουμε όπως είναι
+        if (
+          t.startsWith('<?xml') ||
+          t.startsWith('<score-partwise') ||
+          t.startsWith('<score-timewise')
+        ) {
+          return state._xmlText;
+        }
+
+        // Αν φαίνεται σαν MXL binary string (header "PK")
+        const c0 = state._xmlText.charCodeAt(0);
+        const c1 = state._xmlText.charCodeAt(1);
+        if (c0 === 0x50 && c1 === 0x4b) {
+          const buf = binaryStringToArrayBuffer(state._xmlText);
+          const xml = await unzipMxlBufferToXml(buf);
+          if (xml) {
+            state._xmlText = xml;
+            return xml;
+          }
+        }
       }
-      // Στα παλαιότερα implementations η φόρτωση γινόταν και από το Verovio toolkit.
-      // Στην υλοποίηση με OSMD δεν υπάρχει αυτή η μέθοδος, οπότε απλά επιστρέφουμε κενό.
+
+      // 2) Αλλιώς: κάνουμε fetch από το URL
+      if (state.fileUrl) {
+        try {
+          const res = await fetch(state.fileUrl, { credentials: 'same-origin' });
+          const ct = (res.headers.get('Content-Type') || '').toLowerCase();
+          const isMxl =
+            state.fileUrl.toLowerCase().endsWith('.mxl') ||
+            ct.includes('application/vnd.recordare.musicxml') ||
+            ct.includes('application/zip') ||
+            ct.includes('mxl');
+
+          if (isMxl) {
+            const buf = await res.arrayBuffer();
+            const xml = await unzipMxlBufferToXml(buf);
+            if (xml) {
+              state._xmlText = xml;
+              return xml;
+            }
+            // αν δεν καταφέραμε να το ξε-ζιπάρουμε, δεν έχει νόημα να γυρίσουμε κάτι
+            return '';
+          } else {
+            const txt = await res.text();
+            state._xmlText = txt;
+            return txt;
+          }
+        } catch (e) {
+          console.warn('[score-audio] fetch xml error', e);
+        }
+      }
+
+      // 3) Τίποτα διαθέσιμο
       return '';
     }
+
+    // Μετατροπή binary string → ArrayBuffer (1 char = 1 byte)
+    function binaryStringToArrayBuffer(binStr) {
+      const len = binStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binStr.charCodeAt(i) & 0xff;
+      }
+      return bytes.buffer;
+    }
+
+    // Unzip .mxl (zip) σε MusicXML (XML text)
+    // Unzip .mxl (zip) σε MusicXML (XML text)
+    async function unzipMxlBufferToXml(buffer) {
+      try {
+        const JSZip =
+          w.JSZip ||
+          (w.opensheetmusicdisplay && w.opensheetmusicdisplay.JSZip);
+
+        if (!JSZip) {
+          console.warn("[score-audio] JSZip not found, cannot unzip MXL");
+          return null;
+        }
+
+        const zip = await JSZip.loadAsync(buffer);
+
+        // Συλλέγουμε ΟΛΑ τα υποψήφια XML αρχεία
+        const candidates = [];
+        zip.forEach((relPath, file) => {
+          const lower = relPath.toLowerCase();
+          if (file.dir) return;
+          if (lower.endsWith(".xml") || lower.endsWith(".musicxml")) {
+            candidates.push({ relPath, lower, file });
+          }
+        });
+
+        if (!candidates.length) {
+          console.warn("[score-audio] No XML entry inside MXL");
+          return null;
+        }
+
+        // 1) Προτεραιότητα σε *.musicxml
+        let xmlEntry =
+          candidates.find((c) => c.lower.endsWith(".musicxml")) || null;
+
+        // 2) Διαφορετικά, επιλέγουμε XML που ΔΕΝ είναι container/META-INF
+        if (!xmlEntry) {
+          xmlEntry =
+            candidates.find(
+              (c) =>
+                !c.lower.includes("meta-inf/") &&
+                !c.lower.endsWith("container.xml")
+            ) || null;
+        }
+
+        // 3) Αν δεν βρεθεί ούτε έτσι, πάρε απλά το πρώτο
+        if (!xmlEntry) {
+          xmlEntry = candidates[0];
+        }
+
+        console.log(
+          "[score-audio] unzipMxlBufferToXml picked:",
+          xmlEntry.relPath
+        );
+
+        return await xmlEntry.file.async("text");
+      } catch (e) {
+        console.warn("[score-audio] unzipMxlBufferToXml error", e);
+        return null;
+      }
+    }
+
+
 
     // ===========================
     // DOM columns / Playhead
@@ -750,11 +1075,19 @@
       disposeParts(state.parts); state.parts = [];
       disposeVisualPart(state);
 
-      const xmlText = await _loadXmlText(state);
+            const xmlText = await _loadXmlText(state);
       if (!(xmlText && xmlText.length > 40)) {
         console.warn('[score-audio] Δεν βρέθηκε MusicXML για ήχο.');
         return false;
       }
+
+      // DEBUG: δες ένα μικρό prefix του XML
+      console.log(
+        '[score-audio] _buildCore xml prefix:',
+        xmlText.slice(0, 120)
+          .replace(/\s+/g, ' ')
+          .trim()
+      );
 
       let parsed = null;
       try { parsed = parseMusicXML(xmlText); }
@@ -764,6 +1097,7 @@
         console.warn('[score-audio] Κενή ροή γεγονότων.');
         return false;
       }
+
 
       state._onsetTicks = parsed.onsetTicks || [];
 

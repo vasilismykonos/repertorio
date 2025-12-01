@@ -25,6 +25,14 @@ enum VersionArtistRole {
   MUSICIAN
   COMPOSER
 }
+enum UserRole {
+  ADMIN
+  EDITOR
+  AUTHOR
+  CONTRIBUTOR
+  SUBSCRIBER
+  USER
+}
 
 // =====================
 // Core models
@@ -38,10 +46,65 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // ----- Mapping από wp_users -----
+
+  /// Παλαιό ID από wp_users.ID
+  wpId               Int?    @unique
+
+  /// user_login
+  userLogin          String?
+
+  /// user_nicename
+  userNicename       String?
+
+  /// user_url
+  userUrl            String?
+
+  /// user_activation_key
+  userActivationKey  String?
+
+  /// user_status
+  userStatus         Int?
+
+  /// User_Room (το τελευταίο room)
+  userRoom           String?
+
+  /// Rooms (ιστορικό / αποθηκευμένα rooms)
+  rooms              String?
+
+  /// Redirect_Field (π.χ. lyrics, chords κλπ)
+  redirectField      String?
+
+  /// Hide_Chords (0/1 στο WP)
+  hideChords         Boolean?
+
+  /// current_url
+  currentUrl         String?
+
+  /// Dark_Mode (0/1 στο WP)
+  darkMode           Boolean?
+
+  /// Devices
+  devices            String?
+
+  /// FontSize
+  fontSize           Int?
+
+  /// View_Other_User_Chords
+  viewOtherUserChords String?
+
+  /// Hide_Info
+  hideInfo           Boolean?
+
+  /// Ρόλος χρήστη που προκύπτει από wp_usermeta (_capabilities)
+  role               UserRole @default(USER)
+
   // Relations
-  createdSongs   Song[]
-  createdVersions SongVersion[]
+  createdSongs       Song[]
+  createdVersions    SongVersion[]
 }
+
+
 
 model Artist {
   id             Int      @id @default(autoincrement())

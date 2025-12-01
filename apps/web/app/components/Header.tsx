@@ -190,7 +190,7 @@ export default function Header() {
             </Link>
           </div>
 
-          {/* ΑΝΑΖΗΤΗΣΗ – όπως την είχες */}
+          {/* ΑΝΑΖΗΤΗΣΗ */}
           <div className="header-search" style={{ width: "100%" }}>
             <div
               className="search-container"
@@ -338,9 +338,7 @@ export default function Header() {
             {/* AVATAR HEADER */}
             <button
               type="button"
-              onClick={() =>
-                isLoggedIn ? signOut() : signIn("google")
-              }
+              onClick={() => (isLoggedIn ? signOut() : signIn("google"))}
               title={isLoggedIn ? "Αποσύνδεση" : "Σύνδεση με Google"}
               style={{
                 width: 30,
@@ -385,7 +383,7 @@ export default function Header() {
         </div>
       </header>
 
-      {/* ΠΛΑΙΝΟ ΜΕΝΟΥ (Sidebar) */}
+      {/* ΠΛΑΙΝΟ ΜΕΝΟΥ (Sidebar μέσα στο Header) */}
       <aside id="sidebar" className={sidebarClass}>
         <button
           id="closeSidebar"
@@ -404,6 +402,7 @@ export default function Header() {
           &times;
         </button>
 
+        {/* Πάνω μέρος: Νέο τραγούδι + Login/Logout */}
         <div
           style={{
             display: "flex",
@@ -441,9 +440,7 @@ export default function Header() {
               background: "none",
               cursor: "pointer",
             }}
-            onClick={() =>
-              isLoggedIn ? signOut() : signIn("google")
-            }
+            onClick={() => (isLoggedIn ? signOut() : signIn("google"))}
           >
             <span
               style={{
@@ -473,7 +470,7 @@ export default function Header() {
           }}
         />
 
-        {/* ΤΑ ΥΠΟΛΟΙΠΑ MENU ITEMS ΟΠΩΣ ΤΑ ΕΙΧΕΣ */}
+        {/* MENU ITEMS */}
         <nav className="sidebar-nav">
           <ul style={{ listStyle: "none", padding: 0, marginTop: 15 }}>
             <li style={{ marginBottom: 10 }}>
@@ -555,9 +552,10 @@ export default function Header() {
               </a>
             </li>
 
+            {/* ΕΔΩ η διόρθωση: Χρήστες → /users */}
             <li style={{ marginBottom: 10 }}>
               <Link
-                href="/list_users"
+                href="/users"
                 style={{
                   color: "#fff",
                   textDecoration: "none",
@@ -583,6 +581,7 @@ export default function Header() {
           </ul>
         </nav>
 
+        {/* FOOTER SIDEBAR */}
         <div
           className="sidebar-footer"
           style={{
@@ -638,6 +637,7 @@ export default function Header() {
         </div>
       </aside>
 
+      {/* Overlay για το sidebar */}
       <div id="overlay" className={overlayClass} onClick={closeSidebar} />
     </>
   );
