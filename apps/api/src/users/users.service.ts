@@ -2,6 +2,8 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { UserRole } from "./user-role.enum";
+import mysql from "mysql2/promise";
+import type { Prisma } from "@prisma/client";
 
 export interface ListUsersOptions {
   search?: string;
@@ -11,229 +13,247 @@ export interface ListUsersOptions {
   order: "asc" | "desc";
 }
 
+type LegacyCounts = {
+  songCounts: Map<number, number>;
+  versionCounts: Map<number, number>;
+};
+
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Λίστα χρηστών για τη σελίδα /users.
+   * Διαβάζει aggregations από την ΠΑΛΙΑ MySQL:
+   * - πόσα songs έχει κάθε UserID
+   * - πόσα songs_versions έχει κάθε UserID
    *
-   * - Υποστηρίζει αναζήτηση (search) σε email / displayName.
-   * - Υποστηρίζει ταξινόμηση (sort) σε βασικά πεδία χρήστη.
-   * - Υποστηρίζει ταξινόμηση σε "songsCount" / "versionsCount"
-   *   με in-memory σελιδοποίηση, αφού πρώτα υπολογίσουμε τα counts.
-   * - Επιστρέφει πάντα τα πεδία:
-   *   createdSongsCount, createdVersionsCount, totalPages.
+   * Τα key των map είναι τα ΠΑΛΙΑ UserID (wp_users.ID),
+   * τα οποία στην καινούρια βάση αντιστοιχούν στο User.id
+   * (σύμφωνα με το migrate-users.ts).
    */
-  async listUsers(options: ListUsersOptions) {
-    const { search, page, pageSize } = options;
+  private async getLegacyCounts(): Promise<LegacyCounts> {
+    const {
+      OLD_DB_HOST,
+      OLD_DB_PORT,
+      OLD_DB_USER,
+      OLD_DB_PASSWORD,
+      OLD_DB_NAME,
+    } = process.env;
 
-    // -----------------------------
-    // ΦΙΛΤΡΟ (where) χωρίς Prisma.UserWhereInput
-    // -----------------------------
-    const where: any = search
-      ? {
-          OR: [
-            { email: { contains: search, mode: "insensitive" } },
-            { displayName: { contains: search, mode: "insensitive" } },
-          ],
-        }
-      : {};
+    const songCounts = new Map<number, number>();
+    const versionCounts = new Map<number, number>();
 
-    // -----------------------------
-    // ΤΑΞΙΝΟΜΗΣΗ (orderBy)
-    // -----------------------------
-    const allowedSortFields: string[] = [
-      "id",
-      "email",
-      "displayName",
-      "createdAt",
-      "songsCount",
-      "versionsCount",
-    ];
-
-    const sortField = allowedSortFields.includes(options.sort)
-      ? options.sort
-      : "displayName";
-
-    const order: "asc" | "desc" =
-      options.order === "desc" ? "desc" : "asc";
-
-    const sortByAggregate =
-      sortField === "songsCount" || sortField === "versionsCount";
-
-    // Για sort σε aggregate πεδία, κάνουμε όλη τη ταξινόμηση in-memory.
-    const orderBy: any = sortByAggregate ? undefined : { [sortField]: order };
-
-    // -----------------------------
-    // Ανάγνωση χρηστών + συνολικός αριθμός
-    // -----------------------------
-    let baseUsers: any[] = [];
-    let total = 0;
-
-    if (sortByAggregate) {
-      // Παίρνουμε ΟΛΟΥΣ τους χρήστες που ταιριάζουν στο φίλτρο
-      // και θα κάνουμε sort + pagination στη μνήμη.
-      baseUsers = await this.prisma.user.findMany({
-        where,
-      });
-      total = baseUsers.length;
-    } else {
-      const [items, count] = await Promise.all([
-        this.prisma.user.findMany({
-          where,
-          orderBy,
-          skip: (page - 1) * pageSize,
-          take: pageSize,
-        }),
-        this.prisma.user.count({ where }),
-      ]);
-      baseUsers = items;
-      total = count;
+    // Αν δεν υπάρχουν ρυθμίσεις για την παλιά βάση, επιστρέφουμε κενά maps.
+    if (!OLD_DB_HOST || !OLD_DB_USER || !OLD_DB_NAME) {
+      return { songCounts, versionCounts };
     }
 
-    if (baseUsers.length === 0) {
-      return {
-        items: [],
-        total,
-        page,
-        pageSize,
-        totalPages: Math.ceil(total / pageSize),
+    const port = OLD_DB_PORT ? parseInt(OLD_DB_PORT, 10) : 3306;
+
+    const connection = await mysql.createConnection({
+      host: OLD_DB_HOST,
+      port,
+      user: OLD_DB_USER,
+      password: OLD_DB_PASSWORD,
+      database: OLD_DB_NAME,
+      charset: "utf8mb4_unicode_ci",
+    });
+
+    try {
+      // 1) Πόσα τραγούδια (songs) έχει φτιάξει ο κάθε χρήστης (UserID)
+      const [songRows] = await connection.query<any[]>(`
+        SELECT UserID, COUNT(*) AS songsCount
+        FROM songs
+        WHERE UserID IS NOT NULL AND UserID <> 0
+        GROUP BY UserID
+      `);
+
+      for (const row of songRows) {
+        const userId = Number(row.UserID);
+        const count = Number(row.songsCount) || 0;
+        if (!Number.isNaN(userId)) {
+          songCounts.set(userId, count);
+        }
+      }
+
+      // 2) Πόσες εκδόσεις (songs_versions) έχει φτιάξει ο κάθε χρήστης (UserID)
+      const [versionRows] = await connection.query<any[]>(`
+        SELECT UserID, COUNT(*) AS versionsCount
+        FROM songs_versions
+        WHERE UserID IS NOT NULL AND UserID <> 0
+        GROUP BY UserID
+      `);
+
+      for (const row of versionRows) {
+        const userId = Number(row.UserID);
+        const count = Number(row.versionsCount) || 0;
+        if (!Number.isNaN(userId)) {
+          versionCounts.set(userId, count);
+        }
+      }
+    } finally {
+      await connection.end();
+    }
+
+    return { songCounts, versionCounts };
+  }
+
+  /**
+   * Βοηθητική για sort στο Prisma με ασφαλή πεδία.
+   */
+  private buildOrderBy(
+    sort: string,
+    order: "asc" | "desc",
+  ): Prisma.UserOrderByWithRelationInput {
+    const direction: Prisma.SortOrder = order === "desc" ? "desc" : "asc";
+
+    switch (sort) {
+      case "email":
+        return { email: direction };
+      case "username":
+        return { username: direction };
+      case "createdAt":
+        return { createdAt: direction };
+      case "displayName":
+      default:
+        return { displayName: direction };
+    }
+  }
+
+  /**
+   * Λίστα χρηστών με αναζήτηση, ταξινόμηση, σελιδοποίηση
+   * και τα πεδία createdSongsCount / createdVersionsCount
+   * όπως τα χρειάζεται η σελίδα /users στο Next.js.
+   */
+  async listUsers(options: ListUsersOptions) {
+    const { search, page, pageSize, sort, order } = options;
+
+    let where: Prisma.UserWhereInput | undefined;
+
+    if (search && search.trim() !== "") {
+      const s = search.trim();
+      where = {
+        OR: [
+          { displayName: { contains: s } },
+          { email: { contains: s } },
+          { username: { contains: s } },
+        ],
       };
     }
 
-    const userIds = baseUsers.map((u) => u.id as number);
+    const orderBy = this.buildOrderBy(sort, order);
 
-    // -----------------------------
-    // Υπολογισμός createdSongsCount / createdVersionsCount
-    // -----------------------------
-    const [songCounts, versionCounts] = await Promise.all([
-      this.prisma.song.groupBy({
-        by: ["createdByUserId"],
-        where: {
-          createdByUserId: { in: userIds },
-        },
-        _count: { _all: true },
-      }),
-      this.prisma.songVersion.groupBy({
-        by: ["createdByUserId"],
-        where: {
-          createdByUserId: { in: userIds },
-        },
-        _count: { _all: true },
-      }),
-    ]);
+    const [users, total] = await Promise.all([
+  this.prisma.user.findMany({
+    where,
+    orderBy,
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+    select: {
+      id: true,
+      wpId: true,          // <-- ΠΡΟΣΘΗΚΗ
+      email: true,
+      username: true,
+      displayName: true,
+      role: true,
+      createdAt: true,
+    },
+  }),
+  this.prisma.user.count({ where }),
+]);
 
-    const songCountMap = new Map<number, number>();
-    for (const row of songCounts) {
-      if (row.createdByUserId != null) {
-        songCountMap.set(row.createdByUserId as number, row._count._all);
-      }
-    }
 
-    const versionCountMap = new Map<number, number>();
-    for (const row of versionCounts) {
-      if (row.createdByUserId != null) {
-        versionCountMap.set(row.createdByUserId as number, row._count._all);
-      }
-    }
+    const { songCounts, versionCounts } = await this.getLegacyCounts();
 
-    let enriched = baseUsers.map((user) => ({
-      ...user,
-      createdSongsCount: songCountMap.get(user.id) ?? 0,
-      createdVersionsCount: versionCountMap.get(user.id) ?? 0,
-    }));
+    const items = users.map((u) => {
+  // legacyUserId = παλιό wp_users.ID, αυτό χρησιμοποιούν τα UserID των songs
+  const legacyUserId =
+    typeof u.wpId === "number" && !Number.isNaN(u.wpId) ? u.wpId : u.id;
 
-    // -----------------------------
-    // Sort σε aggregate πεδία (songsCount / versionsCount)
-    // -----------------------------
-    if (sortByAggregate) {
-      enriched = enriched.sort((a, b) => {
-        const aVal =
-          sortField === "songsCount"
-            ? a.createdSongsCount
-            : a.createdVersionsCount;
-        const bVal =
-          sortField === "songsCount"
-            ? b.createdSongsCount
-            : b.createdVersionsCount;
+  return {
+    id: u.id,
+    email: u.email,
+    username: u.username,
+    displayName: u.displayName,
+    role: u.role as UserRole,
+    createdAt: u.createdAt, // θα γίνει serialize σε ISO string στο JSON
+    createdSongsCount: songCounts.get(legacyUserId) ?? 0,
+    createdVersionsCount: versionCounts.get(legacyUserId) ?? 0,
+  };
+});
 
-        if (aVal === bVal) {
-          // Δευτερεύον sort στο displayName για σταθερότητα.
-          const aName = (a.displayName || "") as string;
-          const bName = (b.displayName || "") as string;
-          return aName.localeCompare(bName, "el");
-        }
-
-        return order === "asc" ? aVal - bVal : bVal - aVal;
-      });
-
-      // Εφαρμογή pagination στη μνήμη
-      const start = (page - 1) * pageSize;
-      const end = start + pageSize;
-      enriched = enriched.slice(start, end);
-    }
+    const totalPages = total > 0 ? Math.ceil(total / pageSize) : 1;
 
     return {
-      items: enriched,
+      items,
       total,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize),
+      totalPages,
     };
   }
 
   /**
-   * Λεπτομέρειες ενός χρήστη για /users/[id].
-   * Επιστρέφει επίσης createdSongsCount / createdVersionsCount.
+   * Επιστροφή ενός χρήστη με τα ίδια πεδία που χρησιμοποιεί
+   * η σελίδα /users/[id] (συμπεριλαμβανομένων των counts).
    */
   async getUserById(id: number) {
     const user = await this.prisma.user.findUnique({
-      where: { id },
-    });
+  where: { id },
+  select: {
+    id: true,
+    wpId: true,           // <-- ΠΡΟΣΘΗΚΗ
+    email: true,
+    username: true,
+    displayName: true,
+    role: true,
+    createdAt: true,
+  },
+});
+
 
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
 
-    const [songsCount, versionsCount] = await Promise.all([
-      this.prisma.song.count({
-        where: { createdByUserId: id },
-      }),
-      this.prisma.songVersion.count({
-        where: { createdByUserId: id },
-      }),
-    ]);
+    const { songCounts, versionCounts } = await this.getLegacyCounts();
 
-    return {
-      ...user,
-      createdSongsCount: songsCount,
-      createdVersionsCount: versionsCount,
-    };
+    const legacyUserId =
+  typeof user.wpId === "number" && !Number.isNaN(user.wpId)
+    ? user.wpId
+    : user.id;
+
+return {
+  id: user.id,
+  email: user.email,
+  username: user.username,
+  displayName: user.displayName,
+  role: user.role as UserRole,
+  createdAt: user.createdAt,
+  createdSongsCount: songCounts.get(legacyUserId) ?? 0,
+  createdVersionsCount: versionCounts.get(legacyUserId) ?? 0,
+};
+
   }
 
   /**
-   * Ενημέρωση βασικών στοιχείων χρήστη (displayName / role).
+   * Ενημέρωση χρήστη (displayName, role) όπως χρησιμοποιείται από
+   * τη σελίδα /users/[id]/edit.
    */
   async updateUser(
     id: number,
     body: { displayName?: string; role?: UserRole },
   ) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-    });
-
-    if (!user) {
+    const existing = await this.prisma.user.findUnique({ where: { id } });
+    if (!existing) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
 
-    // -----------------------------
-    // Data για update χωρίς Prisma.UserUpdateInput
-    // -----------------------------
-    const data: any = {};
+    const data: Prisma.UserUpdateInput = {};
 
     if (typeof body.displayName === "string") {
-      data.displayName = body.displayName.trim();
+      const trimmed = body.displayName.trim();
+      data.displayName = trimmed.length > 0 ? trimmed : null;
     }
 
     if (body.role) {
