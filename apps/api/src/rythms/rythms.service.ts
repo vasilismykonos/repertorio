@@ -1,16 +1,14 @@
 // src/rythms/rythms.service.ts
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { Rythm } from '@prisma/client';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class RythmsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(): Promise<Rythm[]> {
+  async findAll() {
     return this.prisma.rythm.findMany({
-      orderBy: { title: 'asc' },
+      orderBy: { title: "asc" },
     });
   }
 }
-

@@ -15,31 +15,24 @@ type RoomsClientProps = {
   initialCurrentRoom: string | null;
 };
 
-type ApiResponse<T = any> = {
+type ApiResponse = {
   success: boolean;
   message?: string;
-  data?: T;
 };
 
-declare global {
-  interface Window {
-    RepRoomsSwitchRoom?: (room: string | null, password: string) => void;
-  }
-}
-
 /**
- * Client component που υλοποιεί:
- * - λίστα rooms
- * - δημιουργία room
- * - σύνδεση / αποσύνδεση
- * - διαγραφή (μόνο admin)
+ * RoomsClient
  *
- * Μιλάει με Next API routes που ΕΣΥ θα υλοποιήσεις στο NestJS:
- *  - GET    /api/rooms
- *  - POST   /api/rooms/create
- *  - POST   /api/rooms/connect
- *  - POST   /api/rooms/disconnect
- *  - DELETE /api/rooms/:room
+ * Ανάλογο του παλιού shortcode, αλλά σε React:
+ *  - Φόρμα δημιουργίας room
+ *  - Λίστα rooms με πλήθος χρηστών
+ *  - Κουμπιά Σύνδεση / Αποσύνδεση / Διαγραφή
+ *  - Επικοινωνία με:
+ *      - GET    /api/rooms
+ *      - POST   /api/rooms/create
+ *      - POST   /api/rooms/join
+ *      - POST   /api/rooms/disconnect
+ *      - DELETE /api/rooms/:room
  */
 export default function RoomsClient({
   initialRooms,
@@ -92,8 +85,8 @@ export default function RoomsClient({
   };
 
   const callRepRoomsSwitch = (room: string | null, password: string) => {
-    if (typeof window !== "undefined" && window.RepRoomsSwitchRoom) {
-      window.RepRoomsSwitchRoom(room, password);
+    if (typeof window !== "undefined" && (window as any).RepRoomsSwitchRoom) {
+      (window as any).RepRoomsSwitchRoom(room, password);
     }
   };
 
@@ -146,18 +139,18 @@ export default function RoomsClient({
 
       // Όλα καλά: ενημέρωσε currentRoom & WebSocket
       setCurrentRoom(room);
-      callRepRoomsSwitch(room, password || "");
+      callRepRoomsSwitch(room, password);
 
       setCreateName("");
       setCreatePassword("");
-      showStatus("✅ Το room δημιουργήθηκε, σύνδεση...", "#81c784");
 
-      // Μικρό delay για να ενημερωθεί ο Node, μετά refresh
-      setTimeout(() => {
-        refreshRooms();
-      }, 800);
+      showStatus("✅ Το room δημιουργήθηκε.", "#81c784");
+
+      // Φόρτωσε ξανά τη λίστα
+      refreshRooms();
     } catch (err: any) {
-      showStatus("❌ Σφάλμα επικοινωνίας: " + err.message, "#e57373");
+      alert("❌ Σφάλμα επικοινωνίας: " + err.message);
+      showStatus("❌ Σφάλμα επικοινωνίας.", "#e57373");
     } finally {
       setLoading(false);
     }
@@ -188,7 +181,7 @@ export default function RoomsClient({
     showStatus("⏳ Σύνδεση στο room...", "#ccc");
 
     try {
-      const res = await fetch("/api/rooms/connect", {
+      const res = await fetch("/api/rooms/join", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ room, password }),
@@ -196,25 +189,19 @@ export default function RoomsClient({
 
       const json = (await res.json()) as ApiResponse;
       if (!json.success) {
-        if (json.message === "NOT_FOUND") {
-          alert("Το room δεν βρέθηκε ή έχει κλείσει.");
-        } else if (json.message === "WRONG_PASSWORD") {
-          alert("❌ Λάθος κωδικός για αυτό το room.");
-        } else {
-          alert("❌ Σφάλμα επιβεβαίωσης room.");
-        }
-        showStatus("❌ Σφάλμα σύνδεσης στο room.", "#e57373");
+        showStatus(
+          "❌ Δεν ήταν δυνατή η σύνδεση στο room: " +
+            (json.message || "Άγνωστο σφάλμα."),
+          "#e57373"
+        );
         return;
       }
 
       setCurrentRoom(room);
-      callRepRoomsSwitch(room, password || "");
+      callRepRoomsSwitch(room, password);
 
       showStatus("✅ Συνδέθηκες στο room.", "#81c784");
-
-      setTimeout(() => {
-        refreshRooms();
-      }, 800);
+      refreshRooms();
     } catch (err: any) {
       alert("❌ Σφάλμα επικοινωνίας: " + err.message);
       showStatus("❌ Σφάλμα επικοινωνίας.", "#e57373");
@@ -227,7 +214,9 @@ export default function RoomsClient({
   // DISCONNECT
   // -------------------------------------------------
   const handleDisconnect = async () => {
-    if (!currentRoom) return;
+    if (!currentRoom) {
+      return;
+    }
 
     setLoading(true);
     showStatus("⏳ Αποσύνδεση από το room...", "#ccc");
@@ -235,12 +224,17 @@ export default function RoomsClient({
     try {
       const res = await fetch("/api/rooms/disconnect", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room: currentRoom }),
       });
-      const json = (await res.json()) as ApiResponse;
 
+      const json = (await res.json()) as ApiResponse;
       if (!json.success) {
-        alert("❌ Σφάλμα αποσύνδεσης από room.");
-        showStatus("❌ Σφάλμα αποσύνδεσης.", "#e57373");
+        showStatus(
+          "❌ Δεν ήταν δυνατή η αποσύνδεση από το room: " +
+            (json.message || "Άγνωστο σφάλμα."),
+          "#e57373"
+        );
         return;
       }
 
@@ -278,18 +272,20 @@ export default function RoomsClient({
 
       const json = (await res.json()) as ApiResponse;
       if (!json.success) {
-        alert("❌ Αποτυχία διαγραφής room.");
-        showStatus("❌ Αποτυχία διαγραφής.", "#e57373");
+        showStatus(
+          "❌ Δεν ήταν δυνατή η διαγραφή room: " +
+            (json.message || "Άγνωστο σφάλμα."),
+          "#e57373"
+        );
         return;
       }
 
-      // Αν ο τρέχων χρήστης ήταν μέσα σε αυτό το room:
       if (currentRoom === room) {
         setCurrentRoom(null);
         callRepRoomsSwitch(null, "");
       }
 
-      showStatus("✅ Το room διαγράφηκε επιτυχώς.", "#81c784");
+      showStatus("✅ Το room διαγράφηκε.", "#81c784");
       refreshRooms();
     } catch (err: any) {
       alert("❌ Σφάλμα επικοινωνίας: " + err.message);
@@ -299,133 +295,141 @@ export default function RoomsClient({
     }
   };
 
-  // -------------------------------------------------
-  // RENDER
-  // -------------------------------------------------
+  // Φιλτράρισμα λίστας rooms
   const filteredRooms = rooms.filter((r) =>
     r.room.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
-    <div id="rooms-container">
-      {/* Βοηθητικό κείμενο, όπως στο παλιό shortcode */}
-      <p
-        className="rc-help rc-help-bottom"
-        style={{ marginTop: 8, marginBottom: 8 }}
-      >
-        Συνδεθείτε με τους φίλους σας στο ίδιο room, πατήστε το 🔄Room και
-        στείλτε τους το τραγούδι!
-      </p>
-
-      {/* Top bar: αναζήτηση + δημιουργία room */}
-      <div id="rooms-topbar">
-        <input
-          type="text"
-          id="roomSearch"
-          placeholder="🔍 Αναζήτηση room"
-          maxLength={20}
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-
-        {/* Πεδίο ονόματος νέου room */}
-        <input
-          type="text"
-          placeholder="Νέο room..."
-          maxLength={20}
-          value={createName}
-          onChange={(e) => setCreateName(e.target.value)}
-          style={{ marginLeft: 8 }}
-        />
-
-        {/* Προαιρετικός κωδικός */}
-        <input
-          type="password"
-          placeholder="Κωδικός (προαιρετικός)"
-          value={createPassword}
-          onChange={(e) => setCreatePassword(e.target.value)}
-          style={{ marginLeft: 8 }}
-        />
-
-        <button
-          id="createRoomBtn"
-          className="topbar-create-btn"
-          onClick={handleCreateRoom}
-          disabled={loading || !isLoggedIn}
-          title={
-            !isLoggedIn
-              ? "Πρέπει να κάνεις login για να δημιουργήσεις room."
-              : undefined
-          }
-        >
-          ✚<br />
-          <span style={{ fontSize: 13 }}>Room</span>
-        </button>
+    <div className="rooms-container">
+      {/* Φόρμα δημιουργίας room */}
+      <div className="create-room-box">
+        <h4>Δημιουργία νέου room</h4>
+        <div className="create-room-fields">
+          <input
+            type="text"
+            placeholder="Όνομα room (χωρίς κενά)"
+            value={createName}
+            onChange={(e) => setCreateName(e.target.value)}
+            disabled={loading}
+            className="create-room-input"
+          />
+          <input
+            type="password"
+            placeholder="Προαιρετικός κωδικός (για κλειδωμένο room)"
+            value={createPassword}
+            onChange={(e) => setCreatePassword(e.target.value)}
+            disabled={loading}
+            className="create-room-input"
+          />
+          <button
+            type="button"
+            onClick={handleCreateRoom}
+            disabled={loading}
+            className="create-room-button"
+          >
+            ✚ Room
+          </button>
+        </div>
+        {statusMessage && (
+          <div
+            className="rooms-status-message"
+            style={{ color: statusColor }}
+          >
+            {statusMessage}
+          </div>
+        )}
       </div>
 
-      {/* Status line */}
-      {statusMessage && (
-        <p style={{ marginTop: 6, color: statusColor, fontSize: 13 }}>
-          {statusMessage}
-        </p>
-      )}
+      {/* Πάνω μέρος: αναζήτηση & τρέχον room */}
+      <div className="rooms-top-bar">
+        <input
+          type="text"
+          placeholder="Αναζήτηση room..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          disabled={loading}
+          className="rooms-search-input"
+        />
+
+        <div className="current-room-info">
+          {currentRoom ? (
+            <>
+              <span>Τρέχον room: </span>
+              <strong>{currentRoom}</strong>
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                disabled={loading}
+                className="room-action-btn"
+              >
+                Αποσύνδεση
+              </button>
+            </>
+          ) : (
+            <span>Δεν είσαι συνδεδεμένος σε room.</span>
+          )}
+        </div>
+      </div>
 
       {/* Λίστα rooms */}
-      <div style={{ marginTop: 10, fontWeight: 600 }}>🔄 Ενεργά Rooms</div>
-      <div id="rooms-list">
+      <div className="rooms-list">
         {filteredRooms.length === 0 && (
-          <p style={{ marginTop: 10, color: "#aaa" }}>
-            Δεν υπάρχουν ενεργά rooms αυτή τη στιγμή.
-          </p>
+          <div className="no-rooms">Δεν υπάρχουν διαθέσιμα rooms.</div>
         )}
 
         {filteredRooms.map((r) => {
-          const isCurrent = currentRoom === r.room;
-          const label = isCurrent ? "❌ Έξοδος" : "🔗 Σύνδεση";
-
+          const isCurrent = r.room === currentRoom;
           return (
             <div
               key={r.room}
-              className={`room-row ${isCurrent ? "current-room-row" : ""}`}
-              data-room={r.room}
+              className={`room-row ${isCurrent ? "room-row-current" : ""}`}
             >
-              <div className="room-main">
-                <div className="room-main-line">
-                  {r.hasPassword && <span className="lock-icon">🔒</span>}
-                  <span className="room-title">
-                    <strong style={{ color: "#fff" }}>{r.room}</strong>
-                  </span>
-                  <span className="room-count-badge">{r.userCount}</span>
+              <div className="room-main-info">
+                <span className="room-name">{r.room}</span>
+                {r.hasPassword && (
+                  <span className="room-locked">🔒 Κλειδωμένο</span>
+                )}
+              </div>
+              <div className="room-secondary-info">
+                <span className="room-users">
+                  Χρήστες: {r.userCount ?? 0}
+                </span>
+
+                <div className="room-actions">
+                  {!isCurrent && (
+                    <button
+                      type="button"
+                      className="room-action-btn"
+                      onClick={() =>
+                        handleConnectRoom(r.room, r.hasPassword)
+                      }
+                      disabled={loading}
+                    >
+                      Σύνδεση
+                    </button>
+                  )}
                   {isCurrent && (
-                    <span className="current-room-badge">Τρέχον room</span>
+                    <button
+                      type="button"
+                      className="room-action-btn"
+                      onClick={handleDisconnect}
+                      disabled={loading}
+                    >
+                      Αποσύνδεση
+                    </button>
+                  )}
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      className="room-action-btn delete-room-btn"
+                      onClick={() => handleDeleteRoom(r.room)}
+                      disabled={loading}
+                    >
+                      🗑️ Διαγραφή
+                    </button>
                   )}
                 </div>
-              </div>
-
-              <div className="room-actions">
-                <button
-                  className={`room-action-btn connect-room-btn${
-                    isCurrent ? " exit-btn" : ""
-                  }`}
-                  onClick={() =>
-                    isCurrent
-                      ? handleDisconnect()
-                      : handleConnectRoom(r.room, r.hasPassword)
-                  }
-                  disabled={loading}
-                >
-                  {label}
-                </button>
-
-                {isAdmin && (
-                  <button
-                    className="room-action-btn delete-room-btn"
-                    onClick={() => handleDeleteRoom(r.room)}
-                    disabled={loading}
-                  >
-                    🗑️ Διαγραφή
-                  </button>
-                )}
               </div>
             </div>
           );

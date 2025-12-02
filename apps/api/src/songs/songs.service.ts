@@ -1,7 +1,15 @@
 // src/songs/songs.service.ts
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
-import { VersionArtistRole } from "@prisma/client";
+export enum VersionArtistRole {
+  SINGER_FRONT = "SINGER_FRONT",
+  SINGER_BACK = "SINGER_BACK",
+  SOLOIST = "SOLOIST",
+  MUSICIAN = "MUSICIAN",
+  COMPOSER = "COMPOSER",
+  LYRICIST = "LYRICIST",
+}
+
 import mysql from "mysql2/promise";
 
 @Injectable()

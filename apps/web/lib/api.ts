@@ -1,34 +1,97 @@
-// app/lib/api.ts
+// apps/web/lib/api.ts
 
-// ΠΡΟΣΩΡΙΝΑ: Καρφωμένη βάση URL για το NestJS API
-// Αγνοούμε τα env για να είμαστε 100% σίγουροι που χτυπάει.
-const API_BASE_URL = "http://127.0.0.1:3000/api/v1";
+/**
+ * Βασικό URL για εσωτερικές κλήσεις από τον Next server προς το Nest API.
+ * Το Nest (main.ts) ακούει στο 127.0.0.1:3000 με prefix /api/v1.
+ *
+ * Αν δεν δοθεί API_INTERNAL_BASE_URL στο περιβάλλον, κάνουμε default:
+ *   http://127.0.0.1:3000/api/v1
+ */
+const API_INTERNAL_BASE_URL: string = (
+  process.env.API_INTERNAL_BASE_URL || "http://127.0.0.1:3000/api/v1"
+).replace(/\/$/, "");
 
-export async function fetchJson<T>(
+/**
+ * Βασικό URL για κλήσεις από browser (client-side).
+ *
+ * - Αν υπάρχει NEXT_PUBLIC_API_BASE_URL (όπως τώρα: https://app.repertorio.net/api/v1)
+ *   το χρησιμοποιούμε αυτούσιο.
+ * - Αλλιώς κάνουμε fallback στο "/api/v1" ώστε να παίζει μέσω Nginx reverse proxy.
+ */
+const API_BROWSER_BASE_URL: string = (
+  process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1"
+).replace(/\/$/, "");
+
+/**
+ * Γενική συνάρτηση για κλήσεις JSON στο backend API.
+ *
+ * - Αν το path είναι absolute (αρχίζει με http:// ή https://), χρησιμοποιείται αυτούσιο.
+ * - Αλλιώς:
+ *   - Στην πλευρά του server (SSR / RSC) → χρησιμοποιεί API_INTERNAL_BASE_URL.
+ *   - Στην πλευρά του browser → χρησιμοποιεί API_BROWSER_BASE_URL.
+ */
+export async function fetchJson<T = any>(
   path: string,
-  init?: RequestInit
+  options: RequestInit = {},
 ): Promise<T> {
-  // Αν το path είναι σχετικό (π.χ. "/songs/search?..."), το ενώνουμε με το API_BASE_URL
-  const url = path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
+  const isAbsolute =
+    path.startsWith("http://") || path.startsWith("https://");
+
+  if (isAbsolute) {
+    // Αν είναι ήδη πλήρες URL, δεν πειράζουμε τίποτα
+    const res = await fetch(path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers ?? {}),
+      },
+    });
+
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => "");
+      throw new Error(
+        `API error ${res.status} ${res.statusText} for ${path} – body: ${bodyText}`,
+      );
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      return (await res.json()) as T;
+    }
+    return (await res.text()) as any;
+  }
+
+  // ΜΗ absolute path → αποφασίζουμε βάση περιβάλλοντος (server vs browser)
+  const base =
+    typeof window === "undefined"
+      ? API_INTERNAL_BASE_URL
+      : API_BROWSER_BASE_URL;
+
+  // Φροντίζουμε το path να ξεκινάει πάντα με "/"
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+  const url = `${base}${normalizedPath}`;
 
   const res = await fetch(url, {
-    ...init,
+    ...options,
     headers: {
       "Content-Type": "application/json",
-      ...(init?.headers || {}),
+      ...(options.headers ?? {}),
     },
-    cache: "no-store",
   });
 
   if (!res.ok) {
-    const body = await res.text();
+    const bodyText = await res.text().catch(() => "");
     throw new Error(
-      `API error ${res.status} ${res.statusText} for ${url} – body: ${body.slice(
-        0,
-        500
-      )}`
+      `API error ${res.status} ${res.statusText} for ${url} – body: ${bodyText}`,
     );
   }
 
-  return (await res.json()) as T;
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return (await res.json()) as T;
+  }
+
+  // Fallback για text απαντήσεις
+  return (await res.text()) as any;
 }

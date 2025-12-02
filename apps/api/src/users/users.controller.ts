@@ -1,41 +1,56 @@
 // src/users/users.controller.ts
-import { Controller, Get, Query } from '@nestjs/common';
-import { UsersService } from './users.service';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Query,
+} from "@nestjs/common";
+import { UsersService } from "./users.service";
+import { UserRole } from "./user-role.enum";
 
-@Controller('users')
+@Controller("users")
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
   async listUsers(
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
-    @Query('search') search?: string,
-    @Query('orderby') orderby?: string,
-    @Query('order') order?: string,
+    @Query("search") search?: string,
+    @Query("page") page = "1",
+    @Query("pageSize") pageSize = "10",
+    @Query("orderby") orderby = "displayName",
+    @Query("order") order: "asc" | "desc" = "asc",
   ) {
-    const pageNumber = page ? parseInt(page, 10) : 1;
-    const pageSizeNumber = pageSize ? parseInt(pageSize, 10) : 10;
+    const pageNumber = Number(page) || 1;
+    const pageSizeNumber = Number(pageSize) || 10;
 
-    const safeOrderBy =
-      orderby === 'displayName' ||
-      orderby === 'email' ||
-      orderby === 'username' ||
-      orderby === 'createdAt'
-        ? (orderby as 'displayName' | 'email' | 'username' | 'createdAt')
-        : 'displayName';
-
-    const safeOrder = order === 'desc' ? 'desc' : 'asc';
+    const sort = orderby || "displayName";
 
     return this.usersService.listUsers({
-      page: Number.isFinite(pageNumber) && pageNumber > 0 ? pageNumber : 1,
-      pageSize:
-        Number.isFinite(pageSizeNumber) && pageSizeNumber > 0
-          ? pageSizeNumber
-          : 10,
-      search: search ?? '',
-      orderby: safeOrderBy,
-      order: safeOrder,
+      search,
+      page: pageNumber,
+      pageSize: pageSizeNumber,
+      sort,
+      order,
     });
+  }
+
+  @Get(":id")
+  async getUser(@Param("id", ParseIntPipe) id: number) {
+    return this.usersService.getUserById(id);
+  }
+
+  @Patch(":id")
+  async updateUser(
+    @Param("id", ParseIntPipe) id: number,
+    @Body()
+    body: {
+      displayName?: string;
+      role?: UserRole;
+    },
+  ) {
+    return this.usersService.updateUser(id, body);
   }
 }

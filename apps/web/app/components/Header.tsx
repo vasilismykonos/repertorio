@@ -17,6 +17,11 @@ export default function Header() {
     (session?.user as any)?.picture ||
     undefined;
 
+  // ---- Room state για το header ----
+  const [currentRoomName, setCurrentRoomName] = useState<string | null>(null);
+  const [roomUserCount, setRoomUserCount] = useState<number | null>(null);
+  const [roomLoading, setRoomLoading] = useState(false);
+
   // ---- refs για αναζήτηση / φόρμα ----
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -28,6 +33,113 @@ export default function Header() {
   const [isVoiceSupported, setIsVoiceSupported] = useState(false);
   const recognitionRef = useRef<any | null>(null);
   const recognitionTimeoutRef = useRef<number | null>(null);
+
+  // Διαβάζουμε το rep_current_room από το localStorage και ακούμε αλλαγές
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const readFromStorage = () => {
+      try {
+        const stored = window.localStorage.getItem("rep_current_room");
+        if (stored && stored.trim() !== "") {
+          setCurrentRoomName(stored.trim());
+        } else {
+          setCurrentRoomName(null);
+        }
+      } catch {
+        setCurrentRoomName(null);
+      }
+    };
+
+    // αρχική ανάγνωση
+    readFromStorage();
+
+    const handleStorage = (event: StorageEvent | Event) => {
+      // Αλλαγές από άλλα tabs
+      if (event instanceof StorageEvent) {
+        if (event.key === "rep_current_room") {
+          readFromStorage();
+        }
+        return;
+      }
+
+      // Custom event π.χ. από RoomsClient: rep_current_room_changed
+      if ((event as any).type === "rep_current_room_changed") {
+        readFromStorage();
+      }
+    };
+
+    window.addEventListener("storage", handleStorage as any);
+    window.addEventListener(
+      "rep_current_room_changed",
+      handleStorage as any
+    );
+
+    return () => {
+      window.removeEventListener("storage", handleStorage as any);
+      window.removeEventListener(
+        "rep_current_room_changed",
+        handleStorage as any
+      );
+    };
+  }, []);
+
+  // Φόρτωση πλήθους χρηστών για το currentRoom από /api/rooms
+  useEffect(() => {
+    if (!isLoggedIn || !currentRoomName) {
+      setRoomUserCount(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchRoomCount = async () => {
+      try {
+        setRoomLoading(true);
+        const res = await fetch("/api/rooms", { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error("Αποτυχία φόρτωσης rooms");
+        }
+
+        const data = (await res.json()) as {
+          room: string;
+          userCount?: number;
+          hasPassword?: boolean;
+        }[];
+
+        if (cancelled) return;
+
+        const match = data.find(
+          (r) =>
+            r.room &&
+            r.room.toLowerCase() === currentRoomName.toLowerCase()
+        );
+
+        if (match && typeof match.userCount === "number") {
+          setRoomUserCount(match.userCount);
+        } else {
+          setRoomUserCount(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setRoomUserCount(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setRoomLoading(false);
+        }
+      }
+    };
+
+    fetchRoomCount();
+
+    // ανανέωση κάθε 10 δευτερόλεπτα
+    const id = setInterval(fetchRoomCount, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isLoggedIn, currentRoomName]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -312,26 +424,19 @@ export default function Header() {
             <Link
               href="/rooms"
               style={{ textDecoration: "none", color: "#fff" }}
-              title="Room"
+              title="Rooms"
             >
               <span
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  fontSize: 12,
+                  fontSize: 14,
+                  whiteSpace: "nowrap",
                 }}
               >
-                <span
-                  style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: 3,
-                    background: "#1a73e8",
-                    display: "inline-block",
-                  }}
-                />
-                Room
+                {!isLoggedIn || !currentRoomName
+                  ? "🔄Σύνδεση"
+                  : roomUserCount != null && roomUserCount > 0
+                  ? `🔄${roomUserCount}`
+                  : "🔄"}
               </span>
             </Link>
 

@@ -24,7 +24,9 @@ enum VersionArtistRole {
   SOLOIST
   MUSICIAN
   COMPOSER
+  LYRICIST
 }
+
 enum UserRole {
   ADMIN
   EDITOR

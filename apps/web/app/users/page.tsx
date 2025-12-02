@@ -2,6 +2,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { fetchJson } from "@/lib/api";
+import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
 
 export const metadata: Metadata = {
   title: "Χρήστες | Repertorio Next",
@@ -14,6 +15,7 @@ type UserListItem = {
   email: string | null;
   username: string | null;
   displayName: string | null;
+  role: UserRole;
   createdAt: string;
   createdSongsCount: number;
   createdVersionsCount: number;
@@ -42,7 +44,7 @@ function buildSortHref(
     pageSize: number;
     currentOrderBy: string;
     currentOrder: string;
-  }
+  },
 ): string {
   const { search, pageSize, currentOrderBy, currentOrder } = params;
   const qs = new URLSearchParams();
@@ -51,7 +53,7 @@ function buildSortHref(
     qs.set("search", search);
   }
 
-  qs.set("page", "1"); // κάθε αλλαγή ταξινόμησης ξεκινά από την 1η σελίδα
+  qs.set("page", "1"); // κάθε αλλαγή ταξινόμησης ξεκινά από την 1η σελ
   qs.set("pageSize", String(pageSize));
   qs.set("orderby", field);
 
@@ -69,7 +71,7 @@ function buildPageHref(
     pageSize: number;
     orderby: string;
     order: string;
-  }
+  },
 ): string {
   const { search, pageSize, orderby, order } = params;
   const qs = new URLSearchParams();
@@ -80,11 +82,9 @@ function buildPageHref(
   if (search) {
     qs.set("search", search);
   }
-
   if (orderby) {
     qs.set("orderby", orderby);
   }
-
   if (order) {
     qs.set("order", order);
   }
@@ -92,11 +92,34 @@ function buildPageHref(
   return `/users?${qs.toString()}`;
 }
 
+function formatRole(role: UserRole): string {
+  switch (role) {
+    case "ADMIN":
+      return "Διαχειριστής";
+    case "EDITOR":
+      return "Συντάκτης";
+    case "AUTHOR":
+      return "Συγγραφέας";
+    case "CONTRIBUTOR":
+      return "Συνεργάτης";
+    case "SUBSCRIBER":
+      return "Συνδρομητής";
+    case "USER":
+    default:
+      return "Χρήστης";
+  }
+}
+
 export default async function UsersPage({
   searchParams,
 }: {
   searchParams?: UsersPageSearchParams;
 }) {
+  // --- ΤΡΕΧΩΝ ΧΡΗΣΤΗΣ ΑΠΟ GOOGLE LOGIN + NEST API ---
+  const currentUser = await getCurrentUserFromApi();
+  const isAdmin = currentUser?.role === "ADMIN";
+
+  // --- ΠΑΡΑΜΕΤΡΟΙ ΛΙΣΤΑΣ ---
   const search = (searchParams?.search ?? "").trim();
   const page = Number(searchParams?.page ?? "1") || 1;
   const pageSize = Number(searchParams?.pageSize ?? "10") || 10;
@@ -117,51 +140,47 @@ export default async function UsersPage({
   }
 
   const data = await fetchJson<UsersResponse>(`/users?${qs.toString()}`);
+  const { items, totalPages } = data;
 
-  if (!data.items.length) {
-    return (
-      <section style={{ padding: "24px" }}>
-        <h1 style={{ fontSize: "1.5rem", marginBottom: "16px" }}>Χρήστες</h1>
-        <p>Δεν βρέθηκαν χρήστες.</p>
-      </section>
-    );
+  const pages: number[] = [];
+  for (let p = 1; p <= totalPages; p++) {
+    pages.push(p);
   }
+
+  const columnCount = isAdmin ? 9 : 8;
 
   return (
     <section className="users-page-wrapper">
       <h1 className="users-page-title">Χρήστες</h1>
 
-      {/* Φόρμα αναζήτησης */}
-      <form className="user-search-form" method="get" action="/users">
-        <label htmlFor="search" style={{ marginRight: "8px" }}>
-          Αναζήτηση:
+      {/* Φόρμα αναζήτησης / ταξινόμησης */}
+      <form method="GET" className="user-search-form">
+        <label>
+          Αναζήτηση:&nbsp;
+          <input
+            type="text"
+            name="search"
+            defaultValue={search}
+            placeholder="Όνομα, username ή email"
+          />
         </label>
-        <input
-          type="text"
-          id="search"
-          name="search"
-          defaultValue={search}
-          placeholder="Όνομα, email ή username..."
-        />
-        <label htmlFor="pageSize" style={{ marginLeft: "12px" }}>
-          Ανά σελίδα:
+
+        <label>
+          Ανά σελίδα:&nbsp;
+          <select name="pageSize" defaultValue={String(pageSize)}>
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+          </select>
         </label>
-        <select
-          id="pageSize"
-          name="pageSize"
-          defaultValue={String(pageSize)}
-          style={{ marginLeft: "4px" }}
-        >
-          <option value="10">10</option>
-          <option value="25">25</option>
-          <option value="50">50</option>
-        </select>
-        {/* Κάθε νέα αναζήτηση ξεκινά από 1η σελίδα */}
+
         <input type="hidden" name="page" value="1" />
+        <input type="hidden" name="orderby" value={orderby} />
+        <input type="hidden" name="order" value={order} />
+
         <button type="submit">Αναζήτηση</button>
       </form>
 
-      {/* Πίνακας χρηστών */}
       <div className="users-table-wrapper">
         <table className="wp-user-list-table">
           <thead>
@@ -191,7 +210,8 @@ export default async function UsersPage({
                   })}
                 >
                   Username
-                  {orderby === "username" && (order === "asc" ? " ▲" : " ▼")}
+                  {orderby === "username" &&
+                    (order === "asc" ? " ▲" : " ▼")}
                 </Link>
               </th>
               <th>
@@ -207,6 +227,7 @@ export default async function UsersPage({
                   {orderby === "email" && (order === "asc" ? " ▲" : " ▼")}
                 </Link>
               </th>
+              <th>Ρόλος</th>
               <th>
                 <Link
                   href={buildSortHref("createdAt", {
@@ -223,74 +244,86 @@ export default async function UsersPage({
               </th>
               <th>Τραγούδια</th>
               <th>Εκδόσεις</th>
+              {isAdmin && <th>Ενέργειες</th>}
             </tr>
           </thead>
           <tbody>
-            {data.items.map((user) => (
-              <tr key={user.id}>
-                <td>{user.id}</td>
-                <td>{user.displayName ?? "-"}</td>
-                <td>{user.username ?? "-"}</td>
-                <td>{user.email ?? "-"}</td>
-                <td>
-                  {new Date(user.createdAt).toLocaleDateString("el-GR", {
-                    year: "numeric",
-                    month: "2-digit",
-                    day: "2-digit",
-                  })}
-                </td>
-                <td style={{ textAlign: "center" }}>
-                  {user.createdSongsCount}
-                </td>
-                <td style={{ textAlign: "center" }}>
-                  {user.createdVersionsCount}
+            {items.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={columnCount}
+                  style={{ textAlign: "center", padding: "12px" }}
+                >
+                  Δεν βρέθηκαν χρήστες.
                 </td>
               </tr>
-            ))}
+            ) : (
+              items.map((user) => (
+                <tr key={user.id}>
+                  <td>{user.id}</td>
+                  <td>
+                    {/* Κλικ στο όνομα → σελίδα προβολής /users/[id] */}
+                    <Link href={`/users/${user.id}`}>
+                      {user.displayName || "—"}
+                    </Link>
+                  </td>
+                  <td>{user.username || "—"}</td>
+                  <td>{user.email || "—"}</td>
+                  <td>
+                    <span className="user-role-badge">
+                      {formatRole(user.role)}
+                    </span>
+                  </td>
+                  <td>
+                    {new Date(user.createdAt).toLocaleDateString("el-GR", {
+                      year: "numeric",
+                      month: "2-digit",
+                      day: "2-digit",
+                    })}
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    {user.createdSongsCount}
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    {user.createdVersionsCount}
+                  </td>
+                  {isAdmin && (
+                    <td>
+                      <Link href={`/users/${user.id}/edit`}>Επεξεργασία</Link>
+                    </td>
+                  )}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
 
-      {/* Σελιδοποίηση */}
-      <div className="user-pagination">
-        <span className="user-pagination-summary">
-          Σελίδα {data.page} από {data.totalPages} – σύνολο {data.total} χρηστών.
-        </span>
-
-        <div className="user-pagination-links">
-          {data.page > 1 && (
-            <Link
-              href={buildPageHref(data.page - 1, {
-                search,
-                pageSize,
-                orderby,
-                order,
-              })}
-            >
-              « Προηγούμενη
-            </Link>
-          )}
-
-          <span className="user-pagination-current">
-            Σελίδα {data.page}/{data.totalPages}
-          </span>
-
-          {data.page < data.totalPages && (
-            <Link
-              href={buildPageHref(data.page + 1, {
-                search,
-                pageSize,
-                orderby,
-                order,
-              })}
-            >
-              Επόμενη »
-            </Link>
+      {totalPages > 1 && (
+        <div className="user-pagination">
+          <span>Σελίδα:</span>
+          {pages.map((p) =>
+            p === page ? (
+              <span key={p} className="user-pagination-current">
+                {p}
+              </span>
+            ) : (
+              <Link
+                key={p}
+                href={buildPageHref(p, {
+                  search,
+                  pageSize,
+                  orderby,
+                  order,
+                })}
+              >
+                {p}
+              </Link>
+            ),
           )}
         </div>
-      </div>
+      )}
 
-      {/* Inline CSS, αντίστοιχο με το παλιό shortcode */}
       <style
         dangerouslySetInnerHTML={{
           __html: `
@@ -305,17 +338,18 @@ export default async function UsersPage({
 
 .user-search-form {
   margin-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .user-search-form input[type="text"] {
-  padding: 5px;
-  width: 220px;
-  margin-right: 8px;
+  padding: 4px 8px;
 }
 
 .user-search-form select {
-  padding: 5px;
-  margin-right: 8px;
+  padding: 4px 8px;
 }
 
 .user-search-form button {
@@ -342,28 +376,24 @@ export default async function UsersPage({
 
 .wp-user-list-table th {
   background-color: #111;
-}
-
-.wp-user-list-table th a {
-  text-decoration: none;
   color: #fff;
 }
 
-.wp-user-list-table th a:hover {
-  text-decoration: underline;
+.user-role-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  background-color: #333;
+  color: #fff;
 }
 
 .user-pagination {
+  margin-top: 12px;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.9rem;
-}
-
-.user-pagination-links {
-  display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .user-pagination a {
@@ -384,4 +414,3 @@ export default async function UsersPage({
     </section>
   );
 }
-

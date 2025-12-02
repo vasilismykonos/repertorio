@@ -1,8 +1,8 @@
 // apps/web/app/rooms/page.tsx
 
 import "@/public/rooms/repertorio-rooms.css";
-import { cookies } from "next/headers";
 import RoomsClient from "./RoomsClient";
+import { getCurrentUserFromApi } from "@/lib/currentUser";
 
 type Room = {
   room: string;
@@ -10,64 +10,74 @@ type Room = {
   hasPassword: boolean;
 };
 
-type CurrentUser = {
-  id: number;
-  username: string;
-  role?: string | null;       // π.χ. "admin" | "user"
-  currentRoom?: string | null; // αν το έχεις ήδη στο API
-};
-
 export const metadata = {
   title: "Rooms | Repertorio",
 };
 
-// --------- Φόρτωση rooms από Node /get-rooms ----------
+// Χρησιμοποιούμε την ίδια λογική με τα API routes
+function getRoomsBaseUrl(): string {
+  const base =
+    process.env.ROOMS_HTTP_BASE_URL ||
+    process.env.NEXT_PUBLIC_ROOMS_HTTP_BASE_URL ||
+    "http://localhost:4455";
+
+  return base.replace(/\/+$/, "");
+}
+
+// Φέρνει τη λίστα rooms απευθείας από τον Node rooms server
 async function fetchRooms(): Promise<Room[]> {
   try {
-    const res = await fetch("https://repertorio.net/get-rooms", {
+    const res = await fetch(`${getRoomsBaseUrl()}/get-rooms`, {
       cache: "no-store",
     });
 
     if (!res.ok) {
+      console.error(
+        "[Rooms page] Αποτυχία επικοινωνίας με rooms server. Status:",
+        res.status
+      );
       return [];
     }
 
-    const data = await res.json();
-    // Αν ο Node επιστρέφει {rooms:[...]} προσαρμόζουμε:
+    const data = await res.json().catch(() => null);
+
     if (Array.isArray(data)) {
       return data as Room[];
     }
-    if (Array.isArray(data.rooms)) {
-      return data.rooms as Room[];
+
+    if (data && Array.isArray((data as any).rooms)) {
+      return (data as any).rooms as Room[];
     }
+
     return [];
-  } catch (e) {
-    console.error("fetchRooms error:", e);
+  } catch (err) {
+    console.error("[Rooms page] Σφάλμα κατά το fetchRooms:", err);
     return [];
   }
 }
 
-// --------- Φόρτωση τρέχοντος χρήστη από /api/auth/me ----------
+type CurrentUser = {
+  id: number;
+  email: string;
+  role: string;
+};
+
+// Διαβάζει τον τρέχοντα χρήστη από το Nest API μέσω getCurrentUserFromApi()
 async function fetchCurrentUser(): Promise<CurrentUser | null> {
   try {
-    const cookieStore = cookies();
-    const cookieHeader = cookieStore.toString();
+    const user = await getCurrentUserFromApi();
+    if (!user) return null;
 
-    const res = await fetch("https://app.repertorio.net/api/auth/me", {
-      headers: {
-        cookie: cookieHeader,
-      },
-      cache: "no-store",
-    });
-
-    if (!res.ok) {
-      return null;
-    }
-
-    const user = (await res.json()) as CurrentUser;
-    return user;
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    };
   } catch (err) {
-    console.error("fetchCurrentUser error:", err);
+    console.error(
+      "[Rooms page] Σφάλμα κατά το fetchCurrentUser:",
+      err
+    );
     return null;
   }
 }
@@ -79,9 +89,11 @@ export default async function RoomsPage() {
   ]);
 
   const isLoggedIn = !!currentUser;
-  const role = currentUser?.role?.toLowerCase() ?? "user";
+  const role = (currentUser?.role || "").toLowerCase();
   const isAdmin = role === "admin";
-  const currentRoom = currentUser?.currentRoom ?? null;
+
+  // Προς το παρόν δεν έχουμε currentRoom στο νέο schema -> null
+  const currentRoom: string | null = null;
 
   return (
     <div id="rooms-wrapper">
