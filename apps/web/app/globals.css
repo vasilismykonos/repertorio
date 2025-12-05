@@ -197,7 +197,6 @@ a:hover {
 .header-buttons a {
     width: 30px; /* Σταθερό πλάτος για όλα τα κουμπιά */
     height: 30px; /* Σταθερό ύψος για όλα τα κουμπιά */
-    background-color: #bdbcbc;
     color: #fff;
     text-decoration: none;
     display: flex;
@@ -212,8 +211,7 @@ a:hover {
 
 .header-buttons button:hover,
 .header-buttons a:hover {
-    background-color: #9a9a9a; /* Αλλάζει το χρώμα κατά το hover */
-    transform: translateY(0px); /* Ελαφριά ανύψωση */
+    transform: translateY(-3px); /* Ελαφριά ανύψωση */
     box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.15);
     }
 
@@ -931,3 +929,25 @@ ul {
 }
 
 
+/* ---------------------------------------- */
+/* Ειδικό στυλ για το κουμπί Rooms στο header */
+.header-buttons a.rooms-button {
+    width: 32px;                 /* ίδιο περίπου με το avatar */
+    height: 32px;
+    border-radius: 50%;          /* κυκλικό, όπως το avatar */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    text-decoration: none;
+
+    background-color: transparent; /* χωρίς φόντο */
+    color: #aaaaaa;                /* ΓΚΡΙ εικονίδιο, override του λευκού */
+    font-size: 22px;               /* λίγο μεγαλύτερο από το default 18px */
+}
+
+/* Μέσα στο κουμπί, το icon 🔄 */
+.header-buttons a.rooms-button .rooms-icon {
+    font-size: 22px;    /* εξασφαλίζουμε ότι δεν "μικραίνει" από το h4,p,a,span rule */
+    line-height: 1;
+}

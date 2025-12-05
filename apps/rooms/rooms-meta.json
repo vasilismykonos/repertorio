@@ -1,0 +1,12 @@
+{
+  "123": {
+    "hasPassword": false,
+    "salt": null,
+    "passwordHash": null
+  },
+  "test": {
+    "hasPassword": false,
+    "salt": null,
+    "passwordHash": null
+  }
+}

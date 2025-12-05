@@ -16,121 +16,81 @@ function getRoomsBaseUrl(): string {
   const base =
     process.env.ROOMS_HTTP_BASE_URL ||
     process.env.NEXT_PUBLIC_ROOMS_HTTP_BASE_URL ||
-    "http://localhost:4455";
+    "http://127.0.0.1:4455";
 
   return base.replace(/\/+$/, "");
 }
 
-// =============================
-// GET /api/rooms
-// -> Επιστροφή λίστας rooms
-// =============================
-export async function GET() {
+// GET /api/rooms – λίστα rooms
+export async function GET(_req: NextRequest) {
+  const upstream = `${getRoomsBaseUrl()}/get-rooms`;
   try {
-    const res = await fetch(`${getRoomsBaseUrl()}/get-rooms`, {
+    const res = await fetch(upstream, {
+      method: "GET",
       cache: "no-store",
     });
-
     if (!res.ok) {
-      console.error(
-        "[GET /api/rooms] Αποτυχία επικοινωνίας με rooms server. Status:",
-        res.status
-      );
-      return NextResponse.json([] satisfies Room[]);
+      console.error("[GET /api/rooms] upstream status:", res.status);
+      return NextResponse.json<Room[]>([], { status: 200 });
     }
-
-    const data = await res.json().catch(() => null);
-
-    if (Array.isArray(data)) {
-      return NextResponse.json(data as Room[]);
-    }
-
-    if (data && Array.isArray((data as any).rooms)) {
-      return NextResponse.json((data as any).rooms as Room[]);
-    }
-
-    return NextResponse.json([] satisfies Room[]);
+    const json = (await res.json()) as Room[];
+    return NextResponse.json(json);
   } catch (err) {
-    console.error("[GET /api/rooms] Σφάλμα:", err);
-    return NextResponse.json([] satisfies Room[]);
+    console.error("[GET /api/rooms] error:", err);
+    return NextResponse.json<Room[]>([], { status: 200 });
   }
 }
 
-// =========================================
-// POST /api/rooms
-// -> Fallback δημιουργίας room
-//    (σε περίπτωση που το UI καλεί POST /api/rooms)
-// =========================================
+// POST /api/rooms – create room
 export async function POST(req: NextRequest) {
-  let body: any = {};
-  try {
-    body = await req.json();
-  } catch {
-    body = {};
-  }
+  const { room, password = "" } = (await req.json().catch(() => ({}))) as {
+    room?: string;
+    password?: string;
+  };
 
-  // Καλύπτουμε διάφορα πιθανά ονόματα πεδίων
-  const room =
-    (typeof body.room === "string" && body.room.trim()) ||
-    (typeof body.name === "string" && body.name.trim()) ||
-    (typeof body.roomName === "string" && body.roomName.trim()) ||
-    "";
-
-  const password =
-    typeof body.password === "string" ? body.password : "";
-
-  if (!room) {
-    return NextResponse.json(
+  if (!room || room.trim() === "") {
+    return NextResponse.json<ApiResponse>(
       {
         success: false,
-        message: "Απαιτείται όνομα δωματίου.",
-      } satisfies ApiResponse,
+        message: "Απαιτείται όνομα room.",
+      },
       { status: 400 }
     );
   }
 
+  const upstream = `${getRoomsBaseUrl()}/create-room`;
   try {
-    const upstream = await fetch(`${getRoomsBaseUrl()}/create-room`, {
+    const res = await fetch(upstream, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ room, password }),
     });
 
-    const upstreamJson = (await upstream
-      .json()
-      .catch(() => ({}))) as Partial<ApiResponse>;
+    const upstreamJson = (await res.json().catch(() => ({}))) as any;
 
-    if (!upstream.ok || upstreamJson.success === false) {
-      console.error(
-        "[POST /api/rooms] Αποτυχία δημιουργίας room. Status:",
-        upstream.status,
-        "Body:",
-        upstreamJson
-      );
-      return NextResponse.json(
+    if (!res.ok || upstreamJson.success === false) {
+      return NextResponse.json<ApiResponse>(
         {
           success: false,
           message:
             upstreamJson.message ||
-            `Σφάλμα rooms server (HTTP ${upstream.status}).`,
-        } satisfies ApiResponse,
-        { status: upstream.status || 500 }
+            "Αποτυχία δημιουργίας room από τον rooms server.",
+        },
+        { status: 500 }
       );
     }
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: upstreamJson.message || "Το room δημιουργήθηκε.",
-      } satisfies ApiResponse
-    );
+    return NextResponse.json<ApiResponse>({
+      success: true,
+      message: upstreamJson.message || "Το room δημιουργήθηκε.",
+    });
   } catch (err) {
     console.error("[POST /api/rooms] Σφάλμα:", err);
-    return NextResponse.json(
+    return NextResponse.json<ApiResponse>(
       {
         success: false,
         message: "Αποτυχία επικοινωνίας με rooms server.",
-      } satisfies ApiResponse,
+      },
       { status: 500 }
     );
   }

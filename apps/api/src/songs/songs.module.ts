@@ -1,4 +1,4 @@
-// src/songs/songs.module.ts
+// apps/api/src/songs/songs.module.ts
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SongsController } from "./songs.controller";
@@ -11,5 +11,6 @@ import { SongsService } from "./songs.service";
   // Πρώτα ο search controller ώστε /songs/search πριν από /songs/:id
   controllers: [SongsSearchController, SongsController],
   providers: [SongsSearchService, SongsService],
+  exports: [SongsService, SongsSearchService],
 })
 export class SongsModule {}

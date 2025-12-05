@@ -1,24 +1,15 @@
-// src/songs/songs-search.service.ts
-import { Injectable, InternalServerErrorException } from "@nestjs/common";
-import { Client as ESClient } from "@elastic/elasticsearch";
+// apps/api/src/songs/songs-search.service.ts
+import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import type { Prisma } from "@prisma/client";
+import { SongStatus } from "@prisma/client";
+import { Client as ESClient } from "@elastic/elasticsearch";
 
 type SearchParams = {
   q?: string;
   skip?: number;
   take?: number;
-};
-
-type EsSongSource = {
-  song_id: number;
-  Title?: string;
-  FirstLyrics?: string;
-  Lyrics?: string;
-  Characteristics?: string;
-  OriginalKey?: string;
-  Chords?: number;
-  Partiture?: number;
-  Status?: string;
+  createdByUserId?: number;
 };
 
 type SearchResultItem = {
@@ -41,174 +32,356 @@ type SearchResult = {
 
 @Injectable()
 export class SongsSearchService {
-  private es: ESClient;
+  private readonly logger = new Logger(SongsSearchService.name);
+  private readonly es: ESClient;
+  private readonly esIndex: string;
 
   constructor(private readonly prisma: PrismaService) {
     this.es = new ESClient({
-      node: process.env.ELASTICSEARCH_NODE || "http://localhost:9200",
+      node: process.env.ES_NODE || "http://localhost:9200",
     });
+    // Χρησιμοποιούμε τον ίδιο index που χρησιμοποιεί και το παλιό WordPress plugin
+    this.esIndex = process.env.ES_SONGS_INDEX || "songs";
   }
 
-  /**
-   * Αναζήτηση τραγουδιών:
-   * - Αν δεν υπάρχει q -> απλό read από PostgreSQL (Prisma)
-   * - Αν υπάρχει q -> Elasticsearch για ranking, αλλά τα δεδομένα
-   *   (τίτλος, στίχοι, κ.λπ.) έρχονται από PostgreSQL ώστε τα IDs
-   *   να ταιριάζουν 100% με τη σελίδα τραγουδιού.
-   */
-  async search(params: SearchParams): Promise<SearchResult> {
-    const q = (params.q || "").trim();
-    const skip = params.skip ?? 0;
-    const take = params.take ?? 20;
+  // ----------------- Postgres helpers (όπως πριν) -----------------
 
-    // 1) Χωρίς q → επιστρέφουμε απλά τραγούδια από PostgreSQL
-    if (!q) {
-      const songs = await this.prisma.song.findMany({
-        skip,
-        take,
-        orderBy: { id: "asc" },
-        select: {
-          id: true,
-          title: true,
-          firstLyrics: true,
-          lyrics: true,
-          characteristics: true,
-          originalKey: true,
-          chords: true,
-          status: true,
-          scoreFile: true,
-        },
-      });
-
-      const items: SearchResultItem[] = songs.map((s) => {
-        let chordsValue = 0;
-        if (s.chords) {
-          const parsed = parseInt(s.chords as any, 10);
-          if (!isNaN(parsed)) {
-            chordsValue = parsed;
-          }
-        }
-
-        return {
-          song_id: s.id,
-          title: s.title ?? "",
-          firstLyrics: s.firstLyrics ?? "",
-          lyrics: s.lyrics ?? "",
-          characteristics: s.characteristics ?? "",
-          originalKey: s.originalKey ?? "",
-          chords: chordsValue,
-          partiture: s.scoreFile ? 1 : 0,
-          status: s.status ? String(s.status) : "",
-          score: 0,
-        };
-      });
-
-      return {
-        total: items.length,
-        items,
-      };
+  // Μετατροπή ενός Song (Prisma) σε SearchResultItem με score=0
+  private mapSongWithoutScore(s: any): SearchResultItem {
+    let chordsValue = 0;
+    if (s.chords) {
+      const parsed = parseInt(s.chords as any, 10);
+      if (!Number.isNaN(parsed)) {
+        chordsValue = parsed;
+      }
     }
 
-    // 2) Με q → Elasticsearch (songs_next) αλλά δεδομένα από PostgreSQL
-    try {
-      const esResp: any = await (this.es.search as any)({
-        index: "songs_next",
-        from: skip,
-        size: take,
-        body: {
-          query: {
-            multi_match: {
-              query: q,
-              fields: ["Title^3", "FirstLyrics^2", "Lyrics"],
-              fuzziness: "AUTO",
-            },
+    return {
+      song_id: s.id,
+      title: s.title ?? "",
+      firstLyrics: s.firstLyrics ?? "",
+      lyrics: s.lyrics ?? "",
+      characteristics: s.characteristics ?? "",
+      originalKey: s.originalKey ?? "",
+      chords: chordsValue,
+      partiture: s.scoreFile ? 1 : 0,
+      status: s.status ? String(s.status) : "",
+      score: 0,
+    };
+  }
+
+  // Αναζήτηση σε Postgres με q (μόνο PUBLISHED για global search)
+  private async searchPostgresWithQuery(
+    q: string,
+    skip: number,
+    take: number,
+  ): Promise<SearchResult> {
+    const where: Prisma.SongWhereInput = {
+      status: SongStatus.PUBLISHED,
+      OR: [
+        { title: { contains: q, mode: "insensitive" } },
+        { firstLyrics: { contains: q, mode: "insensitive" } },
+        { lyrics: { contains: q, mode: "insensitive" } },
+      ],
+    };
+
+    const [songs, total] = await Promise.all([
+      this.prisma.song.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { title: "asc" },
+      }),
+      this.prisma.song.count({ where }),
+    ]);
+
+    return {
+      total,
+      items: songs.map((s) => this.mapSongWithoutScore(s)),
+    };
+  }
+
+  // ----------------- Elasticsearch helpers (νέα λογική) -----------------
+
+  /**
+   * Χτίζει το bool query του Elasticsearch για το search term,
+   * ακολουθώντας όσο το δυνατόν πιο πιστά τη λογική του παλιού songs.php
+   * (multiword vs monoword, Title / FirstLyrics / Lyrics, plus Composer / Lyricist / Singers).
+   */
+  private buildElasticBoolQueryForQ(q: string): any {
+    const searchTerm = (q || "").trim();
+    const bool: any = {};
+
+    if (!searchTerm) {
+      // Δεν το καλούμε ποτέ έτσι από κάτω, αλλά για ασφάλεια
+      bool.must = [{ match_all: {} }];
+      return bool;
+    }
+
+    const terms = searchTerm.split(/\s+/).filter(Boolean);
+    const isMultiword = terms.length > 1;
+
+    const should: any[] = [];
+
+    if (isMultiword) {
+      // -----------------------------
+      // ΠΟΛΥΛΕΞΗ ΑΝΑΖΗΤΗΣΗ
+      // -----------------------------
+
+      // 1) Ακριβής φράση με τέλεια συνοχή στο Title
+      should.push({
+        match_phrase: {
+          Title: {
+            query: searchTerm,
+            slop: 0,
+            boost: 1200,
           },
         },
       });
 
-      const hits: any[] = esResp.hits?.hits ?? [];
-
-      const total =
-        typeof esResp.hits?.total === "number"
-          ? esResp.hits.total
-          : esResp.hits?.total?.value ?? hits.length;
-
-      // Μαζεύουμε όλα τα song_id από το ES (είναι τα παλιά Song_ID)
-      const esIds = Array.from(
-        new Set(
-          hits
-            .map((hit) => {
-              const src = (hit._source || {}) as EsSongSource;
-              return src.song_id;
-            })
-            .filter((id) => typeof id === "number" && !Number.isNaN(id))
-        )
-      ) as number[];
-
-      // Τραβάμε από PostgreSQL τα αντίστοιχα τραγούδια με id IN (esIds)
-      const dbSongs = await this.prisma.song.findMany({
-        where: { id: { in: esIds } },
-        select: {
-          id: true,
-          title: true,
-          firstLyrics: true,
-          lyrics: true,
-          characteristics: true,
-          originalKey: true,
-          chords: true,
-          status: true,
-          scoreFile: true,
+      // 2) match_phrase_prefix στο Title
+      should.push({
+        match_phrase_prefix: {
+          Title: {
+            query: searchTerm,
+            slop: 0,
+            max_expansions: 50,
+            boost: 900,
+          },
         },
       });
 
-      const dbMap = new Map<number, (typeof dbSongs)[number]>();
-      for (const s of dbSongs) {
-        dbMap.set(s.id, s);
-      }
+      // 3) match_phrase_prefix στους πρώτους στίχους
+      should.push({
+        match_phrase_prefix: {
+          FirstLyrics: {
+            query: searchTerm,
+            slop: 0,
+            max_expansions: 30,
+            boost: 200,
+          },
+        },
+      });
 
-      const items: SearchResultItem[] = [];
+      // 4) match_phrase_prefix σε όλους τους στίχους
+      should.push({
+        match_phrase_prefix: {
+          Lyrics: {
+            query: searchTerm,
+            slop: 0,
+            max_expansions: 30,
+            boost: 10,
+          },
+        },
+      });
 
-      for (const hit of hits) {
-        const src = (hit._source || {}) as EsSongSource;
-        const esId = src.song_id;
+      // 5) Επιπλέον fuzzy για μικρο-ορθογραφικά / greeklish στο Title
+      should.push({
+        match: {
+          Title: {
+            query: searchTerm,
+            operator: "and",
+            fuzziness: "AUTO",
+            boost: 300,
+          },
+        },
+      });
+    } else {
+      // -----------------------------
+      // ΜΟΝΟΛΕΞΗ ΑΝΑΖΗΤΗΣΗ
+      // -----------------------------
 
-        if (typeof esId !== "number" || Number.isNaN(esId)) {
-          continue;
-        }
+      // 1) "ισχυρό" match σε Title / FirstLyrics / Lyrics
+      should.push({
+        multi_match: {
+          query: searchTerm,
+          fields: ["Title^10", "FirstLyrics^5", "Lyrics^2"],
+          type: "best_fields",
+          fuzziness: "AUTO",
+          boost: 700,
+        },
+      });
 
-        const dbSong = dbMap.get(esId);
-        if (!dbSong) {
-          // Αν για κάποιο λόγο δεν υπάρχει στο PostgreSQL, το παραλείπουμε
-          continue;
-        }
+      // 2) Fuzzy μόνο στο Title
+      should.push({
+        match: {
+          Title: {
+            query: searchTerm,
+            fuzziness: "AUTO",
+            boost: 600,
+          },
+        },
+      });
 
-        let chordsValue = 0;
-        if (dbSong.chords) {
-          const parsed = parseInt(dbSong.chords as any, 10);
-          if (!isNaN(parsed)) {
-            chordsValue = parsed;
-          }
-        }
+      // 3) Fuzzy στους πρώτους στίχους
+      should.push({
+        match: {
+          FirstLyrics: {
+            query: searchTerm,
+            fuzziness: "AUTO",
+            boost: 120,
+          },
+        },
+      });
 
-        items.push({
-          song_id: dbSong.id, // ΠΑΝΤΑ το ID της PostgreSQL
-          title: dbSong.title ?? src.Title ?? "",
-          firstLyrics: dbSong.firstLyrics ?? src.FirstLyrics ?? "",
-          lyrics: dbSong.lyrics ?? src.Lyrics ?? "",
-          characteristics:
-            dbSong.characteristics ?? src.Characteristics ?? "",
-          originalKey: dbSong.originalKey ?? src.OriginalKey ?? "",
-          chords: chordsValue,
-          partiture: dbSong.scoreFile ? 1 : src.Partiture ?? 0,
-          status: dbSong.status ? String(dbSong.status) : src.Status ?? "",
-          score: hit._score ?? 0,
-        });
-      }
-
-      return { total, items };
-    } catch (err: any) {
-      console.error("Elasticsearch search error:", err?.meta ?? err);
-      throw new InternalServerErrorException("Search backend error");
+      // 4) Fuzzy σε όλους τους στίχους
+      should.push({
+        match: {
+          Lyrics: {
+            query: searchTerm,
+            fuzziness: "AUTO",
+            boost: 20,
+          },
+        },
+      });
     }
+
+    // 5) Συνθέτης / στιχουργός / ερμηνευτές (ίδιο και στις δύο περιπτώσεις)
+    should.push({
+      multi_match: {
+        query: searchTerm,
+        fields: ["Composer^5", "Lyricist^5", "SingerFront^3", "SingerBack^2"],
+        fuzziness: "AUTO",
+      },
+    });
+
+    bool.should = should;
+    bool.minimum_should_match = 1;
+
+    return bool;
+  }
+
+  /**
+   * Εκτέλεση του search στο Elasticsearch index "songs" (ή ES_SONGS_INDEX),
+   * με πλήρη αντιστοίχιση των πεδίων του παλιού index.
+   */
+  private async searchElasticWithQuery(
+    q: string,
+    skip: number,
+    take: number,
+  ): Promise<SearchResult> {
+    const boolQuery = this.buildElasticBoolQueryForQ(q);
+
+    const body: any = {
+      from: skip,
+      size: take,
+      track_total_hits: true,
+      query: {
+        bool: boolQuery,
+      },
+      sort: [
+        {
+          _score: { order: "desc" },
+        },
+      ],
+    };
+
+    const resp = await this.es.search<any>({
+      index: this.esIndex,
+      body,
+    });
+
+    const hits = (resp as any).hits?.hits ?? [];
+    const totalHits = (resp as any).hits?.total?.value ?? hits.length;
+
+    const items: SearchResultItem[] = hits.map((hit: any) => {
+      const src = hit._source || {};
+
+      let chordsValue = 0;
+      if (typeof src.Chords === "number") {
+        chordsValue = src.Chords;
+      } else if (typeof src.Chords === "string") {
+        const parsed = parseInt(src.Chords, 10);
+        if (!Number.isNaN(parsed)) {
+          chordsValue = parsed;
+        }
+      }
+
+      let partitureValue = 0;
+      if (typeof src.Partiture === "number") {
+        partitureValue = src.Partiture > 0 ? 1 : 0;
+      } else if (typeof src.Partiture === "string") {
+        const parsed = parseInt(src.Partiture, 10);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          partitureValue = 1;
+        }
+      }
+
+      return {
+        song_id: src.Song_ID ?? 0,
+        title: src.Title ?? "",
+        firstLyrics: src.FirstLyrics ?? "",
+        lyrics: src.Lyrics ?? "",
+        characteristics: src.Characteristics ?? "",
+        originalKey: "", // Δεν υπάρχει στο παλιό index
+        chords: chordsValue,
+        partiture: partitureValue,
+        status: "", // Το παλιό index δεν είχε Status – κρατάμε κενό
+        score: typeof hit._score === "number" ? hit._score : 0,
+      };
+    });
+
+    return {
+      total: totalHits,
+      items,
+    };
+  }
+
+  // ----------------- Δημόσιο API -----------------
+
+  async search(params: SearchParams): Promise<SearchResult> {
+    const q = (params.q || "").trim();
+    const skip = params.skip ?? 0;
+    const take = params.take ?? 20;
+    const createdByUserId = params.createdByUserId;
+
+    // 0) Αν έχουμε createdByUserId -> ΠΑΝΤΑ Postgres (όπως πριν)
+    //    Εδώ αφήνουμε ΟΛΑ τα status, γιατί είναι προσωπική λίστα χρήστη.
+    if (typeof createdByUserId === "number") {
+      const where: Prisma.SongWhereInput = {
+        createdByUserId,
+      };
+
+      if (q) {
+        where.OR = [
+          { title: { contains: q, mode: "insensitive" } },
+          { firstLyrics: { contains: q, mode: "insensitive" } },
+          { lyrics: { contains: q, mode: "insensitive" } },
+        ];
+      }
+
+      const [songs, total] = await Promise.all([
+        this.prisma.song.findMany({
+          where,
+          skip,
+          take,
+          orderBy: [{ title: "asc" }],
+        }),
+        this.prisma.song.count({ where }),
+      ]);
+
+      return {
+        total,
+        items: songs.map((s) => this.mapSongWithoutScore(s)),
+      };
+    }
+
+    // 1) Global search με q -> Elasticsearch (ίδια λογική με παλιό site)
+    if (q) {
+      try {
+        return await this.searchElasticWithQuery(q, skip, take);
+      } catch (err) {
+        this.logger.error(
+          `Elasticsearch search failed, falling back to Postgres. Error: ${
+            (err as Error).message
+          }`,
+        );
+        // Fallback σε Postgres για να μην "σπάσει" ποτέ η σελίδα
+        return this.searchPostgresWithQuery(q, skip, take);
+      }
+    }
+
+    // 2) Χωρίς q -> απλό Postgres (όπως πριν, π.χ. λίστα με αλφαβητική σειρά)
+    return this.searchPostgresWithQuery("", skip, take);
   }
 }

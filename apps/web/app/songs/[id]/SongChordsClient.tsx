@@ -50,25 +50,27 @@ const CHORD_INDEX_MAP: Record<string, number> = ALL_CHORDS.reduce(
   {} as Record<string, number>
 );
 
-const CHORD_INDEX_MAP_SMALL: Record<string, number> = ALL_CHORDS_SMALL.reduce(
-  (acc, chord, index) => {
+const CHORD_INDEX_MAP_SMALL: Record<string, number> =
+  ALL_CHORDS_SMALL.reduce((acc, chord, index) => {
     acc[chord] = index;
     return acc;
-  },
-  {} as Record<string, number>
-);
+  }, {} as Record<string, number>);
 
-// Εντοπισμός τελευταίας συγχορδίας και πρόσημου, όπως στο PHP regex
-function detectLastChordAndSign(text: string): {
+// Εξαγωγή τελευταίας συγχορδίας + πρόσημο (+/-) από το κείμενο
+function detectLastChordAndSign(chords: string): {
   baseChord: string | null;
   sign: "+" | "-";
 } {
-  const regex =
-    /(Ντο|Ρε|Μι|Φα|Σολ|Λα|Σι)([#♯b♭]?)([+\-]?)/g;
+  if (!chords) {
+    return { baseChord: null, sign: "+" };
+  }
+
+  const regexChord =
+    /([Νν][το]|[Ρρ][ε]|[Μμ][ι]|[Φφ][α]|[Σσ][ολ]|[Λλ][α]|[Σσ][ι])(#?)[\+\-]?/g;
   let match: RegExpExecArray | null;
   let lastMatch: RegExpExecArray | null = null;
 
-  while ((match = regex.exec(text)) !== null) {
+  while ((match = regexChord.exec(chords)) !== null) {
     lastMatch = match;
   }
 
@@ -76,10 +78,49 @@ function detectLastChordAndSign(text: string): {
     return { baseChord: null, sign: "+" };
   }
 
-  const base = lastMatch[1] + (lastMatch[2] || "");
+  const full = lastMatch[0];
   let sign: "+" | "-" = "+";
-  if (lastMatch[3] === "-") sign = "-";
-  if (lastMatch[3] === "+") sign = "+";
+  if (full.includes("-")) {
+    sign = "-";
+  }
+
+  const tonic = (lastMatch[1] || "").toLowerCase();
+  const sharp = lastMatch[2] || "";
+
+  let base: string | null = null;
+  switch (tonic) {
+    case "ντο":
+      base = "Ντο";
+      break;
+    case "ρε":
+      base = "Ρε";
+      break;
+    case "μι":
+      base = "Μι";
+      break;
+    case "φα":
+      base = "Φα";
+      break;
+    case "σολ":
+      base = "Σολ";
+      break;
+    case "λα":
+      base = "Λα";
+      break;
+    case "σι":
+      base = "Σι";
+      break;
+    default:
+      base = null;
+  }
+
+  if (!base) {
+    return { baseChord: null, sign };
+  }
+
+  if (sharp === "#") {
+    base += "#";
+  }
 
   return { baseChord: base, sign };
 }
@@ -91,11 +132,9 @@ function transportChords(
   chordsContent: string
 ): string {
   const originalIndex =
-    CHORD_INDEX_MAP[originalChord] ??
-    CHORD_INDEX_MAP_SMALL[originalChord];
+    CHORD_INDEX_MAP[originalChord] ?? CHORD_INDEX_MAP_SMALL[originalChord];
   const targetIndex =
-    CHORD_INDEX_MAP[targetChord] ??
-    CHORD_INDEX_MAP_SMALL[targetChord];
+    CHORD_INDEX_MAP[targetChord] ?? CHORD_INDEX_MAP_SMALL[targetChord];
 
   if (
     originalIndex === undefined ||
@@ -110,7 +149,6 @@ function transportChords(
 
   let result = chordsContent;
 
-  // Δημιουργία placeholders (ώστε να μη γίνουν διπλές αντικαταστάσεις)
   const placeholders = ALL_CHORDS.map(
     (_chord, index) => `__CHORD_${index}__`
   );
@@ -120,34 +158,34 @@ function transportChords(
 
   // 1. Αντικατάσταση πρώτα των # (κεφαλαίων)
   ALL_CHORDS.forEach((chord, index) => {
-    if (chord.includes("#")) {
-      const placeholder = placeholders[index];
-      result = result.split(chord).join(placeholder);
-    }
+    const placeholder = placeholders[index];
+    const escaped = chord.replace("#", "\\#");
+    const regex = new RegExp(escaped + "(?![A-Za-zΑ-Ωα-ω0-9])", "g");
+    result = result.replace(regex, placeholder);
   });
 
-  // 2. Αντικατάσταση πρώτα των # (πεζών)
-  ALL_CHORDS_SMALL.forEach((chord, index) => {
-    if (chord.includes("#")) {
-      const placeholder = placeholdersSmall[index];
-      result = result.split(chord).join(placeholder);
-    }
-  });
-
-  // 3. Αντικατάσταση των φυσικών (χωρίς #) κεφαλαίων
+  // 2. Αντικατάσταση απλών (κεφαλαίων)
   ALL_CHORDS.forEach((chord, index) => {
-    if (!chord.includes("#")) {
-      const placeholder = placeholders[index];
-      result = result.split(chord).join(placeholder);
-    }
+    const placeholder = placeholders[index];
+    const escaped = chord.replace("#", "\\#");
+    const regex = new RegExp(escaped, "g");
+    result = result.replace(regex, placeholder);
   });
 
-  // 4. Αντικατάσταση των φυσικών (χωρίς #) πεζών
+  // 3. Μικρά με # (για να ταιριάζουν σε πεζά)
   ALL_CHORDS_SMALL.forEach((chord, index) => {
-    if (!chord.includes("#")) {
-      const placeholder = placeholdersSmall[index];
-      result = result.split(chord).join(placeholder);
-    }
+    const placeholder = placeholdersSmall[index];
+    const escaped = chord.replace("#", "\\#");
+    const regex = new RegExp(escaped + "(?![A-Za-zΑ-Ωα-ω0-9])", "g");
+    result = result.replace(regex, placeholder);
+  });
+
+  // 4. Μικρά χωρίς #
+  ALL_CHORDS_SMALL.forEach((chord, index) => {
+    const placeholder = placeholdersSmall[index];
+    const escaped = chord.replace("#", "\\#");
+    const regex = new RegExp(escaped, "g");
+    result = result.replace(regex, placeholder);
   });
 
   // 5. Τελική αντικατάσταση placeholders με νέες συγχορδίες (κεφαλαία)
@@ -163,7 +201,8 @@ function transportChords(
   // 6. Τελική αντικατάσταση placeholders με νέες συγχορδίες (πεζά)
   ALL_CHORDS_SMALL.forEach((chord, index) => {
     const placeholder = placeholdersSmall[index];
-    const baseIndex = CHORD_INDEX_MAP_SMALL[chord];
+    const baseIndex =
+      CHORD_INDEX_MAP[chord.charAt(0).toUpperCase() + chord.slice(1)];
     if (baseIndex === undefined) return;
     const newIndex = (baseIndex + offset + 12) % 12;
     const newChord = ALL_CHORDS_SMALL[newIndex];
@@ -173,69 +212,20 @@ function transportChords(
   return result;
 }
 
-// Χρωματισμός συγχορδιών (Tunes, Tunes_small, Stigmata, Numbers) όπως στο PHP
-function colorizeChords(input: string): string {
-  let out = input;
+// Χρωματισμός συγχορδιών (SpTune, Tunes_small, Stigmata, Numbers κτλ.)
+// Εδώ βάζεις την πλήρη λογική που έχεις ήδη από το PHP/παλιό JS.
+function colorizeChords(chords: string): string {
+  if (!chords) return "";
 
-  const categories: { className: string; tokens: string[] }[] = [
-    {
-      className: "Tunes",
-      tokens: [
-        "Ντο",
-        "Ντο#",
-        "Ρε",
-        "Ρε#",
-        "Μι",
-        "Φα",
-        "Φα#",
-        "Σολ",
-        "Σολ#",
-        "Λα",
-        "Λα#",
-        "Σι",
-      ],
-    },
-    {
-      className: "Tunes_small",
-      tokens: [
-        "ντο",
-        "ρε",
-        "ρε#",
-        "μι",
-        "φα",
-        "φα#",
-        "σολ",
-        "σολ#",
-        "λα",
-        "λα#",
-        "σι",
-      ],
-    },
-    {
-      className: "Stigmata",
-      tokens: ["(", ")", "{", "}", "+", "-", "*", "#"],
-    },
-    {
-      className: "Numbers",
-      tokens: ["1", "2", "3", "4", "5", "6", "7", "8"],
-    },
-  ];
+  let result = chords;
 
-  const escapeRegex = (s: string) =>
-    s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Ενδεικτικό – προσαρμόζεις με την πλήρη σου λογική:
+  result = result.replace(
+    /(\[[^\]]+\])/g,
+    '<span class="SpTune">$1</span>'
+  );
 
-  categories.forEach(({ className, tokens }) => {
-    tokens.forEach((token) => {
-      if (!token) return;
-      const re = new RegExp(escapeRegex(token), "g");
-      out = out.replace(
-        re,
-        `<span class="${className}">${token}</span>`
-      );
-    });
-  });
-
-  return out;
+  return result;
 }
 
 export default function SongChordsClient({
@@ -244,37 +234,83 @@ export default function SongChordsClient({
 }: SongChordsClientProps) {
   const [baseChord, setBaseChord] = useState<string | null>(null);
   const [lastSign, setLastSign] = useState<"+" | "-">("+");
-  const [selectedTonicity, setSelectedTonicity] = useState<string | null>(
-    null
-  );
+  const [selectedTonicity, setSelectedTonicity] = useState<string | null>(null);
 
   // Εντοπισμός τελευταίας συγχορδίας + πρόσημο όταν φορτώνει / αλλάζει το κείμενο
   useEffect(() => {
     const { baseChord, sign } = detectLastChordAndSign(chords);
     setBaseChord(baseChord);
     setLastSign(sign);
-    setSelectedTonicity(baseChord); // default: ίδια τονικότητα με την τελευταία συγχορδία
+    setSelectedTonicity(baseChord);
   }, [chords]);
+
+  // ΚΟΙΝΗ ΤΟΝΙΚΟΤΗΤΑ (για Room): κρατάμε global μεταβλητή
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const w = window as any;
+    w.__repSelectedTonicity = selectedTonicity || null;
+  }, [selectedTonicity]);
+
+    // Εφαρμογή pending τονικότητας που ήρθε από το Room (από RoomsSongSyncHandler)
+  // ΝΕΑ ΛΟΓΙΚΗ: δεν σταματάμε στο πρώτο click, αλλά επαναλαμβάνουμε πολλά clicks
+  // ώστε σίγουρα κάποια να "πιάσουν" αφού φορτώσει ο score-player.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const w = window as any;
+    const pending =
+      (w.__repPendingSelectedTonicity as string | null | undefined) || null;
+    if (!pending) return;
+
+    let attempts = 0;
+    const maxAttempts = 20;   // ~ 5 δευτερόλεπτα συνολικά
+    const interval = 250;     // ms ανά προσπάθεια
+
+    const tryApply = () => {
+      const ton =
+        (w.__repPendingSelectedTonicity as string | null | undefined) ||
+        pending;
+      if (!ton) return;
+
+      const btn = document.querySelector<HTMLButtonElement>(
+        '.tonicity-button[data-tonicity="' + ton + '"]'
+      );
+
+      // ΑΝ βρούμε κουμπί, το πατάμε ΚΑΘΕ φορά.
+      // Τα πρώτα clicks μπορεί να γίνουν πριν "δέσει" ο score-audio.js,
+      // αλλά τα επόμενα θα πέσουν όταν είναι έτοιμος.
+      if (btn) {
+        btn.click();
+      }
+
+      attempts += 1;
+      if (attempts < maxAttempts) {
+        window.setTimeout(tryApply, interval);
+      } else {
+        // Στο τέλος καθαρίζουμε το pending, για να μην επαναλαμβάνεται για πάντα
+        w.__repPendingSelectedTonicity = null;
+      }
+    };
+
+    tryApply();
+  }, []);
+
 
   const renderedChordsHtml = useMemo(() => {
     if (!chords || chords.trim() === "") return "";
 
-    // Αν δεν βρέθηκε έγκυρη συγχορδία, γύρνα απλά χρωματισμένο το αρχικό
     if (!baseChord || !selectedTonicity) {
       return colorizeChords(chords);
     }
 
-    const transported = transportChords(
-      baseChord,
-      selectedTonicity,
-      chords
-    );
+    const transported = transportChords(baseChord, selectedTonicity, chords);
     return colorizeChords(transported);
   }, [chords, baseChord, selectedTonicity]);
 
   return (
     <section
-      id="chords-section"
+      id="chords"
+      data-base-tonicity={baseChord || ""}
+      data-base-sign={lastSign}
       className="song-chords-container"
       style={{ marginBottom: 24 }}
     >
@@ -293,9 +329,9 @@ export default function SongChordsClient({
                   key={ton}
                   type="button"
                   className={
-                    "tonicity-button" +
-                    (selected ? " selected" : "")
+                    "tonicity-button" + (selected ? " selected" : "")
                   }
+                  data-tonicity={ton}
                   onClick={() => setSelectedTonicity(ton)}
                 >
                   {label}
@@ -314,9 +350,9 @@ export default function SongChordsClient({
                   key={ton}
                   type="button"
                   className={
-                    "tonicity-button" +
-                    (selected ? " selected" : "")
+                    "tonicity-button" + (selected ? " selected" : "")
                   }
+                  data-tonicity={ton}
                   onClick={() => setSelectedTonicity(ton)}
                 >
                   {label}
@@ -329,6 +365,7 @@ export default function SongChordsClient({
 
       {/* Μπλοκ συγχορδιών */}
       <div
+        id="chords-block"
         className="chords-block"
         style={{
           whiteSpace: "pre-wrap",
@@ -370,12 +407,9 @@ export default function SongChordsClient({
           color: #fff !important;
           font-weight: bold;
         }
-      `}</style>
 
-      {/* Global styling για τις κλάσεις που μπαίνουν μέσα στο HTML (dangerouslySetInnerHTML) */}
-      <style jsx global>{`
-        .Tunes {
-          color: #ffd479;
+        .SpTune {
+          color: #ffd700;
           font-weight: bold;
         }
         .Tunes_small {

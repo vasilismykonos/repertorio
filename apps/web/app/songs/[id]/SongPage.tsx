@@ -3,6 +3,7 @@ import { fetchJson } from "@/lib/api";
 import SongChordsClient from "./SongChordsClient";
 import SongInfoToggle from "./SongInfoToggle";
 import ScorePlayerClient from "./score/ScorePlayerClient";
+import SongSendToRoomButton from "./SongSendToRoomButton";
 
 type SongVersion = {
   id: number;
@@ -179,8 +180,6 @@ export default async function SongPage({ params }: SongPageProps) {
   )}&app=revanced`;
 
   // Ρύθμισε εδώ τη διαδρομή του αρχείου παρτιτούρας
-  // ανάλογα με το πώς τα έχεις ονομάσει στο /public/scores ή στο API.
-  // Π.χ. 294.mxl -> /scores/294.mxl
   const scoreFileUrl = `/scores/${song.id}.mxl`;
 
   return (
@@ -191,7 +190,7 @@ export default async function SongPage({ params }: SongPageProps) {
         margin: "0 auto",
       }}
     >
-      {/* Κουμπιά πάνω δεξιά – Παρτιτούρα / YouTube */}
+      {/* Κουμπιά πάνω δεξιά – Παρτιτούρα / YouTube / Αποστολή στο Room */}
       <div
         style={{
           display: "flex",
@@ -200,7 +199,11 @@ export default async function SongPage({ params }: SongPageProps) {
           marginBottom: 16,
         }}
       >
-        {/* Προαιρετικό: link για full-screen παρτιτούρα, π.χ. /songs/[id]/score */}
+        {/* Κουμπί αποστολής στους χρήστες του room.
+            Βασίζεται στο SongSendToRoomButton που καλεί RepRoomsSendSong */}
+        <SongSendToRoomButton songId={song.id} title={song.title} />
+
+        {/* Προαιρετικό: link για full-screen παρτιτούρα */}
         <a
           href={`/songs/${song.id}/score`}
           target="_blank"
@@ -246,7 +249,7 @@ export default async function SongPage({ params }: SongPageProps) {
         </h1>
       </header>
 
-      {/* Διαχωριστική γραμμή (σαν search-results-linedown) */}
+      {/* Διαχωριστική γραμμή */}
       <div
         style={{
           height: 1,
@@ -255,7 +258,7 @@ export default async function SongPage({ params }: SongPageProps) {
         }}
       />
 
-      {/* INFO ΠΑΝΩ ΑΠΟ ΤΙΣ ΣΥΓΧΟΡΔΙΕΣ – αντίστοιχο display_info + display_rythm + versions */}
+      {/* INFO */}
       <SongInfoToggle
         categoryTitle={song.categoryTitle}
         composerName={song.composerName}
@@ -269,12 +272,12 @@ export default async function SongPage({ params }: SongPageProps) {
         versions={song.versions}
       />
 
-      {/* Συγχορδίες με transporto (αν υπάρχουν) */}
+      {/* Συγχορδίες */}
       {song.chords && song.chords.trim() !== "" && (
         <SongChordsClient chords={song.chords} originalKey={song.originalKey} />
       )}
 
-      {/* Στίχοι (με λογική Οργανικό / Χωρίς στίχους) */}
+      {/* Στίχοι */}
       <section style={{ marginTop: 24, marginBottom: 32 }}>
         <pre
           style={{
@@ -292,7 +295,7 @@ export default async function SongPage({ params }: SongPageProps) {
         </pre>
       </section>
 
-      {/* ===== Παρτιτούρα ΚΑΤΩ από τους στίχους, ΜΕ embed του ScorePlayerClient ===== */}
+      {/* Παρτιτούρα */}
       <section id="score-section" style={{ marginTop: "32px" }}>
         <h2
           style={{
@@ -304,7 +307,6 @@ export default async function SongPage({ params }: SongPageProps) {
           Παρτιτούρα
         </h2>
 
-        {/* Εδώ ΔΕΝ χρησιμοποιούμε iframe, μόνο τον client player */}
         <ScorePlayerClient fileUrl={scoreFileUrl} title={song.title} />
       </section>
 

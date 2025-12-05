@@ -23,7 +23,8 @@ type SongsSearchResponse = {
 
 export const metadata = {
   title: "Τραγούδια | Repertorio Next",
-  description: "Λίστα τραγουδιών από το νέο NestJS API (PostgreSQL / Elasticsearch).",
+  description:
+    "Λίστα τραγουδιών από το νέο NestJS API (PostgreSQL / Elasticsearch).",
 };
 
 type SongsPageProps = {
@@ -32,6 +33,7 @@ type SongsPageProps = {
     search_term?: string;
     skip?: string;
     take?: string;
+    createdByUserId?: string; // <-- προσθήκη
   };
 };
 
@@ -42,6 +44,13 @@ export default async function SongsPage({ searchParams }: SongsPageProps) {
   // Υποστήριξη και q και search_term από το URL
   const q = (searchParams?.q || searchParams?.search_term || "").trim();
 
+  // ΝΕΟ: υποστήριξη φίλτρου createdByUserId
+  const createdByUserIdRaw = searchParams?.createdByUserId;
+  const createdByUserId =
+    createdByUserIdRaw && !Number.isNaN(Number(createdByUserIdRaw))
+      ? Number(createdByUserIdRaw)
+      : undefined;
+
   // Χτίζουμε τα query params για το Nest API
   const params = new URLSearchParams();
   params.set("take", String(take));
@@ -49,10 +58,13 @@ export default async function SongsPage({ searchParams }: SongsPageProps) {
   if (q) {
     params.set("q", q);
   }
+  if (createdByUserId !== undefined) {
+    params.set("createdByUserId", String(createdByUserId));
+  }
 
-  // Καλούμε το NestJS API: /api/v1/songs/search
+  // Καλούμε το NestJS API: /songs/search (proxy μέσω web)
   const data = await fetchJson<SongsSearchResponse>(
-    "/songs/search?" + params.toString()
+    "/songs/search?" + params.toString(),
   );
 
   const songs = data.items;
@@ -70,11 +82,20 @@ export default async function SongsPage({ searchParams }: SongsPageProps) {
           Τραγούδια
         </h1>
         <p style={{ opacity: 0.8 }}>
-          Τα δεδομένα προέρχονται ζωντανά από το νέο NestJS API (PostgreSQL / Elasticsearch).
+          Τα δεδομένα προέρχονται ζωντανά από το νέο NestJS API (PostgreSQL /
+          Elasticsearch).
         </p>
+
         {q && (
           <p style={{ marginTop: 8 }}>
             Φράση αναζήτησης: <strong>{q}</strong> (σύνολο: {data.total})
+          </p>
+        )}
+
+        {createdByUserId !== undefined && (
+          <p style={{ marginTop: 4 }}>
+            Φιλτραρισμένα τραγούδια του χρήστη με ID{" "}
+            <strong>{createdByUserId}</strong> (σύνολο: {data.total})
           </p>
         )}
       </header>

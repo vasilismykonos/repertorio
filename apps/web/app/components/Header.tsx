@@ -421,29 +421,27 @@ export default function Header() {
 
           {/* ΔΕΞΙΑ ΚΟΥΜΠΙΑ – Room, Avatar, Menu */}
           <div className="header-buttons">
+            {/* Κουμπί Rooms */}
             <Link
               href="/rooms"
-              style={{ textDecoration: "none", color: "#fff" }}
-              title="Rooms"
+              className="rooms-button"
+              title={currentRoomName ? `Rooms: ${currentRoomName}` : "Rooms"}
             >
-              <span
-                style={{
-                  fontSize: 14,
-                  whiteSpace: "nowrap",
-                }}
-              >
+              <span className="rooms-icon">
                 {!isLoggedIn || !currentRoomName
-                  ? "🔄Σύνδεση"
+                  ? "🔄"
                   : roomUserCount != null && roomUserCount > 0
                   ? `🔄${roomUserCount}`
                   : "🔄"}
               </span>
             </Link>
 
+
             {/* AVATAR HEADER */}
             <button
               type="button"
               onClick={() => (isLoggedIn ? signOut() : signIn("google"))}
+
               title={isLoggedIn ? "Αποσύνδεση" : "Σύνδεση με Google"}
               style={{
                 width: 30,

@@ -14,13 +14,15 @@ export default function ScorePlayerClient({ fileUrl, title }: Props) {
     <div className="score-player-embed">
       {/* Wrapper του παλιού Repertorio score player */}
       <div className="score-player-wrap">
+        {/* Τίτλος όπως στο παλιό plugin */}
+        {title && <div className="score-player-title">{title}</div>}
+
         <div
           className="score-player sp-mode-horizontal"
           data-file={safeFileUrl}
-          data-title={title}
           data-transpose="0"
         >
-          {/* --- Κουμπιά plugin --- */}
+          {/* ΠΑΝΩ ΣΕΙΡΑ: Transport + Προβολή (ίδια markup με το παλιό site) */}
           <div className="sp-controls sp-controls-view">
             <div className="sp-transport-top">
               <button type="button" className="sp-btn sp-play" title="Play">
@@ -37,7 +39,7 @@ export default function ScorePlayerClient({ fileUrl, title }: Props) {
             <div
               className="sp-view-toggle"
               role="group"
-              aria-label="Προβολή παρτιτούρας"
+              aria-label="Προβολή"
             >
               <button
                 type="button"
@@ -58,85 +60,92 @@ export default function ScorePlayerClient({ fileUrl, title }: Props) {
             </div>
           </div>
 
-          <div className="sp-controls sp-controls-main">
+          {/* ΚΑΤΩ ΣΕΙΡΑ: Transpose + Tempo + Zoom (ακριβές clone του παλιού HTML) */}
+          <div className="sp-controls">
             {/* Transpose */}
-            <div className="sp-transpose-wrap">
-              <span style={{ marginRight: 4 }}>Μεταφορά:</span>
-              <button
-                type="button"
-                className="sp-btn sp-transpose-down"
-                title="Μεταφορά -1"
-              >
-                −
-              </button>
-              <span className="sp-transpose-val">0</span>
-              <button
-                type="button"
-                className="sp-btn sp-transpose-up"
-                title="Μεταφορά +1"
-              >
-                +
-              </button>
-            </div>
+            <button
+              type="button"
+              className="sp-btn sp-transpose-down"
+              title="Transpose −1"
+            >
+              −
+            </button>
+            <span
+              className="sp-key-badge"
+              aria-live="polite"
+              title="Τονικότητα (μετά το transpose)"
+            />
+            <button
+              type="button"
+              className="sp-btn sp-transpose-up"
+              title="Transpose +1"
+            >
+              +
+            </button>
+
+            <div className="sp-sep" />
 
             {/* Tempo */}
-            <div className="sp-tempo-wrap">
-              <span style={{ marginLeft: 12, marginRight: 4 }}>Tempo:</span>
+            <label className="sp-tempo-wrap">
               <button
                 type="button"
                 className="sp-btn sp-tempo-dec"
-                title="Πιο αργά"
+                title="Tempo −5"
               >
                 −
               </button>
-              <input
-                type="number"
-                className="sp-tempo"
-                defaultValue={120}
-                min={30}
-                max={300}
-                step={1}
-                style={{ width: 60 }}
-              />
+
+              <span className="sp-tempo-box">
+                <input
+                  className="sp-tempo"
+                  type="text"
+                  min={1}
+                  max={400}
+                  step={1}
+                  defaultValue={80}
+                />
+                <span className="sp-tempo-unit">bpm</span>
+              </span>
+
               <button
                 type="button"
                 className="sp-btn sp-tempo-inc"
-                title="Πιο γρήγορα"
+                title="Tempo +5"
               >
                 +
               </button>
-              <span className="sp-tempo-val">120 BPM</span>
-            </div>
+            </label>
+
+            <div className="sp-sep" />
 
             {/* Zoom */}
-            <div className="sp-zoom-wrap">
-              <span style={{ marginLeft: 12, marginRight: 4 }}>Zoom:</span>
-              <input
-                type="number"
-                className="sp-zoom"
-                defaultValue={100}
-                min={30}
-                max={200}
-                step={10}
-                style={{ width: 60 }}
-              />
-            </div>
+            <label className="sp-zoom-wrap">
+              <button
+                type="button"
+                className="sp-btn sp-zoom-out"
+                title="Zoom −10%"
+              >
+                −
+              </button>
 
-            {/* Τονικότητα */}
-            <div
-              className="sp-tonality-wrap"
-              style={{ marginLeft: 16, display: "inline-flex", gap: 4 }}
-            >
-              <span className="sp-tonality-label">Τονικότητα:</span>
-              <span className="sp-tonality">—</span>
-            </div>
+              <span className="sp-zoom-box">
+                <input className="sp-zoom" type="text" defaultValue={100} />
+                <span className="sp-zoom-suffix">%</span>
+              </span>
 
-            {/* Προαιρετικό κουμπί εκτύπωσης, αν το χρησιμοποιείς */}
+              <button
+                type="button"
+                className="sp-btn sp-zoom-in"
+                title="Zoom +10%"
+              >
+                +
+              </button>
+            </label>
+
             <button
               type="button"
               className="sp-btn sp-print"
               title="Εκτύπωση παρτιτούρας"
-              style={{ marginLeft: 12 }}
             >
               🖨
             </button>
@@ -163,8 +172,8 @@ export default function ScorePlayerClient({ fileUrl, title }: Props) {
         src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
         strategy="afterInteractive"
       />
+
       <Script src="/score-player/sp-constants.js" strategy="afterInteractive" />
-      <Script src="/score-player/sp-utils.js" strategy="afterInteractive" />
       <Script src="/score-player/score-visual.js" strategy="afterInteractive" />
       <Script
         src="/score-player/score-analysis.js"

@@ -1,5 +1,5 @@
-// src/songs/songs-search.controller.ts
-import { Controller, Get, Req } from "@nestjs/common";
+// apps/api/src/songs/songs-search.controller.ts
+import { Controller, Get, Query } from "@nestjs/common";
 import { SongsSearchService } from "./songs-search.service";
 
 @Controller("songs")
@@ -7,36 +7,35 @@ export class SongsSearchController {
   constructor(private readonly songsSearchService: SongsSearchService) {}
 
   @Get("search")
-  async search(@Req() req: any) {
-    const qRaw = req.query?.q;
-    const skipRaw = req.query?.skip;
-    const takeRaw = req.query?.take;
+  async search(
+    @Query("q") q?: string,
+    @Query("skip") skip?: string,
+    @Query("take") take?: string,
+    @Query("createdByUserId") createdByUserId?: string,
+  ) {
+    const parsedSkip = skip ? parseInt(skip, 10) : 0;
+    const parsedTake = take ? parseInt(take, 10) : 20;
+    const parsedUserId = createdByUserId
+      ? parseInt(createdByUserId, 10)
+      : undefined;
 
-    // q: απλό string (ή undefined)
-    const q = typeof qRaw === "string" ? qRaw : undefined;
+    const skipNum = Number.isNaN(parsedSkip) || parsedSkip < 0 ? 0 : parsedSkip;
 
-    // skip: ασφαλές parse
-    let skip = 0;
-    if (typeof skipRaw === "string") {
-      const parsed = parseInt(skipRaw, 10);
-      if (!Number.isNaN(parsed) && parsed >= 0) {
-        skip = parsed;
-      }
-    }
+    // Φρένο στο take για να μην “σκοτώνεται” η DB/ES
+    let takeNum = Number.isNaN(parsedTake) ? 20 : parsedTake;
+    if (takeNum <= 0) takeNum = 20;
+    if (takeNum > 100) takeNum = 100;
 
-    // take: ασφαλές parse, όριο 200
-    let take = 50;
-    if (typeof takeRaw === "string") {
-      const parsed = parseInt(takeRaw, 10);
-      if (!Number.isNaN(parsed) && parsed > 0 && parsed <= 200) {
-        take = parsed;
-      }
-    }
+    const userIdNum =
+      parsedUserId !== undefined && !Number.isNaN(parsedUserId)
+        ? parsedUserId
+        : undefined;
 
     return this.songsSearchService.search({
       q,
-      skip,
-      take,
+      skip: skipNum,
+      take: takeNum,
+      createdByUserId: userIdNum,
     });
   }
 }

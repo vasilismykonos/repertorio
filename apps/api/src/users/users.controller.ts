@@ -8,7 +8,7 @@ import {
   Patch,
   Query,
 } from "@nestjs/common";
-import { UsersService } from "./users.service";
+import { UsersService, ListUsersOptions } from "./users.service";
 import { UserRole } from "./user-role.enum";
 
 @Controller("users")
@@ -20,21 +20,18 @@ export class UsersController {
     @Query("search") search?: string,
     @Query("page") page = "1",
     @Query("pageSize") pageSize = "10",
-    @Query("orderby") orderby = "displayName",
+    @Query("sort") sort = "displayName",
     @Query("order") order: "asc" | "desc" = "asc",
   ) {
-    const pageNumber = Number(page) || 1;
-    const pageSizeNumber = Number(pageSize) || 10;
-
-    const sort = orderby || "displayName";
-
-    return this.usersService.listUsers({
-      search,
-      page: pageNumber,
-      pageSize: pageSizeNumber,
+    const options: ListUsersOptions = {
+      search: search?.trim() || undefined,
+      page: Number(page) || 1,
+      pageSize: Number(pageSize) || 10,
       sort,
-      order,
-    });
+      order: order === "desc" ? "desc" : "asc",
+    };
+
+    return this.usersService.listUsers(options);
   }
 
   @Get(":id")
@@ -49,6 +46,7 @@ export class UsersController {
     body: {
       displayName?: string;
       role?: UserRole;
+      avatarUrl?: string | null;
     },
   ) {
     return this.usersService.updateUser(id, body);
