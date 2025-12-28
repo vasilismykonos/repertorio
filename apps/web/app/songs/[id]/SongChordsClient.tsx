@@ -56,6 +56,69 @@ const CHORD_INDEX_MAP_SMALL: Record<string, number> =
     return acc;
   }, {} as Record<string, number>);
 
+// Normalization helper για ελληνικά ονόματα συγχορδιών
+function normalizeGreekChordName(name: string): string | null {
+  const t = name.trim().toLowerCase();
+
+  switch (t) {
+    case "ντο":
+      return "Ντο";
+    case "ντο#":
+      return "Ντο#";
+    case "ρε":
+      return "Ρε";
+    case "ρε#":
+      return "Ρε#";
+    case "μι":
+      return "Μι";
+    case "φα":
+      return "Φα";
+    case "φα#":
+      return "Φα#";
+    case "σολ":
+      return "Σολ";
+    case "σολ#":
+      return "Σολ#";
+    case "λα":
+      return "Λα";
+    case "λα#":
+      return "Λα#";
+    case "σι":
+      return "Σι";
+    default:
+      return null;
+  }
+}
+
+// Ανάλυση πεδίου originalKey σε (βάση, πρόσημο)
+function parseOriginalKey(
+  originalKey?: string | null
+): { baseChord: string | null; sign: "+" | "-" } {
+  if (!originalKey) {
+    return { baseChord: null, sign: "+" };
+  }
+
+  const trimmed = originalKey.trim();
+  if (!trimmed) {
+    return { baseChord: null, sign: "+" };
+  }
+
+  // Παράδειγμα τιμών: "Λα-", "Λα -", "Ρε +", "Σολ+"
+  const regex =
+    /(Ντο#?|Ρε#?|Μι|Φα#?|Φα|Σολ#?|Σολ|Λα#?|Λα|Σι)\s*([+\-])?/i;
+  const match = trimmed.match(regex);
+
+  if (!match) {
+    return { baseChord: null, sign: "+" };
+  }
+
+  const chordRaw = match[1] || "";
+  const norm = normalizeGreekChordName(chordRaw);
+  const signChar = match[2] === "-" ? "-" : "+";
+
+  return { baseChord: norm, sign: signChar };
+}
+
 // Εξαγωγή τελευταίας συγχορδίας + πρόσημο (+/-) από το κείμενο
 function detectLastChordAndSign(chords: string): {
   baseChord: string | null;
@@ -213,13 +276,12 @@ function transportChords(
 }
 
 // Χρωματισμός συγχορδιών (SpTune, Tunes_small, Stigmata, Numbers κτλ.)
-// Εδώ βάζεις την πλήρη λογική που έχεις ήδη από το PHP/παλιό JS.
 function colorizeChords(chords: string): string {
   if (!chords) return "";
 
   let result = chords;
 
-  // Ενδεικτικό – προσαρμόζεις με την πλήρη σου λογική:
+  // Ενδεικτικό – εδώ θα μπει η πλήρης λογική σου όταν τη μεταφέρεις
   result = result.replace(
     /(\[[^\]]+\])/g,
     '<span class="SpTune">$1</span>'
@@ -236,13 +298,31 @@ export default function SongChordsClient({
   const [lastSign, setLastSign] = useState<"+" | "-">("+");
   const [selectedTonicity, setSelectedTonicity] = useState<string | null>(null);
 
-  // Εντοπισμός τελευταίας συγχορδίας + πρόσημο όταν φορτώνει / αλλάζει το κείμενο
+  // Εντοπισμός βάσης & πρόσημου:
+  // 1) Προτεραιότητα στο originalKey (γενική τονικότητα τραγουδιού)
+  // 2) Fallback στην τελευταία συγχορδία από το κείμενο
   useEffect(() => {
-    const { baseChord, sign } = detectLastChordAndSign(chords);
-    setBaseChord(baseChord);
-    setLastSign(sign);
-    setSelectedTonicity(baseChord);
-  }, [chords]);
+    // 1. Από originalKey, αν υπάρχει και είναι αναγνώσιμη
+    if (originalKey && originalKey.trim() !== "") {
+      const { baseChord: fromOrig, sign: signFromOrig } =
+        parseOriginalKey(originalKey);
+
+      if (fromOrig) {
+        setBaseChord(fromOrig);
+        setLastSign(signFromOrig);
+        setSelectedTonicity(fromOrig);
+        return;
+      }
+    }
+
+    // 2. Fallback: ανίχνευση από το κείμενο συγχορδιών
+    const { baseChord: autoBase, sign: autoSign } =
+      detectLastChordAndSign(chords);
+
+    setBaseChord(autoBase);
+    setLastSign(autoSign);
+    setSelectedTonicity(autoBase);
+  }, [chords, originalKey]);
 
   // ΚΟΙΝΗ ΤΟΝΙΚΟΤΗΤΑ (για Room): κρατάμε global μεταβλητή
   useEffect(() => {
@@ -251,9 +331,7 @@ export default function SongChordsClient({
     w.__repSelectedTonicity = selectedTonicity || null;
   }, [selectedTonicity]);
 
-    // Εφαρμογή pending τονικότητας που ήρθε από το Room (από RoomsSongSyncHandler)
-  // ΝΕΑ ΛΟΓΙΚΗ: δεν σταματάμε στο πρώτο click, αλλά επαναλαμβάνουμε πολλά clicks
-  // ώστε σίγουρα κάποια να "πιάσουν" αφού φορτώσει ο score-player.
+  // Εφαρμογή pending τονικότητας που ήρθε από το Room
   useEffect(() => {
     if (typeof window === "undefined") return;
     const w = window as any;
@@ -262,8 +340,8 @@ export default function SongChordsClient({
     if (!pending) return;
 
     let attempts = 0;
-    const maxAttempts = 20;   // ~ 5 δευτερόλεπτα συνολικά
-    const interval = 250;     // ms ανά προσπάθεια
+    const maxAttempts = 20; // ~5 δευτερόλεπτα
+    const interval = 250; // ms
 
     const tryApply = () => {
       const ton =
@@ -275,9 +353,6 @@ export default function SongChordsClient({
         '.tonicity-button[data-tonicity="' + ton + '"]'
       );
 
-      // ΑΝ βρούμε κουμπί, το πατάμε ΚΑΘΕ φορά.
-      // Τα πρώτα clicks μπορεί να γίνουν πριν "δέσει" ο score-audio.js,
-      // αλλά τα επόμενα θα πέσουν όταν είναι έτοιμος.
       if (btn) {
         btn.click();
       }
@@ -286,14 +361,12 @@ export default function SongChordsClient({
       if (attempts < maxAttempts) {
         window.setTimeout(tryApply, interval);
       } else {
-        // Στο τέλος καθαρίζουμε το pending, για να μην επαναλαμβάνεται για πάντα
         w.__repPendingSelectedTonicity = null;
       }
     };
 
     tryApply();
   }, []);
-
 
   const renderedChordsHtml = useMemo(() => {
     if (!chords || chords.trim() === "") return "";

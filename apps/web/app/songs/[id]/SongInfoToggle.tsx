@@ -9,9 +9,17 @@ type SongVersion = {
   singerBack?: string | null;
   solist?: string | null;
   youtubeSearch?: string | null;
+
+  // optional IDs για links προς artists
+  singerFrontId?: number | null;
+  singerBackId?: number | null;
+  solistId?: number | null;
 };
 
 type SongInfoToggleProps = {
+  // ✅ τίτλος τραγουδιού για το YouTube query
+  songTitle?: string | null;
+
   categoryTitle?: string | null;
   composerName?: string | null;
   lyricistName?: string | null;
@@ -24,15 +32,69 @@ type SongInfoToggleProps = {
   versions?: SongVersion[] | null;
 };
 
+function buildYouTubeSearchUrl(q: string): string {
+  const query = encodeURIComponent((q ?? "").trim());
+  return `https://www.youtube.com/results?search_query=${query}`;
+}
+
+// A+B+Solist (ό,τι υπάρχει)
+function buildArtistsTail(v: SongVersion): string {
+  const parts = [v.singerFront, v.singerBack, v.solist]
+    .map((s) => String(s ?? "").trim())
+    .filter(Boolean);
+
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function YouTubeButton({
+  href,
+  title = "Αναζήτηση στο YouTube",
+}: {
+  href: string;
+  title?: string;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title={title}
+      style={{
+        marginLeft: 10,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 34,
+        height: 24,
+        borderRadius: 6,
+        background: "#FF0000",
+        border: "1px solid rgba(0,0,0,0.25)",
+        textDecoration: "none",
+        boxShadow: "0 1px 2px rgba(0,0,0,0.35)",
+        verticalAlign: "middle",
+      }}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+        style={{ display: "block" }}
+      >
+        <path fill="#fff" d="M10 8.5v7l6-3.5-6-3.5z" />
+      </svg>
+    </a>
+  );
+}
+
 export default function SongInfoToggle(props: SongInfoToggleProps) {
-  // Όπως στο παλιό: οι πληροφορίες είναι ανοιχτές by default
   const [open, setOpen] = useState(true);
 
   const characteristicsArray = props.characteristics
     ? props.characteristics.split(",").map((c) => c.trim())
     : [];
 
-  // Fallbacks όπως στο παλιό get_field(...)
   const rythmText = props.rythmTitle || "Χωρίς ρυθμό";
   const categoryText = props.categoryTitle || "Χωρίς κατηγορία";
   const composerText = props.composerName || "Χωρίς συνθέτη";
@@ -40,7 +102,6 @@ export default function SongInfoToggle(props: SongInfoToggleProps) {
 
   return (
     <section style={{ marginBottom: 20 }}>
-      {/* Το κουμπί ℹ️ Info */}
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -57,7 +118,6 @@ export default function SongInfoToggle(props: SongInfoToggleProps) {
         ℹ️ <br /> Info
       </button>
 
-      {/* Το περιεχόμενο που ανοιγοκλείνει (σαν το #song-info του παλιού PHP) */}
       {open && (
         <div
           style={{
@@ -69,25 +129,11 @@ export default function SongInfoToggle(props: SongInfoToggleProps) {
             fontSize: "0.95rem",
           }}
         >
-          {/* Ρυθμός */}
           <div style={{ color: "darkgray" }}>Ρυθμός: {rythmText}</div>
+          <div style={{ color: "darkgray" }}>Κατηγορία: {categoryText}</div>
+          <div style={{ color: "darkgray" }}>Συνθέτης: {composerText}</div>
+          <div style={{ color: "darkgray" }}>Στιχουργός: {lyricistText}</div>
 
-          {/* Κατηγορία */}
-          <div style={{ color: "darkgray" }}>
-            Κατηγορία: {categoryText}
-          </div>
-
-          {/* Συνθέτης */}
-          <div style={{ color: "darkgray" }}>
-            Συνθέτης: {composerText}
-          </div>
-
-          {/* Στιχουργός */}
-          <div style={{ color: "darkgray" }}>
-            Στιχουργός: {lyricistText}
-          </div>
-
-          {/* Βασισμένο σε */}
           <div style={{ color: "darkgray" }}>
             Βασισμένο σε:{" "}
             {props.basedOnSongTitle ? (
@@ -106,7 +152,6 @@ export default function SongInfoToggle(props: SongInfoToggleProps) {
             )}
           </div>
 
-          {/* Χαρακτηριστικά */}
           {characteristicsArray.length > 0 && (
             <div style={{ marginTop: 8 }}>
               Χαρακτηριστικά:{" "}
@@ -128,84 +173,104 @@ export default function SongInfoToggle(props: SongInfoToggleProps) {
             </div>
           )}
 
-          {/* Προβολές */}
           <div style={{ marginTop: 8, opacity: 0.8 }}>
-            Προβολές:{" "}
-            {typeof props.views === "number" ? props.views : 0}
+            Προβολές: {typeof props.views === "number" ? props.views : 0}
           </div>
 
-          {/* Κατάσταση */}
           <div style={{ marginTop: 6, opacity: 0.8 }}>
-            Κατάσταση:{" "}
-            <strong>{props.status || "Καταχωρήθηκε"}</strong>
+            Κατάσταση: <strong>{props.status || "Καταχωρήθηκε"}</strong>
           </div>
 
-          {/* Δισκογραφία – όπως στο παλιό display_song_versions */}
           {props.versions && props.versions.length > 0 && (
             <div style={{ marginTop: 12 }}>
-              <div
-                style={{
-                  marginBottom: 6,
-                  fontWeight: 600,
-                  fontSize: "0.95rem",
-                }}
-              >
+              <div style={{ marginBottom: 6, fontWeight: 600, fontSize: "0.95rem" }}>
                 Δισκογραφία:
               </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                }}
-              >
-                {props.versions.map((v, index) => (
-                  <div
-                    key={v.id ?? index}
-                    style={{
-                      color: "#fff",
-                      fontSize: "0.9rem",
-                      background: "#111",
-                      padding: "6px 8px",
-                      borderRadius: 6,
-                      border: "1px solid #333",
-                    }}
-                  >
-                    <span>{index + 1}.</span>{" "}
-                    {v.singerFront && (
-                      <span>
-                        {" "}
-                        🎙️A: <strong>{v.singerFront}</strong>
-                      </span>
-                    )}
-                    {v.singerBack && (
-                      <span>
-                        {" "}
-                        🎙️B: <strong>{v.singerBack}</strong>
-                      </span>
-                    )}
-                    {v.solist && (
-                      <span>
-                        {" "}
-                        Σολίστας: <strong>{v.solist}</strong>
-                      </span>
-                    )}
-                    {v.year && <span> ({v.year})</span>}
-                    {v.youtubeSearch && (
-                      <a
-                        href={`https://www.youtube.com/results?search_query=${encodeURIComponent(
-                          v.youtubeSearch
-                        )}&app=revanced`}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ marginLeft: 10 }}
-                        title="Αναζήτηση στο YouTube"
-                      >
-                        ▶
-                      </a>
-                    )}
-                  </div>
-                ))}
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {props.versions.map((v, index) => {
+                  const baseTitle = String(props.songTitle ?? "").trim();
+                  const tail =
+                    String(v.youtubeSearch ?? "").trim() ||
+                    [v.singerFront, v.singerBack, v.solist]
+                      .map((s) => String(s ?? "").trim())
+                      .filter(Boolean)
+                      .join(" ")
+                      .replace(/\s+/g, " ")
+                      .trim();
+
+                  const ytQuery = [baseTitle, tail].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+                  const ytHref = ytQuery ? `https://www.youtube.com/results?search_query=${encodeURIComponent(ytQuery)}` : "";
+
+
+                  return (
+                    <div
+                      key={v.id ?? index}
+                      style={{
+                        color: "#fff",
+                        fontSize: "0.9rem",
+                        background: "#111",
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #333",
+                      }}
+                    >
+                      <span>{index + 1}.</span>{" "}
+                      {v.singerFront && (
+                        <span>
+                          {" "}
+                          🎙️A:{" "}
+                          {v.singerFrontId ? (
+                            <a
+                              href={`/artists/${v.singerFrontId}`}
+                              style={{ color: "#ddd", textDecoration: "underline" }}
+                            >
+                              <strong>{v.singerFront}</strong>
+                            </a>
+                          ) : (
+                            <strong>{v.singerFront}</strong>
+                          )}
+                        </span>
+                      )}
+                      {v.singerBack && (
+                        <span>
+                          {" "}
+                          🎙️B:{" "}
+                          {v.singerBackId ? (
+                            <a
+                              href={`/artists/${v.singerBackId}`}
+                              style={{ color: "#ddd", textDecoration: "underline" }}
+                            >
+                              <strong>{v.singerBack}</strong>
+                            </a>
+                          ) : (
+                            <strong>{v.singerBack}</strong>
+                          )}
+                        </span>
+                      )}
+                      {v.solist && (
+                        <span>
+                          {" "}
+                          Σολίστας:{" "}
+                          {v.solistId ? (
+                            <a
+                              href={`/artists/${v.solistId}`}
+                              style={{ color: "#ddd", textDecoration: "underline" }}
+                            >
+                              <strong>{v.solist}</strong>
+                            </a>
+                          ) : (
+                            <strong>{v.solist}</strong>
+                          )}
+                        </span>
+                      )}
+                      {v.year && <span> ({v.year})</span>}
+
+                      {/* ✅ πάντα διαθέσιμο αν υπάρχει τίτλος ή/και ονόματα */}
+                      {ytHref ? <YouTubeButton href={ytHref} /> : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

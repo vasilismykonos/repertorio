@@ -1,813 +1,877 @@
-// src/songs/songs.service.ts
-import { Injectable, NotFoundException } from "@nestjs/common";
+// apps/api/src/songs/songs.service.ts
+
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
-export enum VersionArtistRole {
-  SINGER_FRONT = "SINGER_FRONT",
-  SINGER_BACK = "SINGER_BACK",
-  SOLOIST = "SOLOIST",
-  MUSICIAN = "MUSICIAN",
-  COMPOSER = "COMPOSER",
-  LYRICIST = "LYRICIST",
+import {
+  AssetKind,
+  AssetType,
+  SongCreditRole,
+  SongStatus,
+  VersionArtistRole,
+} from "@prisma/client";
+
+// ✅ NEW
+import { ElasticsearchSongsSyncService } from "../elasticsearch/elasticsearch-songs-sync.service";
+
+type TagDto = {
+  id: number;
+  title: string;
+  slug: string;
+};
+
+type SongAssetDto = {
+  id: number;
+  kind: AssetKind;
+  type: AssetType;
+  title: string | null;
+  url: string | null;
+  filePath: string | null;
+  mimeType: string | null;
+  sizeBytes: string | null;
+
+  label: string | null;
+  sort: number;
+  isPrimary: boolean;
+};
+
+type SongVersionDto = {
+  id: number;
+  year: number | null;
+  singerFront: string | null;
+  singerBack: string | null;
+  solist: string | null;
+  youtubeSearch: string | null;
+
+  // ✅ source-of-truth για edit: arrays of NEW Artist IDs
+  singerFrontIds: number[];
+  singerBackIds: number[];
+  solistIds: number[];
+};
+
+type SongDetailDto = {
+  id: number;
+  legacySongId: number;
+  scoreFile: string | null;
+  hasScore: boolean;
+
+  title: string;
+  firstLyrics: string | null;
+  lyrics: string | null;
+
+  // legacy/compat
+  characteristics: string | null;
+
+  // ✅ NEW (EXPLICIT μέσω join tables)
+  tags: TagDto[];
+  assets: SongAssetDto[];
+
+  originalKey: string | null;
+  chords: string | null;
+  status: string | null;
+
+  categoryId: number | null;
+  rythmId: number | null;
+  makamId: number | null;
+
+  categoryTitle: string | null;
+  composerName: string | null;
+  lyricistName: string | null;
+  rythmTitle: string | null;
+
+  basedOnSongId: number | null;
+  basedOnSongTitle: string | null;
+
+  views: number;
+
+  createdByUserId: number | null;
+
+  versions: SongVersionDto[];
+};
+
+function buildArtistDisplayName(a: {
+  title: string;
+  firstName: string | null;
+  lastName: string | null;
+}): string {
+  const full = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim();
+  return full || a.title;
 }
 
-import mysql from "mysql2/promise";
+/**
+ * Παράγει firstLyrics από τους στίχους:
+ * - παίρνει την ΠΡΩΤΗ μη-κενή γραμμή
+ * - κάνει trim
+ * - επιστρέφει null αν δεν υπάρχει περιεχόμενο
+ */
+function extractFirstLyricsFromLyrics(
+  lyrics: string | null | undefined,
+): string | null {
+  if (lyrics === null || lyrics === undefined) return null;
+  const text = String(lyrics);
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  for (const line of lines) {
+    const t = line.trim();
+    if (t) return t.length > 300 ? t.slice(0, 300) : t;
+  }
+  return null;
+}
+
+function toNullableBigIntString(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  try {
+    if (typeof v === "bigint") return v.toString();
+    if (typeof v === "number" && Number.isFinite(v)) return BigInt(v).toString();
+    if (typeof v === "string" && v.trim() !== "") return BigInt(v.trim()).toString();
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function toNullableBigInt(v: unknown): bigint | null {
+  if (v === null || v === undefined) return null;
+  try {
+    if (typeof v === "bigint") return v;
+    if (typeof v === "number" && Number.isFinite(v)) return BigInt(v);
+    if (typeof v === "string" && v.trim() !== "") return BigInt(v.trim());
+    return null;
+  } catch {
+    throw new BadRequestException("Invalid sizeBytes (must be integer/bigint)");
+  }
+}
+
+function parseCsvNames(input: unknown): string[] {
+  const s = (input ?? "").toString();
+  const parts = s
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  // uniq (case-insensitive), preserve order
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    const k = p.toLocaleLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(p);
+  }
+  return out;
+}
+
+function normalizeArtistIds(input: unknown): number[] {
+  // Accept: number[] | string(CSV) | number | null
+  if (input === null || input === undefined) return [];
+
+  const raw: unknown[] = Array.isArray(input)
+    ? input
+    : typeof input === "string"
+      ? input
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean)
+      : [input];
+
+  const out: number[] = [];
+  const seen = new Set<number>();
+
+  for (const r of raw) {
+    const n = typeof r === "number" ? r : Number(String(r).trim());
+    if (!Number.isFinite(n)) continue;
+    const id = Math.trunc(n);
+    if (id <= 0) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+
+  return out;
+}
+
+type UpdateSongBody = {
+  title?: string;
+  firstLyrics?: string | null;
+  lyrics?: string | null;
+
+  // legacy/compat
+  characteristics?: string | null;
+
+  originalKey?: string | null;
+  defaultKey?: string | null;
+  chords?: string | null;
+  status?: SongStatus;
+  categoryId?: number | null;
+  rythmId?: number | null;
+  basedOnSongId?: number | null;
+  scoreFile?: string | null;
+  highestVocalNote?: string | null;
+
+  // ✅ NEW (tags replace-all)
+  tagIds?: number[] | null;
+
+  // ✅ NEW (assets replace-all)
+  assets?: Array<{
+    id?: number;
+    kind: AssetKind;
+    type?: AssetType;
+    title?: string | null;
+    url?: string | null;
+    filePath?: string | null;
+    mimeType?: string | null;
+    sizeBytes?: string | number | bigint | null;
+
+    // relation metadata
+    label?: string | null;
+    sort?: number | null;
+    isPrimary?: boolean | null;
+  }> | null;
+
+  // ✅ NEW (discographies/versions replace-all)
+  versions?: Array<{
+    id?: number | null;
+    year?: number | string | null;
+    youtubeSearch?: string | null;
+
+    // backward compatible: comma-separated names
+    singerFrontNames?: string | null;
+    singerBackNames?: string | null;
+    solistNames?: string | null;
+
+    // ✅ preferred: ids (array or CSV string)
+    singerFrontIds?: number[] | string | null;
+    singerBackIds?: number[] | string | null;
+    solistIds?: number[] | string | null;
+  }> | null;
+};
 
 @Injectable()
 export class SongsService {
-  constructor(private readonly prisma: PrismaService) {}
+  // ✅ CHANGED: inject και το ES sync service
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly esSync: ElasticsearchSongsSyncService,
+  ) {}
 
   /**
-   * ΔΙΑΒΑΣΜΑ από την ΠΑΛΙΑ MySQL, όπως το παλιό song.php.
-   * Χρησιμοποιεί τα ίδια OLD_DB_* env vars με το scripts/migrate-songs.ts.
+   * Επιστρέφει 1 τραγούδι σε DTO συμβατό με το SongDetail του Next.
+   * Αν noIncrement=true δεν αυξάνει τα views.
    */
-  private async fetchLegacyComposerLyricist(
-    legacySongId: number,
-  ): Promise<{ composerName: string | null; lyricistName: string | null }> {
-    const {
-      OLD_DB_HOST,
-      OLD_DB_PORT,
-      OLD_DB_USER,
-      OLD_DB_PASSWORD,
-      OLD_DB_NAME,
-    } = process.env;
-
-    // Αν δεν έχουν οριστεί, απλά δεν κάνουμε fallback
-    if (!OLD_DB_HOST || !OLD_DB_USER || !OLD_DB_NAME) {
-      return { composerName: null, lyricistName: null };
-    }
-
-    let connection: mysql.Connection | null = null;
-
-    try {
-      connection = await mysql.createConnection({
-        host: OLD_DB_HOST,
-        port: Number(OLD_DB_PORT || 3306),
-        user: OLD_DB_USER,
-        password: OLD_DB_PASSWORD,
-        database: OLD_DB_NAME,
-        charset: "utf8mb4_general_ci",
-      });
-
-      const [rows] = await connection.query<any[]>(
-        `
-        SELECT
-          s.Composer          AS ComposerId,
-          s.Lyricist          AS LyricistId,
-
-          ac.Title            AS ComposerTitle,
-          ac.FirstName        AS ComposerFirstName,
-          ac.LastName         AS ComposerLastName,
-
-          al.Title            AS LyricistTitle,
-          al.FirstName        AS LyricistFirstName,
-          al.LastName         AS LyricistLastName
-        FROM songs s
-        LEFT JOIN artists ac ON s.Composer = ac.Artist_ID
-        LEFT JOIN artists al ON s.Lyricist = al.Artist_ID
-        WHERE s.Song_ID = ?
-        LIMIT 1
-      `,
-        [legacySongId],
-      );
-
-      if (!rows || rows.length === 0) {
-        return { composerName: null, lyricistName: null };
-      }
-
-      const row = rows[0];
-
-      const composerFull =
-        `${row.ComposerFirstName ?? ""} ${row.ComposerLastName ?? ""}`.trim() ||
-        (row.ComposerTitle ? String(row.ComposerTitle).trim() : "");
-
-      const lyricistFull =
-        `${row.LyricistFirstName ?? ""} ${row.LyricistLastName ?? ""}`.trim() ||
-        (row.LyricistTitle ? String(row.LyricistTitle).trim() : "");
-
-      return {
-        composerName: composerFull || null,
-        lyricistName: lyricistFull || null,
-      };
-    } catch (err) {
-      console.error(
-        "[SongsService] Σφάλμα στο fetchLegacyComposerLyricist για Song_ID",
-        legacySongId,
-        err,
-      );
-      return { composerName: null, lyricistName: null };
-    } finally {
-      if (connection) {
-        await connection.end();
-      }
-    }
-  }
-
-  /**
-   * Fallback Κατηγορία από ΠΑΛΙΑ MySQL (songs + songs_categories).
-   */
-  private async fetchLegacyCategoryTitle(
-    legacySongId: number,
-  ): Promise<string | null> {
-    const {
-      OLD_DB_HOST,
-      OLD_DB_PORT,
-      OLD_DB_USER,
-      OLD_DB_PASSWORD,
-      OLD_DB_NAME,
-    } = process.env;
-
-    if (!OLD_DB_HOST || !OLD_DB_USER || !OLD_DB_NAME) {
-      return null;
-    }
-
-    let connection: mysql.Connection | null = null;
-
-    try {
-      connection = await mysql.createConnection({
-        host: OLD_DB_HOST,
-        port: Number(OLD_DB_PORT || 3306),
-        user: OLD_DB_USER,
-        password: OLD_DB_PASSWORD,
-        database: OLD_DB_NAME,
-        charset: "utf8mb4_general_ci",
-      });
-
-      const [rows] = await connection.query<any[]>(
-        `
-        SELECT c.Title AS CategoryTitle
-        FROM songs s
-        LEFT JOIN songs_categories c ON s.Category_ID = c.Category_ID
-        WHERE s.Song_ID = ?
-        LIMIT 1
-      `,
-        [legacySongId],
-      );
-
-      if (!rows || rows.length === 0) {
-        return null;
-      }
-
-      const title = rows[0].CategoryTitle;
-      if (!title) {
-        return null;
-      }
-
-      const trimmed = String(title).trim();
-      return trimmed !== "" ? trimmed : null;
-    } catch (err) {
-      console.error(
-        "[SongsService] Σφάλμα στο fetchLegacyCategoryTitle για Song_ID",
-        legacySongId,
-        err,
-      );
-      return null;
-    } finally {
-      if (connection) {
-        await connection.end();
-      }
-    }
-  }
-
-  /**
-   * Fallback Προβολές (views) από ΠΑΛΙΑ MySQL (songs).
-   * Ξέρουμε ότι το πεδίο λέγεται Count_Views.
-   */
-  private async fetchLegacyViews(legacySongId: number): Promise<number | null> {
-    const {
-      OLD_DB_HOST,
-      OLD_DB_PORT,
-      OLD_DB_USER,
-      OLD_DB_PASSWORD,
-      OLD_DB_NAME,
-    } = process.env;
-
-    if (!OLD_DB_HOST || !OLD_DB_USER || !OLD_DB_NAME) {
-      return null;
-    }
-
-    let connection: mysql.Connection | null = null;
-
-    try {
-      connection = await mysql.createConnection({
-        host: OLD_DB_HOST,
-        port: Number(OLD_DB_PORT || 3306),
-        user: OLD_DB_USER,
-        password: OLD_DB_PASSWORD,
-        database: OLD_DB_NAME,
-        charset: "utf8mb4_general_ci",
-      });
-
-      const [rows] = await connection.query<any[]>(
-        `
-        SELECT Count_Views
-        FROM songs
-        WHERE Song_ID = ?
-        LIMIT 1
-      `,
-        [legacySongId],
-      );
-
-      if (!rows || rows.length === 0) {
-        return null;
-      }
-
-      const row = rows[0] as any;
-      const value = row.Count_Views;
-
-      if (value === undefined || value === null) {
-        return null;
-      }
-
-      const num = Number(value);
-      if (Number.isNaN(num) || num < 0) {
-        return null;
-      }
-
-      return num;
-    } catch (err) {
-      console.error(
-        "[SongsService] Σφάλμα στο fetchLegacyViews για Song_ID",
-        legacySongId,
-        err,
-      );
-      return null;
-    } finally {
-      if (connection) {
-        await connection.end();
-      }
-    }
-  }
-  /**
-   * Βασισμένο σε: επιστροφή τίτλου από legacy MySQL.
-   * Το πεδίο BasedOn περιέχει το παλιό Song_ID (string).
-   */
-  private async fetchLegacyBasedOnTitle(legacyBasedOnId: string): Promise<string | null> {
-    const {
-      OLD_DB_HOST,
-      OLD_DB_PORT,
-      OLD_DB_USER,
-      OLD_DB_PASSWORD,
-      OLD_DB_NAME,
-    } = process.env;
-
-    if (!OLD_DB_HOST || !OLD_DB_USER || !OLD_DB_NAME) {
-      return null;
-    }
-
-    let connection: mysql.Connection | null = null;
-
-    try {
-      connection = await mysql.createConnection({
-        host: OLD_DB_HOST,
-        port: Number(OLD_DB_PORT || 3306),
-        user: OLD_DB_USER,
-        password: OLD_DB_PASSWORD,
-        database: OLD_DB_NAME,
-        charset: "utf8mb4_general_ci",
-      });
-
-      const [rows] = await connection.query<any[]>(
-        `
-          SELECT Title
-          FROM songs
-          WHERE Song_ID = ?
-          LIMIT 1
-        `,
-        [legacyBasedOnId]
-      );
-
-      if (!rows || rows.length === 0) return null;
-
-      const title = rows[0].Title;
-      if (!title) return null;
-
-      const trimmed = String(title).trim();
-      return trimmed !== "" ? trimmed : null;
-    } catch (err) {
-      console.error("[SongsService] Σφάλμα στο fetchLegacyBasedOnTitle:", legacyBasedOnId, err);
-      return null;
-    } finally {
-      if (connection) await connection.end();
-    }
-  }
-
-  /**
-   * Fallback "Βασισμένο σε": από BasedOn (π.χ. "60ec83d8") βρίσκουμε
-   * στην ΠΑΛΙΑ MySQL το τραγούδι-πηγή (New_ID -> Song_ID, Title)
-   * και μετά στο νέο Postgres το Song με legacySongId = Song_ID.
-   */
-  private async fetchLegacyBasedOnTarget(
-    basedOnCode: string | null,
-  ): Promise<{
-    basedOnSongId: number | null;
-    basedOnSongTitle: string | null;
-  }> {
-    const {
-      OLD_DB_HOST,
-      OLD_DB_PORT,
-      OLD_DB_USER,
-      OLD_DB_PASSWORD,
-      OLD_DB_NAME,
-    } = process.env;
-
-    if (!basedOnCode || !basedOnCode.trim()) {
-      return { basedOnSongId: null, basedOnSongTitle: null };
-    }
-
-    if (!OLD_DB_HOST || !OLD_DB_USER || !OLD_DB_NAME) {
-      return { basedOnSongId: null, basedOnSongTitle: null };
-    }
-
-    const code = basedOnCode.trim();
-    let connection: mysql.Connection | null = null;
-
-    try {
-      connection = await mysql.createConnection({
-        host: OLD_DB_HOST,
-        port: Number(OLD_DB_PORT || 3306),
-        user: OLD_DB_USER,
-        password: OLD_DB_PASSWORD,
-        database: OLD_DB_NAME,
-        charset: "utf8mb4_general_ci",
-      });
-
-      let legacyBaseId: number | null = null;
-      let title: string | null = null;
-
-      // 1) Πρώτα δοκιμάζουμε New_ID = BasedOn (όπως ήταν στο παλιό schema)
-      try {
-        const [rows] = await connection.query<any[]>(
-          `
-          SELECT Song_ID, Title
-          FROM songs
-          WHERE New_ID = ?
-          LIMIT 1
-        `,
-          [code],
-        );
-
-        if (rows && rows.length > 0) {
-          const row = rows[0] as any;
-          legacyBaseId =
-            row.Song_ID !== undefined && row.Song_ID !== null
-              ? Number(row.Song_ID)
-              : null;
-          title = row.Title ? String(row.Title).trim() : null;
-        }
-      } catch (err) {
-        console.error(
-          "[SongsService] Σφάλμα στο fetchLegacyBasedOnTarget (New_ID)",
-          err,
-        );
-      }
-
-      // 2) Αν δεν βρήκαμε με New_ID, δοκιμάζουμε μήπως το BasedOn είναι ήδη Song_ID
-      if (legacyBaseId === null) {
-        const numeric = Number(code);
-        if (!Number.isNaN(numeric)) {
-          try {
-            const [rows2] = await connection.query<any[]>(
-              `
-              SELECT Song_ID, Title
-              FROM songs
-              WHERE Song_ID = ?
-              LIMIT 1
-            `,
-              [numeric],
-            );
-
-            if (rows2 && rows2.length > 0) {
-              const row2 = rows2[0] as any;
-              legacyBaseId =
-                row2.Song_ID !== undefined && row2.Song_ID !== null
-                  ? Number(row2.Song_ID)
-                  : null;
-              title = row2.Title ? String(row2.Title).trim() : null;
-            }
-          } catch (err) {
-            console.error(
-              "[SongsService] Σφάλμα στο fetchLegacyBasedOnTarget (Song_ID)",
-              err,
-            );
-          }
-        }
-      }
-
-      let basedOnSongId: number | null = null;
-      let basedOnSongTitle: string | null = title ?? null;
-
-      // ΕΔΩ γίνεται το Prisma query – ΠΑΝΤΑ με number στο legacySongId
-      if (legacyBaseId !== null && !Number.isNaN(legacyBaseId)) {
-        try {
-          const baseSong = await this.prisma.song.findFirst({
-            where: { legacySongId: legacyBaseId }, // <== number, ΟΧΙ string
-          });
-
-          if (baseSong) {
-            basedOnSongId = baseSong.id;
-            if (!basedOnSongTitle) {
-              basedOnSongTitle = baseSong.title;
-            }
-          }
-        } catch (err) {
-          console.error(
-            "[SongsService] Σφάλμα Prisma στο fetchLegacyBasedOnTarget",
-            err,
-          );
-        }
-      }
-
-      return { basedOnSongId, basedOnSongTitle };
-    } catch (err) {
-      console.error(
-        "[SongsService] Γενικό σφάλμα στο fetchLegacyBasedOnTarget",
-        err,
-      );
-      return { basedOnSongId: null, basedOnSongTitle: null };
-    } finally {
-      if (connection) {
-        await connection.end();
-      }
-    }
-  }
-
-
-  /**
-   * Βοηθητικό: παίρνει IDs (π.χ. "311" ή "311,488") και επιστρέφει ονόματα από artists.
-   */
-  private async resolveArtistList(
-    connection: mysql.Connection,
-    idsValue: string | number | null,
-  ): Promise<string | null> {
-    if (idsValue === null || idsValue === undefined) {
-      return null;
-    }
-
-    const raw = String(idsValue).trim();
-    if (!raw) {
-      return null;
-    }
-
-    const idList = raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s !== "")
-      .map((s) => Number(s))
-      .filter((n) => Number.isFinite(n));
-
-    if (idList.length === 0) {
-      return null;
-    }
-
-    const [rows] = await connection.query<any[]>(
-      `
-      SELECT Artist_ID, Title, FirstName, LastName
-      FROM artists
-      WHERE Artist_ID IN (${idList.map(() => "?").join(",")})
-    `,
-      idList,
-    );
-
-    if (!rows || rows.length === 0) {
-      return null;
-    }
-
-    const byId = new Map<number, any>();
-    for (const r of rows) {
-      byId.set(r.Artist_ID, r);
-    }
-
-    const names: string[] = [];
-    for (const id of idList) {
-      const r = byId.get(id);
-      if (!r) continue;
-      const fullName =
-        `${r.FirstName ?? ""} ${r.LastName ?? ""}`.trim() ||
-        (r.Title ? String(r.Title).trim() : "");
-      if (fullName) {
-        names.push(fullName);
-      }
-    }
-
-    if (names.length === 0) {
-      return null;
-    }
-
-    return names.join(", ");
-  }
-
-  /**
-   * Fallback Δισκογραφία από ΠΑΛΙΑ MySQL (songs_versions + artists).
-   */
-  private async fetchLegacyVersions(
-    legacySongId: number,
-  ): Promise<
-    {
-      id: number;
-      year: number | null;
-      singerFront: string | null;
-      singerBack: string | null;
-      solist: string | null;
-      youtubeSearch: string | null;
-    }[]
-  > {
-    const {
-      OLD_DB_HOST,
-      OLD_DB_PORT,
-      OLD_DB_USER,
-      OLD_DB_PASSWORD,
-      OLD_DB_NAME,
-    } = process.env;
-
-    if (!OLD_DB_HOST || !OLD_DB_USER || !OLD_DB_NAME) {
-      return [];
-    }
-
-    let connection: mysql.Connection | null = null;
-
-    try {
-      connection = await mysql.createConnection({
-        host: OLD_DB_HOST,
-        port: Number(OLD_DB_PORT || 3306),
-        user: OLD_DB_USER,
-        password: OLD_DB_PASSWORD,
-        database: OLD_DB_NAME,
-        charset: "utf8mb4_general_ci",
-      });
-
-      const [rows] = await connection.query<any[]>(
-        `
-        SELECT
-          Version_ID,
-          Year,
-          Singer_Front,
-          Singer_Back,
-          Solist,
-          Youtube_Search
-        FROM songs_versions
-        WHERE Song_ID = ?
-        ORDER BY Year ASC, Version_ID ASC
-      `,
-        [legacySongId],
-      );
-
-      if (!rows || rows.length === 0) {
-        return [];
-      }
-
-      const result: {
-        id: number;
-        year: number | null;
-        singerFront: string | null;
-        singerBack: string | null;
-        solist: string | null;
-        youtubeSearch: string | null;
-      }[] = [];
-
-      for (const v of rows) {
-        const singerFront = await this.resolveArtistList(
-          connection,
-          v.Singer_Front,
-        );
-        const singerBack = await this.resolveArtistList(
-          connection,
-          v.Singer_Back,
-        );
-        const solist = await this.resolveArtistList(connection, v.Solist);
-
-        result.push({
-          id: Number(v.Version_ID),
-          year: v.Year !== null ? Number(v.Year) : null,
-          singerFront,
-          singerBack,
-          solist,
-          youtubeSearch: v.Youtube_Search
-            ? String(v.Youtube_Search).trim()
-            : null,
-        });
-      }
-
-      return result;
-    } catch (err) {
-      console.error(
-        "[SongsService] Σφάλμα στο fetchLegacyVersions για Song_ID",
-        legacySongId,
-        err,
-      );
-      return [];
-    } finally {
-      if (connection) {
-        await connection.end();
-      }
-    }
-  }
-
-  /**
-   * Επιστρέφει 1 τραγούδι σε μορφή DTO που ταιριάζει
-   * με το SongDetail του Next.
-   */
-  async findOne(id: number): Promise<any> {
+  async findOne(id: number, noIncrement = false): Promise<SongDetailDto> {
     const song = await this.prisma.song.findUnique({
       where: { id },
       include: {
         category: true,
         rythm: true,
+        basedOnSong: { select: { id: true, title: true } },
+        credits: { include: { artist: true } },
         versions: {
           include: {
-            artists: {
-              include: {
-                artist: true,
-              },
-            },
+            artists: { include: { artist: true } },
           },
+        },
+
+        // ✅ EXPLICIT: Tags μέσω SongTag
+        SongTag: {
+          include: {
+            Tag: { select: { id: true, title: true, slug: true } },
+          },
+          orderBy: [{ tagId: "asc" }],
+        },
+
+        // ✅ EXPLICIT: Assets μέσω SongAsset
+        SongAsset: {
+          include: {
+            Asset: true,
+          },
+          orderBy: [{ sort: "asc" }, { assetId: "asc" }],
         },
       },
     });
 
     if (!song) {
-      throw new NotFoundException(`Song with id ${id} not found`);
+      throw new NotFoundException(`Song with id=${id} not found`);
     }
 
-    const legacySongId = song.legacySongId ?? song.id;
-
-    // -----------------------------
-    // Συνθέτης (composerName)
-    // -----------------------------
-    let composerName: string | null = null;
-
-    // 1) ΝΕΟ schema – VersionArtistRole.COMPOSER
-    for (const v of song.versions ?? []) {
-      const composerArtist = v.artists?.find(
-        (va) => va.role === VersionArtistRole.COMPOSER && va.artist,
-      );
-      if (composerArtist && composerArtist.artist) {
-        const a = composerArtist.artist;
-        const fullName =
-          `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim() || a.title;
-        if (fullName) {
-          composerName = fullName;
-          break;
-        }
-      }
+    if (!noIncrement) {
+      await this.prisma.song.update({
+        where: { id },
+        data: { views: { increment: 1 } },
+      });
     }
 
-    // -----------------------------
-    // Στιχουργός (lyricistName) – αρχικά null
-    // -----------------------------
-    let lyricistName: string | null = null;
+    const categoryTitle = song.category?.title ?? null;
+    const rythmTitle = song.rythm?.title ?? null;
 
-    // 2) Αν δεν βρέθηκαν από το νέο schema, δοκίμασε ΠΑΛΙΑ MySQL
-    if (!composerName || !lyricistName) {
-      const legacy = await this.fetchLegacyComposerLyricist(legacySongId);
+    const composerArtists = (song.credits ?? [])
+      .filter((c) => c.role === SongCreditRole.COMPOSER && c.artist)
+      .map((c) => c.artist);
 
-      if (!composerName && legacy.composerName) {
-        composerName = legacy.composerName;
-      }
-      if (!lyricistName && legacy.lyricistName) {
-        lyricistName = legacy.lyricistName;
-      }
-    }
+    const lyricistArtists = (song.credits ?? [])
+      .filter((c) => c.role === SongCreditRole.LYRICIST && c.artist)
+      .map((c) => c.artist);
 
-    // 3) Προαιρετικό fallback από legacyComposerOld ΑΝ μοιάζει με όνομα
-    if (!composerName) {
-      const withLegacy = song.versions?.find(
-        (v) => v.legacyComposerOld && v.legacyComposerOld.trim() !== "",
-      );
-      if (withLegacy) {
-        const candidate = withLegacy.legacyComposerOld!.trim();
+    const composerName =
+      composerArtists.length > 0
+        ? composerArtists.map((a) => buildArtistDisplayName(a)).join(", ")
+        : null;
 
-        const looksLikeCode =
-          /^[0-9a-f]{6,}$/i.test(candidate) ||
-          candidate.length <= 2 ||
-          !/[A-Za-zΑ-Ωα-ω]/.test(candidate);
+    const lyricistName =
+      lyricistArtists.length > 0
+        ? lyricistArtists.map((a) => buildArtistDisplayName(a)).join(", ")
+        : null;
 
-        if (!looksLikeCode) {
-          composerName = candidate;
-        }
-      }
-    }
+    const basedOnSongId = song.basedOnSong?.id ?? null;
+    const basedOnSongTitle = song.basedOnSong?.title ?? null;
 
-    // -----------------------------
-    // Κατηγορία: νέο schema + fallback παλιά MySQL
-    // -----------------------------
-    let categoryTitle: string | null = song.category
-      ? song.category.title
-      : null;
+    const versions: SongVersionDto[] =
+      song.versions?.map((v) => {
+        const frontArray = (v.artists ?? []).filter(
+          (x) => x.role === VersionArtistRole.SINGER_FRONT,
+        );
+        const backArray = (v.artists ?? []).filter(
+          (x) => x.role === VersionArtistRole.SINGER_BACK,
+        );
+        const soloArray = (v.artists ?? []).filter(
+          (x) => x.role === VersionArtistRole.SOLOIST,
+        );
 
-    const legacyCategoryTitle = await this.fetchLegacyCategoryTitle(
-      legacySongId,
-    );
-    if (legacyCategoryTitle) {
-      categoryTitle = legacyCategoryTitle;
-    }
+        const singerFront =
+          frontArray.length > 0
+            ? frontArray
+                .map((x) => x.artist)
+                .filter((a): a is NonNullable<typeof a> => !!a)
+                .map((a) => buildArtistDisplayName(a))
+                .join(", ")
+            : null;
 
-    // -----------------------------
-    // Προβολές (views): νέο schema + fallback παλιά MySQL
-    // -----------------------------
-    let views: number = song.views ?? 0;
-    if (!views || views === 0) {
-      const legacyViews = await this.fetchLegacyViews(legacySongId);
-      if (legacyViews !== null) {
-        views = legacyViews;
-      }
-    }
+        const singerBack =
+          backArray.length > 0
+            ? backArray
+                .map((x) => x.artist)
+                .filter((a): a is NonNullable<typeof a> => !!a)
+                .map((a) => buildArtistDisplayName(a))
+                .join(", ")
+            : null;
 
-    // -----------------------------
-    // Βασισμένο σε: από basedOn (string) -> τίτλος + ID για link
-    // -----------------------------
-    let basedOnSongId: number | null = null;
-    let basedOnSongTitle: string | null = null;
+        const solist =
+          soloArray.length > 0
+            ? soloArray
+                .map((x) => x.artist)
+                .filter((a): a is NonNullable<typeof a> => !!a)
+                .map((a) => buildArtistDisplayName(a))
+                .join(", ")
+            : null;
 
-    if (song.basedOn && song.basedOn.trim() !== "") {
-      const fromLegacy = await this.fetchLegacyBasedOnTarget(
-        song.basedOn.trim(),
-      );
-      basedOnSongId = fromLegacy.basedOnSongId;
-      basedOnSongTitle = fromLegacy.basedOnSongTitle;
-    }
+        // ✅ arrays of NEW Artist IDs (για edit)
+        const singerFrontIds = frontArray
+          .map((x) => x.artistId)
+          .filter((x): x is number => typeof x === "number");
 
-    // Αν δεν βρούμε τίτλο με κανέναν τρόπο, τουλάχιστον δείχνουμε το raw string
-    if (!basedOnSongTitle && song.basedOn && song.basedOn.trim() !== "") {
-      basedOnSongTitle = song.basedOn.trim();
-    }
+        const singerBackIds = backArray
+          .map((x) => x.artistId)
+          .filter((x): x is number => typeof x === "number");
 
-    // -----------------------------
-    // Δισκογραφία: πρώτα ΠΑΛΙΑ MySQL, αλλιώς νέο schema
-    // -----------------------------
-    let versions: {
-      id: number;
-      year: number | null;
-      singerFront: string | null;
-      singerBack: string | null;
-      solist: string | null;
-      youtubeSearch: string | null;
-    }[] = [];
-
-    const legacyVersions = await this.fetchLegacyVersions(legacySongId);
-    if (legacyVersions.length > 0) {
-      versions = legacyVersions;
-    } else {
-      versions = (song.versions ?? []).map((v) => {
-        let singerFront: string | null = null;
-        let singerBack: string | null = null;
-        let solist: string | null = null;
-
-        for (const va of v.artists ?? []) {
-          if (!va.artist) continue;
-          const a = va.artist;
-          const fullName =
-            `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim() || a.title;
-
-          switch (va.role) {
-            case VersionArtistRole.SINGER_FRONT:
-              singerFront = fullName;
-              break;
-            case VersionArtistRole.SINGER_BACK:
-              singerBack = fullName;
-              break;
-            case VersionArtistRole.SOLOIST:
-              solist = fullName;
-              break;
-            default:
-              break;
-          }
-        }
+        const solistIds = soloArray
+          .map((x) => x.artistId)
+          .filter((x): x is number => typeof x === "number");
 
         return {
           id: v.id,
-          year: v.year,
+          year: v.year ?? null,
           singerFront,
           singerBack,
           solist,
           youtubeSearch: v.youtubeSearch ?? null,
+          singerFrontIds,
+          singerBackIds,
+          solistIds,
         };
-      });
-    }
+      }) ?? [];
 
-    // -----------------------------
-    // Τελικό DTO προς Next
-    // -----------------------------
+    const tags: TagDto[] = (song.SongTag ?? [])
+      .map((st) => st.Tag)
+      .filter((t): t is NonNullable<typeof t> => !!t)
+      .map((t) => ({ id: t.id, title: t.title, slug: t.slug }));
+
+    const assets: SongAssetDto[] = (song.SongAsset ?? []).map((sa) => ({
+      id: sa.Asset.id,
+      kind: sa.Asset.kind,
+      type: sa.Asset.type,
+      title: sa.Asset.title ?? null,
+      url: sa.Asset.url ?? null,
+      filePath: sa.Asset.filePath ?? null,
+      mimeType: sa.Asset.mimeType ?? null,
+      sizeBytes: toNullableBigIntString(sa.Asset.sizeBytes),
+
+      label: sa.label ?? null,
+      sort: sa.sort ?? 0,
+      isPrimary: sa.isPrimary ?? false,
+    }));
+
+    const views = (song.views ?? 0) + (noIncrement ? 0 : 1);
+
     return {
       id: song.id,
+      legacySongId: song.legacySongId,
+      scoreFile: song.scoreFile ?? null,
+      hasScore: song.hasScore ?? false,
+
       title: song.title,
-      firstLyrics: song.firstLyrics,
-      lyrics: song.lyrics,
-      characteristics: song.characteristics,
-      originalKey: song.originalKey,
-      chords: song.chords,
-      status: song.status,
-      scoreFile: song.scoreFile,
+      firstLyrics: song.firstLyrics ?? null,
+      lyrics: song.lyrics ?? null,
+
+      characteristics: song.characteristics ?? null,
+
+      tags,
+      assets,
+
+      originalKey: song.originalKey ?? null,
+      chords: song.chords ?? null,
+      status: song.status ?? null,
+
+      categoryId: song.categoryId ?? null,
+      rythmId: song.rythmId ?? null,
+      makamId: null,
 
       categoryTitle,
       composerName,
       lyricistName,
-      rythmTitle: song.rythm ? song.rythm.title : null,
+      rythmTitle,
 
       basedOnSongId,
       basedOnSongTitle,
 
       views,
+
+      createdByUserId: song.createdByUserId ?? null,
+
       versions,
     };
+  }
+
+  private validateAssetInput(input: {
+    kind: AssetKind;
+    url?: string | null;
+    filePath?: string | null;
+  }) {
+    if (input.kind === AssetKind.LINK) {
+      const url = (input.url ?? "").trim();
+      if (!url) throw new BadRequestException("Asset LINK requires url");
+    }
+    if (input.kind === AssetKind.FILE) {
+      const fp = (input.filePath ?? "").trim();
+      if (!fp) throw new BadRequestException("Asset FILE requires filePath");
+    }
+  }
+
+  private async upsertArtistsByTitlesTx(
+    tx: any,
+    titles: string[],
+  ): Promise<number[]> {
+    const ids: number[] = [];
+    for (const title of titles) {
+      const t = title.trim();
+      if (!t) continue;
+
+      // ⚠️ Artist.title δεν είναι unique στο schema, άρα χρησιμοποιούμε findFirst.
+      const existing = await tx.artist.findFirst({
+        where: { title: t },
+        select: { id: true },
+      });
+
+      if (existing?.id) {
+        ids.push(existing.id);
+        continue;
+      }
+
+      const created = await tx.artist.create({
+        data: { title: t },
+        select: { id: true },
+      });
+      ids.push(created.id);
+    }
+    return ids;
+  }
+
+  private normalizeYear(v: unknown): number | null {
+    if (v === null || v === undefined) return null;
+    if (typeof v === "number" && Number.isFinite(v)) {
+      const n = Math.trunc(v);
+      return n > 0 ? n : null;
+    }
+    const s = String(v).trim();
+    if (!s) return null;
+    const n = Math.trunc(Number(s));
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n;
+  }
+
+  private async assertArtistsExistTx(tx: any, ids: number[], context: string) {
+    if (ids.length === 0) return;
+
+    const uniq = Array.from(new Set(ids));
+    const existing = await tx.artist.findMany({
+      where: { id: { in: uniq } },
+      select: { id: true },
+    });
+    const ok = new Set(existing.map((x) => x.id));
+    const missing = uniq.filter((x) => !ok.has(x));
+    if (missing.length) {
+      throw new BadRequestException(
+        `${context}: missing Artist.id(s) = ${missing.join(",")}`,
+      );
+    }
+  }
+
+  async updateSong(id: number, body: UpdateSongBody) {
+    const existing = await this.prisma.song.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException(`Song with id=${id} not found`);
+    }
+
+    const data: any = {};
+
+    if (typeof body.title === "string") data.title = body.title;
+
+    // ✅ Αν έρχονται lyrics, παράγουμε firstLyrics αυτόματα
+    if (Object.prototype.hasOwnProperty.call(body, "lyrics")) {
+      data.lyrics = body.lyrics;
+      data.firstLyrics = extractFirstLyricsFromLyrics(body.lyrics);
+    } else if (Object.prototype.hasOwnProperty.call(body, "firstLyrics")) {
+      data.firstLyrics = body.firstLyrics;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "characteristics"))
+      data.characteristics = body.characteristics;
+
+    if (Object.prototype.hasOwnProperty.call(body, "originalKey"))
+      data.originalKey = body.originalKey;
+
+    if (Object.prototype.hasOwnProperty.call(body, "defaultKey"))
+      data.defaultKey = body.defaultKey;
+
+    if (Object.prototype.hasOwnProperty.call(body, "highestVocalNote"))
+      data.highestVocalNote = body.highestVocalNote;
+
+    if (Object.prototype.hasOwnProperty.call(body, "chords"))
+      data.chords = body.chords;
+
+    if (Object.prototype.hasOwnProperty.call(body, "scoreFile"))
+      data.scoreFile = body.scoreFile;
+
+    if (body.status && Object.values(SongStatus).includes(body.status)) {
+      data.status = body.status;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "categoryId"))
+      data.categoryId = body.categoryId;
+
+    if (Object.prototype.hasOwnProperty.call(body, "rythmId"))
+      data.rythmId = body.rythmId;
+
+    if (Object.prototype.hasOwnProperty.call(body, "basedOnSongId"))
+      data.basedOnSongId = body.basedOnSongId;
+
+    const hasTagIds = Object.prototype.hasOwnProperty.call(body, "tagIds");
+    const hasAssets = Object.prototype.hasOwnProperty.call(body, "assets");
+    const hasVersions = Object.prototype.hasOwnProperty.call(body, "versions");
+
+    if (
+      Object.keys(data).length === 0 &&
+      !hasTagIds &&
+      !hasAssets &&
+      !hasVersions
+    ) {
+      return this.findOne(id, true);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1) Song core fields
+      if (Object.keys(data).length > 0) {
+        await tx.song.update({
+          where: { id },
+          data,
+        });
+      }
+
+      // 2) Tags (EXPLICIT): replace-all μέσω SongTag
+      if (hasTagIds) {
+        const ids = Array.isArray(body.tagIds)
+          ? body.tagIds.filter((x) => typeof x === "number" && Number.isFinite(x))
+          : [];
+
+        await tx.songTag.deleteMany({ where: { songId: id } });
+
+        if (ids.length > 0) {
+          await tx.songTag.createMany({
+            data: ids.map((tagId) => ({ songId: id, tagId })),
+            skipDuplicates: true,
+          });
+        }
+      }
+
+      // 3) Assets (EXPLICIT): replace-all μέσω SongAsset
+      if (hasAssets) {
+        const assets = Array.isArray(body.assets) ? body.assets : [];
+
+        await tx.songAsset.deleteMany({ where: { songId: id } });
+
+        for (let i = 0; i < assets.length; i++) {
+          const a = assets[i];
+
+          const kind = a.kind;
+          const type = a.type ?? AssetType.GENERIC;
+
+          this.validateAssetInput({
+            kind,
+            url: a.url ?? null,
+            filePath: a.filePath ?? null,
+          });
+
+          const sort =
+            typeof a.sort === "number" && Number.isFinite(a.sort) ? a.sort : i * 10;
+
+          const isPrimary = a.isPrimary === true;
+
+          let assetId: number;
+
+          if (typeof a.id === "number" && Number.isFinite(a.id)) {
+            const updated = await tx.asset.update({
+              where: { id: a.id },
+              data: {
+                kind,
+                type,
+                title: Object.prototype.hasOwnProperty.call(a, "title")
+                  ? (a.title ?? null)
+                  : undefined,
+                url: kind === AssetKind.LINK ? (a.url ?? null) : null,
+                filePath: kind === AssetKind.FILE ? (a.filePath ?? null) : null,
+                mimeType: Object.prototype.hasOwnProperty.call(a, "mimeType")
+                  ? (a.mimeType ?? null)
+                  : undefined,
+                sizeBytes: Object.prototype.hasOwnProperty.call(a, "sizeBytes")
+                  ? toNullableBigInt(a.sizeBytes ?? null)
+                  : undefined,
+              },
+              select: { id: true },
+            });
+            assetId = updated.id;
+          } else {
+            const created = await tx.asset.create({
+              data: {
+                kind,
+                type,
+                title: a.title ?? null,
+                url: kind === AssetKind.LINK ? (a.url ?? null) : null,
+                filePath: kind === AssetKind.FILE ? (a.filePath ?? null) : null,
+                mimeType: a.mimeType ?? null,
+                sizeBytes: toNullableBigInt(a.sizeBytes ?? null),
+              },
+              select: { id: true },
+            });
+            assetId = created.id;
+          }
+
+          await tx.songAsset.create({
+            data: {
+              songId: id,
+              assetId,
+              label: a.label ?? null,
+              sort,
+              isPrimary,
+            },
+          });
+        }
+      }
+
+      // 4) ✅ Discographies / Versions (replace-all)
+      if (hasVersions) {
+        const incoming = Array.isArray(body.versions) ? body.versions : [];
+
+        const norm = incoming
+          .map((v) => {
+            const vid =
+              typeof v?.id === "number" && Number.isFinite(v.id)
+                ? Math.trunc(v.id)
+                : null;
+
+            const year = this.normalizeYear(v?.year);
+
+            const youtubeSearch =
+              Object.prototype.hasOwnProperty.call(v ?? {}, "youtubeSearch")
+                ? (v?.youtubeSearch ?? null)
+                : null;
+
+            const singerFrontNames = parseCsvNames(v?.singerFrontNames ?? "");
+            const singerBackNames = parseCsvNames(v?.singerBackNames ?? "");
+            const solistNames = parseCsvNames(v?.solistNames ?? "");
+
+            // ✅ NEW: ids (preferred)
+            const singerFrontIds = normalizeArtistIds(v?.singerFrontIds);
+            const singerBackIds = normalizeArtistIds(v?.singerBackIds);
+            const solistIds = normalizeArtistIds(v?.solistIds);
+
+            const hasAny =
+              year !== null ||
+              (typeof youtubeSearch === "string" && youtubeSearch.trim() !== "") ||
+              singerFrontIds.length > 0 ||
+              singerBackIds.length > 0 ||
+              solistIds.length > 0 ||
+              singerFrontNames.length > 0 ||
+              singerBackNames.length > 0 ||
+              solistNames.length > 0 ||
+              vid !== null;
+
+            if (!hasAny) return null;
+
+            return {
+              id: vid,
+              year,
+              youtubeSearch:
+                typeof youtubeSearch === "string" && youtubeSearch.trim() !== ""
+                  ? youtubeSearch
+                  : null,
+
+              singerFrontNames,
+              singerBackNames,
+              solistNames,
+
+              singerFrontIds,
+              singerBackIds,
+              solistIds,
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => !!x);
+
+        // Fetch existing versions for this song
+        const existingVersions = await tx.songVersion.findMany({
+          where: { songId: id },
+          select: { id: true },
+          orderBy: [{ id: "asc" }],
+        });
+
+        const existingIds = new Set(existingVersions.map((x) => x.id));
+        const keepIds: number[] = [];
+
+        for (const v of norm) {
+          let versionId: number;
+
+          if (v.id != null && existingIds.has(v.id)) {
+            const updated = await tx.songVersion.update({
+              where: { id: v.id },
+              data: {
+                year: v.year,
+                youtubeSearch: v.youtubeSearch,
+              },
+              select: { id: true },
+            });
+            versionId = updated.id;
+          } else {
+            const created = await tx.songVersion.create({
+              data: {
+                songId: id,
+                year: v.year,
+                youtubeSearch: v.youtubeSearch,
+              },
+              select: { id: true },
+            });
+            versionId = created.id;
+          }
+
+          keepIds.push(versionId);
+
+          // replace-all artists for this version
+          await tx.songVersionArtist.deleteMany({ where: { versionId } });
+
+          // ✅ ID-first: αν έχουν δοθεί ids, αυτά είναι source of truth.
+          // Fallback σε titles μόνο αν ΔΕΝ δόθηκαν ids.
+          const finalSingerFrontIds =
+            v.singerFrontIds.length > 0
+              ? v.singerFrontIds
+              : await this.upsertArtistsByTitlesTx(tx, v.singerFrontNames);
+
+          const finalSingerBackIds =
+            v.singerBackIds.length > 0
+              ? v.singerBackIds
+              : await this.upsertArtistsByTitlesTx(tx, v.singerBackNames);
+
+          const finalSolistIds =
+            v.solistIds.length > 0
+              ? v.solistIds
+              : await this.upsertArtistsByTitlesTx(tx, v.solistNames);
+
+          // ✅ Validate ότι όλα τα Artist.id υπάρχουν (αποφεύγουμε “σιωπηλό” λάθος)
+          await this.assertArtistsExistTx(
+            tx,
+            [...finalSingerFrontIds, ...finalSingerBackIds, ...finalSolistIds],
+            `versionsJson(versionId=${versionId})`,
+          );
+
+          const rows: Array<{
+            versionId: number;
+            artistId: number;
+            role: VersionArtistRole;
+          }> = [];
+
+          for (const artistId of finalSingerFrontIds) {
+            rows.push({
+              versionId,
+              artistId,
+              role: VersionArtistRole.SINGER_FRONT,
+            });
+          }
+          for (const artistId of finalSingerBackIds) {
+            rows.push({
+              versionId,
+              artistId,
+              role: VersionArtistRole.SINGER_BACK,
+            });
+          }
+          for (const artistId of finalSolistIds) {
+            rows.push({
+              versionId,
+              artistId,
+              role: VersionArtistRole.SOLOIST,
+            });
+          }
+
+          if (rows.length) {
+            await tx.songVersionArtist.createMany({
+              data: rows,
+              skipDuplicates: true,
+            });
+          }
+        }
+
+        // delete versions not in keepIds
+        const keepSet = new Set(keepIds);
+        const toDelete = existingVersions
+          .map((x) => x.id)
+          .filter((vid) => !keepSet.has(vid));
+
+        if (toDelete.length) {
+          // cascade is not declared for SongVersionArtist; we delete explicitly first
+          await tx.songVersionArtist.deleteMany({
+            where: { versionId: { in: toDelete } },
+          });
+          await tx.songVersion.deleteMany({
+            where: { id: { in: toDelete } },
+          });
+        }
+      }
+    });
+
+    // ✅ NEW: sync στο Elasticsearch ΠΑΝΤΑ μετά το transaction
+    await this.esSync.upsertSong(id);
+
+    return this.findOne(id, true);
   }
 }

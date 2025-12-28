@@ -1,9 +1,11 @@
 // app/components/Header.tsx
 "use client";
 
+
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 
 export default function Header() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -26,13 +28,24 @@ export default function Header() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
 
-  // Εμφάνιση / απόκρυψη X
+  // Τιμή input αναζήτησης (controlled) + εμφάνιση / απόκρυψη X
+  const [searchValue, setSearchValue] = useState("");
   const [hasText, setHasText] = useState(false);
 
   // ---- voice search (webkitSpeechRecognition) ----
   const [isVoiceSupported, setIsVoiceSupported] = useState(false);
   const recognitionRef = useRef<any | null>(null);
   const recognitionTimeoutRef = useRef<number | null>(null);
+
+  // ---- search params από το URL ----
+  const searchParams = useSearchParams();
+
+  // Ενημέρωση searchValue από το URL (ώστε να μην χάνεται μετά την αναζήτηση)
+  useEffect(() => {
+    const termFromUrl = searchParams.get("search_term") || "";
+    setSearchValue(termFromUrl);
+    setHasText(termFromUrl.trim().length > 0);
+  }, [searchParams]);
 
   // Διαβάζουμε το rep_current_room από το localStorage και ακούμε αλλαγές
   useEffect(() => {
@@ -141,6 +154,7 @@ export default function Header() {
     };
   }, [isLoggedIn, currentRoomName]);
 
+  // Ρύθμιση voice recognition
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -166,9 +180,12 @@ export default function Header() {
 
       const transcript = event.results[0][0].transcript as string;
 
+      // ενημέρωση controlled state
+      setSearchValue(transcript);
+      setHasText(transcript.trim().length > 0);
+
       if (searchInputRef.current) {
         searchInputRef.current.value = transcript;
-        setHasText(transcript.trim().length > 0);
       }
 
       window.setTimeout(() => {
@@ -207,9 +224,11 @@ export default function Header() {
   const handleVoiceSearchClick = () => {
     if (!recognitionRef.current) return;
 
+    // καθαρισμός πριν ξεκινήσει η φωνητική
+    setSearchValue("");
+    setHasText(false);
     if (searchInputRef.current) {
       searchInputRef.current.value = "";
-      setHasText(false);
     }
 
     recognitionRef.current.start();
@@ -225,11 +244,12 @@ export default function Header() {
   };
 
   const handleClearClick = () => {
+    setSearchValue("");
+    setHasText(false);
     if (searchInputRef.current) {
       searchInputRef.current.value = "";
       searchInputRef.current.focus();
     }
-    setHasText(false);
   };
 
   const openSidebar = () => setIsSidebarOpen(true);
@@ -317,18 +337,22 @@ export default function Header() {
                 className="menu-button-wrapper"
                 style={{ display: "inline-block" }}
               >
-                <button
-                  type="button"
-                  className="button"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: "1.5em",
-                  }}
-                >
-                  <i className="fas fa-sliders-h" />
-                </button>
+                <Link href="/categories">
+                  <button
+                    type="button"
+                    className="button"
+                    title="Κατηγορίες"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: "1.6em",
+                      color: "#000",
+                    }}
+                  >
+                    ☰
+                  </button>
+                </Link>
               </div>
 
               <form
@@ -356,6 +380,12 @@ export default function Header() {
                     id="searchInput"
                     name="search_term"
                     placeholder="Αναζήτηση τραγουδιού..."
+                    value={searchValue}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSearchValue(val);
+                      setHasText(val.trim().length > 0);
+                    }}
                     style={{
                       width: "100%",
                       border: "1px solid #ccc",
@@ -364,9 +394,6 @@ export default function Header() {
                       fontSize: 15,
                     }}
                     autoComplete="off"
-                    onChange={(e) =>
-                      setHasText(e.target.value.trim().length > 0)
-                    }
                   />
                   <span
                     id="clearSearch"
@@ -436,12 +463,10 @@ export default function Header() {
               </span>
             </Link>
 
-
             {/* AVATAR HEADER */}
             <button
               type="button"
               onClick={() => (isLoggedIn ? signOut() : signIn("google"))}
-
               title={isLoggedIn ? "Αποσύνδεση" : "Σύνδεση με Google"}
               style={{
                 width: 30,
@@ -512,6 +537,8 @@ export default function Header() {
             alignItems: "center",
             gap: 10,
             marginTop: 20,
+            justifyContent: "space-between",
+            width: "100%",
           }}
         >
           <button
@@ -525,6 +552,7 @@ export default function Header() {
               fontSize: 14,
             }}
             onClick={() => {
+              closeSidebar();
               window.location.href = "/songs/song/?song_id=0";
             }}
           >
@@ -543,7 +571,10 @@ export default function Header() {
               background: "none",
               cursor: "pointer",
             }}
-            onClick={() => (isLoggedIn ? signOut() : signIn("google"))}
+            onClick={() => {
+              closeSidebar();
+              isLoggedIn ? signOut() : signIn("google");
+            }}
           >
             <span
               style={{
@@ -579,6 +610,7 @@ export default function Header() {
             <li style={{ marginBottom: 10 }}>
               <Link
                 href="/lists"
+                onClick={closeSidebar}
                 style={{
                   color: "#fff",
                   textDecoration: "none",
@@ -592,6 +624,7 @@ export default function Header() {
             <li style={{ marginBottom: 10 }}>
               <Link
                 href="/artists"
+                onClick={closeSidebar}
                 style={{
                   color: "#fff",
                   textDecoration: "none",
@@ -605,6 +638,7 @@ export default function Header() {
             <li style={{ marginBottom: 10 }}>
               <Link
                 href="/rooms"
+                onClick={closeSidebar}
                 style={{
                   color: "#fff",
                   textDecoration: "none",
@@ -618,6 +652,7 @@ export default function Header() {
             <li style={{ marginBottom: 10 }}>
               <Link
                 href="/history_changes"
+                onClick={closeSidebar}
                 style={{
                   color: "#fff",
                   textDecoration: "none",
@@ -631,6 +666,7 @@ export default function Header() {
             <li style={{ marginBottom: 10 }}>
               <Link
                 href="/profile"
+                onClick={closeSidebar}
                 style={{
                   color: "#fff",
                   textDecoration: "none",
@@ -645,6 +681,7 @@ export default function Header() {
               <a
                 href="#"
                 id="installAppLink"
+                onClick={closeSidebar}
                 style={{
                   color: "#fff",
                   textDecoration: "none",
@@ -655,10 +692,11 @@ export default function Header() {
               </a>
             </li>
 
-            {/* ΕΔΩ η διόρθωση: Χρήστες → /users */}
+            {/* Χρήστες → /users */}
             <li style={{ marginBottom: 10 }}>
               <Link
                 href="/users"
+                onClick={closeSidebar}
                 style={{
                   color: "#fff",
                   textDecoration: "none",
@@ -669,9 +707,25 @@ export default function Header() {
               </Link>
             </li>
 
+                        <li style={{ marginBottom: 10 }}>
+              <Link
+                href="/settings"
+                onClick={closeSidebar}
+                style={{
+                  color: "#fff",
+                  textDecoration: "none",
+                  fontSize: 18,
+                }}
+              >
+                ⚙️ Ρυθμίσεις
+              </Link>
+            </li>
+
+     
             <li style={{ marginBottom: 50 }}>
               <a
                 href="mailto:repertorio.net@gmail.com"
+                onClick={closeSidebar}
                 style={{
                   color: "#fff",
                   textDecoration: "none",

@@ -1,11 +1,10 @@
-// src/artists/artists.module.ts
-import { Module } from '@nestjs/common';
-import { ArtistsService } from './artists.service';
-import { ArtistsController } from './artists.controller';
+import { Module } from "@nestjs/common";
+import { ArtistsService } from "./artists.service";
+import { ArtistsController } from "./artists.controller";
+import { PrismaService } from "../prisma/prisma.service";
 
 @Module({
   controllers: [ArtistsController],
-  providers: [ArtistsService],
+  providers: [ArtistsService, PrismaService],
 })
 export class ArtistsModule {}
-

@@ -8,7 +8,14 @@ export class CategoriesService {
 
   async findAll() {
     return this.prisma.category.findMany({
-      orderBy: { title: "asc" }, // ή "name", αν έτσι λέγεται το field
+      orderBy: { title: "asc" },
+      include: {
+        _count: {
+          select: {
+            songs: true, // <-- αν η σχέση λέγεται αλλιώς, άλλαξε ΜΟΝΟ αυτό
+          },
+        },
+      },
     });
   }
 }

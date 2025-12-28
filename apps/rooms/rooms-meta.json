@@ -4,6 +4,11 @@
     "salt": null,
     "passwordHash": null
   },
+  "12345": {
+    "hasPassword": false,
+    "salt": null,
+    "passwordHash": null
+  },
   "test": {
     "hasPassword": false,
     "salt": null,

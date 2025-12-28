@@ -951,3 +951,217 @@ ul {
     font-size: 22px;    /* εξασφαλίζουμε ότι δεν "μικραίνει" από το h4,p,a,span rule */
     line-height: 1;
 }
+/* ---- Edit song page ---- */
+
+.song-edit-page {
+  min-height: calc(100vh - 80px); /* αφήνει χώρο για header/footer */
+  display: flex;
+  justify-content: center;
+  padding: 2.5rem 1.25rem 3rem;
+  background: #050505;
+  color: #f5f5f5;
+}
+
+.song-edit-wrapper {
+  width: 100%;
+  max-width: 980px;
+  background: radial-gradient(circle at top left, #1b1b1b, #050505 60%);
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
+  padding: 2rem 2.25rem 2.5rem;
+}
+
+/* Header / τίτλοι */
+
+.song-edit-header {
+  margin-bottom: 1.75rem;
+}
+
+.song-edit-breadcrumb {
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 0.6rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.song-edit-breadcrumb-link {
+  color: rgba(255, 255, 255, 0.8);
+  text-decoration: none;
+}
+
+.song-edit-breadcrumb-link:hover {
+  text-decoration: underline;
+}
+
+.song-edit-breadcrumb-separator {
+  margin: 0 0.2rem;
+}
+
+.song-edit-breadcrumb-current {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.song-edit-title {
+  font-size: 1.7rem;
+  font-weight: 700;
+  margin: 0 0 0.3rem;
+}
+
+.song-edit-subtitle {
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Φόρμα */
+
+.song-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+/* Ενότητες */
+
+.song-edit-section {
+  padding: 1.25rem 1.1rem 1.35rem;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.song-edit-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.9rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Κοινά πεδία */
+
+.song-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+}
+
+.song-edit-field:last-child {
+  margin-bottom: 0;
+}
+
+.song-edit-field label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.song-edit-field input,
+.song-edit-field textarea,
+.song-edit-field select {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 10, 10, 0.95);
+  color: #f5f5f5;
+  padding: 0.6rem 0.7rem;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.song-edit-field textarea {
+  resize: vertical;
+  min-height: 140px;
+  line-height: 1.5;
+}
+
+.song-edit-field input::placeholder,
+.song-edit-field textarea::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.song-edit-field input:focus,
+.song-edit-field textarea:focus,
+.song-edit-field select:focus {
+  border-color: #1d8cfb;
+  box-shadow: 0 0 0 1px rgba(255, 152, 0, 0.45);
+  background-color: rgba(15, 15, 15, 0.98);
+}
+
+/* Grid για τα "τεχνικά" πεδία */
+
+.song-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 1.5rem;
+}
+
+/* Actions */
+
+.song-edit-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.8rem;
+  justify-content: flex-end;
+}
+
+.song-edit-submit,
+.song-edit-cancel {
+  border-radius: 999px;
+  padding: 0.6rem 1.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.song-edit-submit {
+  background: linear-gradient(135deg, #1d8cfb);
+  color: #111;
+  border-color: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
+}
+
+.song-edit-submit:hover {
+  filter: brightness(1.05);
+}
+
+.song-edit-cancel {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.song-edit-cancel:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Responsive */
+
+@media (max-width: 768px) {
+  .song-edit-wrapper {
+    padding: 1.6rem 1.3rem 2rem;
+  }
+
+  .song-edit-title {
+    font-size: 1.4rem;
+  }
+
+  .song-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .song-edit-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+}

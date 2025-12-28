@@ -1,8 +1,7 @@
-// src/users/users.service.ts
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
-import { UserRole } from "./user-role.enum";
-import type { Prisma, User as PrismaUser } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import { UserRole } from "@prisma/client";
 
 export interface ListUsersOptions {
   search?: string;
@@ -12,25 +11,19 @@ export interface ListUsersOptions {
   order: "asc" | "desc";
 }
 
-type ListUserItem = {
+export type ListUserItem = {
   id: number;
   email: string | null;
   username: string | null;
   displayName: string | null;
   role: UserRole;
+  avatarUrl: string | null;
   createdAt: Date;
   createdSongsCount: number;
   createdVersionsCount: number;
-  avatarUrl: string | null;
 };
 
-// Επεκτείνουμε τον Prisma User με το πεδίο avatarUrl,
-// γιατί ο client σου είναι παλιός και δεν το έχει στον τύπο.
-type UserWithAvatar = PrismaUser & {
-  avatarUrl: string | null;
-};
-
-type ListUsersResult = {
+export type ListUsersResult = {
   items: ListUserItem[];
   total: number;
   page: number;
@@ -42,175 +35,160 @@ type ListUsersResult = {
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Βοηθητικό: φτιάχνει orderBy για πεδία που υπάρχουν στη βάση.
-   * Για πεδία counts (createdSongsCount, createdVersionsCount) κάνουμε sort στο JS.
-   */
+  private normalizePage(page?: number) {
+    return page && page > 0 ? Math.trunc(page) : 1;
+  }
+
+  private normalizePageSize(pageSize?: number) {
+    const n = pageSize ? Math.trunc(pageSize) : 10;
+    if (n < 1) return 10;
+    if (n > 200) return 200;
+    return n;
+  }
+
   private buildOrderBy(
     sort: string,
     order: "asc" | "desc",
   ): Prisma.UserOrderByWithRelationInput {
     const dir = order === "desc" ? "desc" : "asc";
 
-    const sortableColumns: Record<
-      string,
-      keyof Prisma.UserOrderByWithRelationInput
-    > = {
+    const sortable: Record<string, keyof Prisma.UserOrderByWithRelationInput> = {
       id: "id",
       displayName: "displayName",
       username: "username",
       email: "email",
       role: "role",
       createdAt: "createdAt",
+      updatedAt: "updatedAt",
     };
 
-    const key = sortableColumns[sort] || "displayName";
-
-    return {
-      [key]: dir,
-    };
+    const key = sortable[sort] || "displayName";
+    return { [key]: dir };
   }
 
-  /**
-   * Μετράει τραγούδια ανά χρήστη από Postgres (Song.createdByUserId).
-   */
-  private async getSongCountsFromPostgres(
-    userIds: number[],
-  ): Promise<Map<number, number>> {
+  private async getSongCounts(userIds: number[]) {
     const map = new Map<number, number>();
-    if (userIds.length === 0) return map;
+    if (!userIds.length) return map;
 
-    const groups = await this.prisma.song.groupBy({
+    const rows = await this.prisma.song.groupBy({
       by: ["createdByUserId"],
-      where: {
-        createdByUserId: { in: userIds },
-      },
+      where: { createdByUserId: { in: userIds } },
       _count: { _all: true },
     });
 
-    for (const g of groups) {
-      if (g.createdByUserId != null) {
-        map.set(g.createdByUserId, g._count._all);
-      }
+    for (const r of rows) {
+      if (r.createdByUserId != null) map.set(r.createdByUserId, r._count._all);
     }
-
     return map;
   }
 
-  /**
-   * Μετράει εκδόσεις ανά χρήστη από Postgres (SongVersion.createdByUserId).
-   */
-  private async getVersionCountsFromPostgres(
-    userIds: number[],
-  ): Promise<Map<number, number>> {
+  private async getVersionCounts(userIds: number[]) {
     const map = new Map<number, number>();
-    if (userIds.length === 0) return map;
+    if (!userIds.length) return map;
 
-    const groups = await this.prisma.songVersion.groupBy({
+    const rows = await this.prisma.songVersion.groupBy({
       by: ["createdByUserId"],
-      where: {
-        createdByUserId: { in: userIds },
-      },
+      where: { createdByUserId: { in: userIds } },
       _count: { _all: true },
     });
 
-    for (const g of groups) {
-      if (g.createdByUserId != null) {
-        map.set(g.createdByUserId, g._count._all);
-      }
+    for (const r of rows) {
+      if (r.createdByUserId != null) map.set(r.createdByUserId, r._count._all);
     }
-
     return map;
   }
 
-  /**
-   * Λίστα χρηστών με search, pagination, sorting και counts (τραγούδια/εκδόσεις).
-   */
   async listUsers(options: ListUsersOptions): Promise<ListUsersResult> {
-    const { search, page, pageSize, sort, order } = options;
+    const page = this.normalizePage(options.page);
+    const pageSize = this.normalizePageSize(options.pageSize);
 
-    const where: Prisma.UserWhereInput = search
+    const where: Prisma.UserWhereInput = options.search
       ? {
           OR: [
-            { displayName: { contains: search, mode: "insensitive" } },
-            { email: { contains: search, mode: "insensitive" } },
-            { username: { contains: search, mode: "insensitive" } },
+            { displayName: { contains: options.search, mode: "insensitive" } },
+            { email: { contains: options.search, mode: "insensitive" } },
+            { username: { contains: options.search, mode: "insensitive" } },
           ],
         }
       : {};
 
     const total = await this.prisma.user.count({ where });
-
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const safePage = Math.min(Math.max(page, 1), totalPages);
 
-    const orderBy = this.buildOrderBy(sort, order);
+    const orderBy = this.buildOrderBy(options.sort, options.order);
 
-    // Εδώ κάνουμε cast σε UserWithAvatar[],
-    // ώστε ο TS να επιτρέψει u.avatarUrl, παρότι ο Prisma User δεν το έχει στον τύπο του.
-    const users = (await this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       where,
       orderBy,
       skip: (safePage - 1) * pageSize,
       take: pageSize,
-    })) as UserWithAvatar[];
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        displayName: true,
+        role: true,
+        avatarUrl: true,
+        createdAt: true,
+      },
+    });
 
-    const userIds = users.map((u) => u.id);
-
-    const songCountsMap = await this.getSongCountsFromPostgres(userIds);
-    const versionCountsMap = await this.getVersionCountsFromPostgres(userIds);
+    const ids = users.map((u) => u.id);
+    const [songCounts, versionCounts] = await Promise.all([
+      this.getSongCounts(ids),
+      this.getVersionCounts(ids),
+    ]);
 
     let items: ListUserItem[] = users.map((u) => ({
       id: u.id,
       email: u.email,
       username: u.username,
       displayName: u.displayName,
-      role: u.role as UserRole,
-      createdAt: u.createdAt,
-      createdSongsCount: songCountsMap.get(u.id) ?? 0,
-      createdVersionsCount: versionCountsMap.get(u.id) ?? 0,
+      role: u.role,
       avatarUrl: u.avatarUrl ?? null,
+      createdAt: u.createdAt,
+      createdSongsCount: songCounts.get(u.id) ?? 0,
+      createdVersionsCount: versionCounts.get(u.id) ?? 0,
     }));
 
-    // Αν ο client ζητήσει sort σε counts, το κάνουμε εδώ
-    if (sort === "createdSongsCount") {
+    // Sorting by computed fields (optional)
+    if (options.sort === "createdSongsCount") {
       items = items.sort((a, b) =>
-        order === "desc"
+        options.order === "desc"
           ? b.createdSongsCount - a.createdSongsCount
           : a.createdSongsCount - b.createdSongsCount,
       );
-    } else if (sort === "createdVersionsCount") {
+    } else if (options.sort === "createdVersionsCount") {
       items = items.sort((a, b) =>
-        order === "desc"
+        options.order === "desc"
           ? b.createdVersionsCount - a.createdVersionsCount
           : a.createdVersionsCount - b.createdVersionsCount,
       );
     }
 
-    return {
-      items,
-      total,
-      page: safePage,
-      pageSize,
-      totalPages,
-    };
+    return { items, total, page: safePage, pageSize, totalPages };
   }
 
-  /**
-   * Επιστρέφει έναν χρήστη με τα counts του.
-   */
   async getUserById(id: number): Promise<ListUserItem> {
-    const user = (await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id },
-    })) as UserWithAvatar | null;
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        displayName: true,
+        role: true,
+        avatarUrl: true,
+        createdAt: true,
+      },
+    });
 
-    if (!user) {
-      throw new NotFoundException(`User with id=${id} not found`);
-    }
+    if (!user) throw new NotFoundException(`User with id=${id} not found`);
 
-    const [songCountsMap, versionCountsMap] = await Promise.all([
-      this.getSongCountsFromPostgres([id]),
-      this.getVersionCountsFromPostgres([id]),
+    const [songCounts, versionCounts] = await Promise.all([
+      this.getSongCounts([id]),
+      this.getVersionCounts([id]),
     ]);
 
     return {
@@ -218,46 +196,44 @@ export class UsersService {
       email: user.email,
       username: user.username,
       displayName: user.displayName,
-      role: user.role as UserRole,
-      createdAt: user.createdAt,
-      createdSongsCount: songCountsMap.get(id) ?? 0,
-      createdVersionsCount: versionCountsMap.get(id) ?? 0,
+      role: user.role,
       avatarUrl: user.avatarUrl ?? null,
+      createdAt: user.createdAt,
+      createdSongsCount: songCounts.get(id) ?? 0,
+      createdVersionsCount: versionCounts.get(id) ?? 0,
     };
   }
 
-  /**
-   * Ενημέρωση χρήστη (displayName, role, avatarUrl).
-   * Χρησιμοποιούμε "any" για data ώστε να μπορούμε να βάλουμε avatarUrl,
-   * παρότι ο Prisma UserUpdateInput δεν το βλέπει ακόμα.
-   */
   async updateUser(
     id: number,
-    body: {
-      displayName?: string;
-      role?: UserRole;
-      avatarUrl?: string | null;
-    },
+    body: { displayName?: string | null; role?: UserRole; avatarUrl?: string | null },
   ) {
-    const data: any = {};
+    // ensure exists
+    const exists = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException(`User with id=${id} not found`);
 
-    if (typeof body.displayName === "string") {
-      data.displayName = body.displayName;
-    }
+    const data: Prisma.UserUpdateInput = {};
 
-    if (body.role) {
-      data.role = body.role;
-    }
+    if (body.displayName !== undefined) data.displayName = body.displayName;
+    if (body.role !== undefined) data.role = body.role;
+    if (body.avatarUrl !== undefined) data.avatarUrl = body.avatarUrl;
 
-    if (typeof body.avatarUrl !== "undefined") {
-      data.avatarUrl = body.avatarUrl;
-    }
-
-    const updated = (await this.prisma.user.update({
+    return this.prisma.user.update({
       where: { id },
       data,
-    })) as UserWithAvatar;
-
-    return updated;
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        displayName: true,
+        role: true,
+        avatarUrl: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
   }
 }

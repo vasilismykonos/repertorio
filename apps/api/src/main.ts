@@ -3,31 +3,46 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { Logger } from "@nestjs/common";
 
+function parseOrigins(): string[] {
+  const raw = process.env.CORS_ALLOW_ORIGINS?.trim();
+  if (raw) return raw.split(",").map((s) => s.trim()).filter(Boolean);
+
+  return [
+    "https://dev.repertorio.net",
+    "https://app.repertorio.net",
+    "https://repertorio.net",
+    "https://www.repertorio.net",
+    "http://localhost:3000",
+    "http://localhost:3001",
+  ];
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Όλα τα endpoints να ξεκινούν από /api/v1
+  // trust proxy (Express)
+  // INestApplication δεν έχει app.set(), οπότε πάμε στο underlying express instance.
+  const httpAdapter = app.getHttpAdapter();
+  const instance: any = httpAdapter.getInstance();
+  if (instance?.set) {
+    instance.set("trust proxy", 1);
+  }
+
   app.setGlobalPrefix("api/v1");
 
-  // Επιτρέπουμε CORS για frontend app.repertorio.net και local dev
+  const allowedOrigins = parseOrigins();
   app.enableCors({
-    origin: [
-      "https://app.repertorio.net",
-      "https://repertorio.net",
-      "https://www.repertorio.net",
-      "http://localhost:3000",
-      "http://localhost:3001",
-    ],
+    origin: allowedOrigins,
     credentials: true,
   });
 
-  // ΣΤΑΘΕΡΑ στην 3000, μόνο τοπικά.
-  const port = 3000;
-  const host = "127.0.0.1";
+  const port = Number(process.env.PORT || 3000);
 
-  await app.listen(port, host);
+  // explicit bind
+  await app.listen(port, "0.0.0.0");
+
   const logger = new Logger("Bootstrap");
-  logger.log(`Nest API is running at http://${host}:${port}/api/v1`);
+  logger.log(`Nest API is running at http://0.0.0.0:${port}/api/v1`);
 }
 
 bootstrap();

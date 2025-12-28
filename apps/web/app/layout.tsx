@@ -2,6 +2,7 @@
 import "./globals.css";
 import "/public/score-player/score-player.css";
 import type { ReactNode } from "react";
+import { Suspense } from "react";             // 🔹 ΠΡΟΣΘΗΚΗ
 import type { Metadata } from "next";
 
 import Header from "./components/Header";
@@ -47,7 +48,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <PwaInstallLinkHandler />
 
         <Providers>
-          <Header />
+          <Suspense fallback={null}>
+            <Header />
+          </Suspense>
+
           <main style={{ flex: 1 }}>{children}</main>
           <Footer />
         </Providers>

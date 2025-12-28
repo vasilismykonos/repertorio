@@ -1101,8 +1101,106 @@ function ensureViewToggleUI(state) {
     });
   };
 
+  // --------------------------- Μεταφορά συγχορδιών μέσα στο SVG ---------------------------
+  // ΕΔΩ πλέον ΔΕΝ έχουμε δικό μας αλγόριθμο· χρησιμοποιούμε τη
+  // RepScore.transposeChordSymbol από το score-transport.js
+  (function (w) {
+    const NS = w.RepScore = w.RepScore || {};
 
-  // --------------------------- Public API ---------------------------
+    // Μεταφορά μιας γραμμής κειμένου με συγχορδίες, π.χ. "Gm   D7  Cm"
+    function transposeChordTextLine(text, semis) {
+      if (!text) return text;
+
+      // Regex για tokens συγχορδιών (ίδιο πνεύμα με πριν)
+      const chordRegex =
+        /\b([A-G](?:#|b)?(?:maj7|maj9|maj|m7b5|m7|m9|m6|m|dim7|dim|aug|sus2|sus4|add9|add11|add13|6|7|9|11|13)?(?:\/[A-G](?:#|b)?)?)\b/g;
+
+      return text.replace(chordRegex, (match) => {
+        const fn = NS.transposeChordSymbol;
+        if (typeof fn === "function") {
+          try {
+            // Χρησιμοποιούμε την ΚΕΝΤΡΙΚΗ λογική από το score-transport.js
+            return fn(match, semis);
+          } catch (e) {
+            console.warn("[sp-chords] transposeChordSymbol error", e);
+          }
+        }
+        // Fallback: αν για κάποιο λόγο δεν υπάρχει transposeChordSymbol,
+        // άφησε τη συγχορδία όπως είναι για να μην την χαλάσεις.
+        return match;
+      });
+    }
+
+    // Εφαρμογή σε όλα τα text/tspan του συγκεκριμένου SVG
+    function transposeChordLabelsInSvg(svg, semis) {
+      if (!svg) return;
+
+      const texts = svg.querySelectorAll("text, tspan");
+      texts.forEach((el) => {
+        let orig = el.getAttribute("data-spChordOrig");
+        if (orig == null) {
+          orig = (el.textContent || "").trim();
+          el.setAttribute("data-spChordOrig", orig);
+        }
+
+        if (!orig) return;
+
+        const transposed = transposeChordTextLine(orig, semis);
+        if (transposed && transposed !== el.textContent) {
+          el.textContent = transposed;
+        }
+      });
+    }
+
+    // Κεντρική animateTranspose που καλείται από score-player.js
+    NS.animateTranspose = function (state, step) {
+      if (!state || !state.renderEl) return;
+
+      const semis = Number.isFinite(state.transpose)
+        ? Number(state.transpose)
+        : 0;
+
+      // 1) Ενημέρωση badge τονικότητας (πάνω αριστερά, με οπλισμό)
+      try {
+        if (typeof NS.updateTonalityBadge === "function") {
+          NS.updateTonalityBadge(state);
+        }
+      } catch (e) {
+        console.warn("[sp-chords] updateTonalityBadge error", e);
+      }
+
+      // 2) Μεταφορά συγχορδιών μέσα στο SVG με τον ΙΔΙΟ αλγόριθμο
+      const svgs = state.renderEl.querySelectorAll(".sp-page > svg, svg");
+      svgs.forEach((svg) => {
+        try {
+          transposeChordLabelsInSvg(svg, semis);
+        } catch (e) {
+          console.warn("[sp-chords] transposeChordLabelsInSvg error", e);
+        }
+
+        // Προαιρετικά: χρωματισμός φωνών όπως πριν
+        try {
+          if (typeof NS.colorNotesByVoice === "function") {
+            NS.colorNotesByVoice(state, svg);
+          }
+        } catch (e) {
+          console.warn("[sp-chords] colorNotesByVoice error", e);
+        }
+      });
+
+      // 3) Προσαρμογή οπλισμών στα πεντάγραμμα (αν υπάρχει helper)
+      try {
+        if (typeof NS.updateKeySignaturesForState === "function") {
+          NS.updateKeySignaturesForState(state);
+        }
+      } catch (e) {
+        console.warn("[sp-chords] updateKeySignaturesForState error", e);
+      }
+    };
+  })(window);
+
+
+
   // --------------------------- Public API ---------------------------
   NS.loadAndRenderScore = async function (state) {
     await renderAccordingToMode(state);

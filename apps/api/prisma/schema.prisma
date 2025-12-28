@@ -7,9 +7,250 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// =====================
-// Enums
-// =====================
+model User {
+  id               Int               @id @default(autoincrement())
+  email            String?           @unique
+  username         String?           @unique
+  displayName      String?
+  role             UserRole          @default(USER)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  legacyUserId     Int?              @unique
+  avatarUrl        String?
+  listGroupMembers ListGroupMember[]
+  listMembers      ListMember[]
+  createdSongs     Song[]            @relation("SongCreatedBy")
+  createdVersions  SongVersion[]     @relation("SongVersionCreatedBy")
+}
+
+model Artist {
+  id             Int                 @id @default(autoincrement())
+  legacyArtistId Int?                @unique
+  title          String
+  firstName      String?
+  lastName       String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  songCredits    SongCredit[]
+  versionCredits SongVersionArtist[]
+}
+
+model Category {
+  id             Int            @id @default(autoincrement())
+  title          String         @unique
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  slug           String         @unique
+  songs          Song[]
+  songCategories SongCategory[]
+}
+
+model Rythm {
+  id        Int      @id @default(autoincrement())
+  title     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  songs     Song[]
+}
+
+model Song {
+  id               Int            @id @default(autoincrement())
+  legacySongId     Int            @unique
+  slug             String         @unique
+  title            String
+  firstLyrics      String?
+  lyrics           String?
+  chords           String?
+  characteristics  String?
+  originalKey      String?
+  defaultKey       String?
+  highestVocalNote String?
+  basedOnSongId    Int?
+  categoryId       Int?
+  rythmId          Int?
+  scoreFile        String?
+  hasScore         Boolean        @default(false)
+  status           SongStatus     @default(PENDING_APPROVAL)
+  views            Int            @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  createdByUserId  Int?
+  listItems        ListItem[]
+  basedOnSong      Song?          @relation("SongBasedOn", fields: [basedOnSongId], references: [id])
+  derivedSongs     Song[]         @relation("SongBasedOn")
+  category         Category?      @relation(fields: [categoryId], references: [id])
+  createdBy        User?          @relation("SongCreatedBy", fields: [createdByUserId], references: [id])
+  rythm            Rythm?         @relation(fields: [rythmId], references: [id])
+  SongAsset        SongAsset[]
+  songCategories   SongCategory[]
+  credits          SongCredit[]
+  SongTag          SongTag[]
+  versions         SongVersion[]
+
+  @@index([categoryId])
+  @@index([rythmId])
+  @@index([createdByUserId])
+}
+
+model SongCredit {
+  id       Int            @id @default(autoincrement())
+  songId   Int
+  artistId Int
+  role     SongCreditRole
+  artist   Artist         @relation(fields: [artistId], references: [id])
+  song     Song           @relation(fields: [songId], references: [id])
+
+  @@unique([songId, artistId, role])
+}
+
+model SongVersion {
+  id              Int                 @id @default(autoincrement())
+  legacyVersionId Int?                @unique
+  songId          Int
+  title           String?
+  year            Int?
+  youtubeUrl      String?
+  youtubeSearch   String?
+  playerCode      String?
+  createdAt       DateTime            @default(now())
+  createdByUserId Int?
+  createdBy       User?               @relation("SongVersionCreatedBy", fields: [createdByUserId], references: [id])
+  song            Song                @relation(fields: [songId], references: [id])
+  artists         SongVersionArtist[]
+}
+
+model SongVersionArtist {
+  id        Int               @id @default(autoincrement())
+  versionId Int
+  artistId  Int
+  role      VersionArtistRole
+  artist    Artist            @relation(fields: [artistId], references: [id])
+  version   SongVersion       @relation(fields: [versionId], references: [id])
+
+  @@unique([versionId, artistId, role])
+}
+
+model ListGroup {
+  id        Int               @id @default(autoincrement())
+  legacyId  Int?              @unique
+  title     String
+  fullTitle String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  lists     List[]
+  members   ListGroupMember[]
+}
+
+model List {
+  id        Int          @id @default(autoincrement())
+  legacyId  Int?         @unique
+  title     String
+  groupId   Int?
+  marked    Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  group     ListGroup?   @relation(fields: [groupId], references: [id])
+  items     ListItem[]
+  members   ListMember[]
+}
+
+model ListItem {
+  id        Int     @id @default(autoincrement())
+  legacyId  Int?    @unique
+  listId    Int
+  sortId    Int     @default(0)
+  notes     String?
+  transport Int     @default(0)
+  title     String
+  chords    String?
+  lyrics    String?
+  songId    Int?
+  list      List    @relation(fields: [listId], references: [id])
+  song      Song?   @relation(fields: [songId], references: [id])
+}
+
+model ListMember {
+  id     Int            @id @default(autoincrement())
+  listId Int
+  userId Int
+  role   ListMemberRole
+  list   List           @relation(fields: [listId], references: [id])
+  user   User           @relation(fields: [userId], references: [id])
+
+  @@unique([listId, userId])
+}
+
+model ListGroupMember {
+  id      Int                 @id @default(autoincrement())
+  groupId Int
+  userId  Int
+  role    ListGroupMemberRole
+  group   ListGroup           @relation(fields: [groupId], references: [id])
+  user    User                @relation(fields: [userId], references: [id])
+
+  @@unique([groupId, userId])
+}
+
+model SongCategory {
+  id         Int      @id @default(autoincrement())
+  songId     Int
+  categoryId Int
+  createdAt  DateTime @default(now())
+  category   Category @relation(fields: [categoryId], references: [id])
+  song       Song     @relation(fields: [songId], references: [id])
+
+  @@unique([songId, categoryId])
+}
+
+model Asset {
+  id        Int         @id @default(autoincrement())
+  kind      AssetKind
+  type      AssetType   @default(GENERIC)
+  title     String?
+  url       String?
+  filePath  String?
+  mimeType  String?
+  sizeBytes BigInt?
+  createdAt DateTime    @default(now())
+  SongAsset SongAsset[]
+
+  @@index([kind, type])
+}
+
+model SongAsset {
+  songId    Int
+  assetId   Int
+  label     String?
+  sort      Int      @default(0)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  Asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  Song      Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@id([songId, assetId])
+  @@index([assetId])
+  @@index([songId, sort])
+}
+
+model SongTag {
+  songId    Int
+  tagId     Int
+  createdAt DateTime @default(now())
+  Song      Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+  Tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([songId, tagId])
+  @@index([songId])
+  @@index([tagId])
+}
+
+model Tag {
+  id        Int       @id @default(autoincrement())
+  title     String    @unique
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  SongTag   SongTag[]
+}
 
 enum SongStatus {
   DRAFT
@@ -18,13 +259,16 @@ enum SongStatus {
   ARCHIVED
 }
 
+enum SongCreditRole {
+  COMPOSER
+  LYRICIST
+}
+
 enum VersionArtistRole {
   SINGER_FRONT
   SINGER_BACK
   SOLOIST
   MUSICIAN
-  COMPOSER
-  LYRICIST
 }
 
 enum UserRole {
@@ -32,199 +276,32 @@ enum UserRole {
   EDITOR
   AUTHOR
   CONTRIBUTOR
-  SUBSCRIBER
   USER
 }
 
-// =====================
-// Core models
-// =====================
-
-model User {
-  id          Int      @id @default(autoincrement())
-  email       String?  @unique
-  username    String?  @unique
-  displayName String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // ----- Mapping από wp_users -----
-
-  /// Παλαιό ID από wp_users.ID
-  wpId               Int?    @unique
-
-  /// user_login
-  userLogin          String?
-
-  /// user_nicename
-  userNicename       String?
-
-  /// user_url
-  userUrl            String?
-
-  /// user_activation_key
-  userActivationKey  String?
-
-  /// user_status
-  userStatus         Int?
-
-  /// User_Room (το τελευταίο room)
-  userRoom           String?
-
-  /// Rooms (ιστορικό / αποθηκευμένα rooms)
-  rooms              String?
-
-  /// Redirect_Field (π.χ. lyrics, chords κλπ)
-  redirectField      String?
-
-  /// Hide_Chords (0/1 στο WP)
-  hideChords         Boolean?
-
-  /// current_url
-  currentUrl         String?
-
-  /// Dark_Mode (0/1 στο WP)
-  darkMode           Boolean?
-
-  /// Devices
-  devices            String?
-
-  /// FontSize
-  fontSize           Int?
-
-  /// View_Other_User_Chords
-  viewOtherUserChords String?
-
-  /// Hide_Info
-  hideInfo           Boolean?
-
-  /// Ρόλος χρήστη που προκύπτει από wp_usermeta (_capabilities)
-  role               UserRole @default(USER)
-
-  // Relations
-  createdSongs       Song[]
-  createdVersions    SongVersion[]
+enum ListMemberRole {
+  OWNER
+  EDITOR
+  VIEWER
 }
 
-
-
-model Artist {
-  id             Int      @id @default(autoincrement())
-  legacyArtistId Int?
-  title          String
-  firstName      String?
-  lastName       String?
-  sex            String?
-  bornYear       Int?
-  dieYear        Int?
-  imageUrl       String?
-  biography      String?
-  wikiUrl        String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  // Relations
-  versionRoles   SongVersionArtist[]
+enum ListGroupMemberRole {
+  OWNER
+  EDITOR
+  VIEWER
 }
 
-model Category {
-  id        Int      @id @default(autoincrement())
-  title     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  songs     Song[]
+enum AssetKind {
+  FILE
+  LINK
 }
 
-model Rythm {
-  id        Int      @id @default(autoincrement())
-  title     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  songs     Song[]
-}
-
-model Makam {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  songs     Song[]
-}
-
-model Song {
-  id               Int        @id @default(autoincrement())
-  title            String
-  firstLyrics      String?
-  lyrics           String?
-  chords           String?
-  characteristics  String?
-  status           SongStatus @default(PENDING_APPROVAL)
-
-  originalKey      String?    // από Tune_Writed
-  defaultKey       String?    // από Default_Tune
-  basedOn          String?    // BasedOn
-  scoreFile        String?    // Partiture (π.χ. path σε MusicXML / SVG)
-  highestVocalNote String?    // Highest_Vocal_Note
-
-  views            Int        @default(0)
-  legacySongId     Int?       // Song_ID_old αν το χρειαστούμε
-
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-
-  createdByUserId  Int?
-  categoryId       Int?
-  rythmId          Int?
-  makamId          Int?
-
-  // Relations
-  category   Category? @relation(fields: [categoryId], references: [id])
-  rythm      Rythm?    @relation(fields: [rythmId], references: [id])
-  makam      Makam?    @relation(fields: [makamId], references: [id])
-  createdBy  User?     @relation(fields: [createdByUserId], references: [id])
-
-  versions   SongVersion[]
-}
-
-model SongVersion {
-  id                Int      @id @default(autoincrement())
-  songId            Int
-
-  title             String?      // snapshot από SongTitle
-  year              Int?
-  youtubeUrl        String?
-  youtubeSearch     String?
-  playerCode        String?      // από Player
-
-  legacyComposerOld String?
-  legacySongIdOld   Int?
-  legacyNewId       Int?
-
-  createdAt         DateTime @default(now())
-  createdByUserId   Int?
-
-  // Relations
-  song      Song  @relation(fields: [songId], references: [id])
-  createdBy User? @relation(fields: [createdByUserId], references: [id])
-
-  artists   SongVersionArtist[]
-}
-
-model SongVersionArtist {
-  versionId Int
-  artistId  Int
-  role      VersionArtistRole
-  order     Int @default(0)
-
-  // Relations
-  version SongVersion @relation(fields: [versionId], references: [id])
-  artist  Artist      @relation(fields: [artistId], references: [id])
-
-  @@id([versionId, artistId, role])
+enum AssetType {
+  GENERIC
+  YOUTUBE
+  SPOTIFY
+  PDF
+  AUDIO
+  IMAGE
+  SCORE
 }

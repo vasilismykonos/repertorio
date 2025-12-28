@@ -7,31 +7,15 @@ import React, {
   useEffect,
   useRef,
   useState,
+  useCallback,
+  useMemo,
 } from "react";
 import { useSession } from "next-auth/react";
 
 type SongSyncPayload = {
-  /**
-   * Προαιρετικό – ID τραγουδιού, αν το ξέρουμε (στο νέο Next.js song page).
-   * Για παλιές σελίδες (μόνο URL) μπορεί να μείνει null/undefined.
-   */
   songId?: number | null;
-
-  /**
-   * Προαιρετικός τίτλος. Αν δεν υπάρχει, μπορεί να είναι null.
-   */
   title?: string | null;
-
-  /**
-   * ΥΠΟΧΡΕΩΤΙΚΟ – το πλήρες URL της σελίδας του τραγουδιού
-   * (αντίστοιχο του window.location.href στο παλιό sync.js).
-   */
   url: string;
-
-  /**
-   * Προαιρετική τονικότητα (selected_tonicity από το παλιό σύστημα).
-   * Αν δεν την χρησιμοποιείς ακόμα στο νέο site, άφησέ την undefined/null.
-   */
   selectedTonicity?: string | null;
 };
 
@@ -70,45 +54,41 @@ function getWsUrl(): string | null {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   const host = window.location.host;
 
-  // Αν θέλεις, μπορείς να χρησιμοποιήσεις και:
-  // const envUrl = process.env.NEXT_PUBLIC_ROOMS_WS_URL;
-  // if (envUrl) return envUrl;
-
   return `${protocol}://${host}/rooms-api/ws`;
 }
 
 export function RoomsProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession();
 
-  const getUserMeta = () => {
+  const getUserMeta = useCallback(() => {
     const anySession: any = session as any;
     const user = anySession?.user || null;
     return {
       userId: user?.id ?? null,
       username: user?.displayName || user?.name || user?.email || null,
     };
-  };
+  }, [session]);
 
   const wsRef = useRef<WebSocket | null>(null);
-  // Χρησιμοποιούμε καθαρά numbers για timers (browser)
+
+  // timers
   const reconnectRef = useRef<number | null>(null);
   const heartbeatRef = useRef<number | null>(null);
+
+  // lifecycle flags
+  const mountedRef = useRef<boolean>(false);
+  const intentionalCloseRef = useRef<boolean>(false);
 
   const [wsConnected, setWsConnected] = useState(false);
   const [currentRoom, setCurrentRoom] = useState<string | null>(null);
   const [lastSyncId, setLastSyncId] = useState<number>(0);
   const [ignoreSyncUntil, setIgnoreSyncUntil] = useState<number>(0);
 
-  // Restore previously selected room from localStorage on first mount,
-  // so that the user stays connected to the same room across all pages
-  // (όπως στο παλιό WordPress sync.js).
+  // Restore room from localStorage on first mount
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // Αν έχουμε ήδη room στη μνήμη, δεν κάνουμε override
-    if (currentRoom && currentRoom.trim() !== "") {
-      return;
-    }
+    if (currentRoom && currentRoom.trim() !== "") return;
 
     try {
       const stored = window.localStorage.getItem("rep_current_room");
@@ -120,8 +100,7 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentRoom]);
 
-  // Αποθήκευση room σε localStorage + event
-  const saveRoom = (room: string | null) => {
+  const saveRoom = useCallback((room: string | null) => {
     if (typeof window === "undefined") return;
 
     if (room && room.trim() !== "") {
@@ -130,49 +109,44 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
       window.localStorage.removeItem("rep_current_room");
     }
 
-    // Custom event για όποιο script θέλει να ενημερωθεί ότι άλλαξε το room
-    const evt = new CustomEvent("rep_rooms_room_changed", {
-      detail: { room },
-    });
+    const evt = new CustomEvent("rep_rooms_room_changed", { detail: { room } });
     window.dispatchEvent(evt);
-  };
+  }, []);
 
-  // Αποστολή join στον WebSocket (με device_id / user_id / username)
-  const sendJoin = (room: string, password: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      return;
-    }
+  const sendJoin = useCallback(
+    (room: string, password: string) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-    const deviceId = getOrCreateDeviceId();
-    const meta = getUserMeta();
+      const deviceId = getOrCreateDeviceId();
+      const meta = getUserMeta();
 
-    const msg = {
-      type: "join_room",
-      room,
-      password,
-      deviceId,
-      userId: meta.userId,
-      username: meta.username,
-      senderUrl: getSenderUrl(),
-    };
+      const msg = {
+        type: "join_room",
+        room,
+        password,
+        deviceId,
+        userId: meta.userId,
+        username: meta.username,
+        senderUrl: getSenderUrl(),
+      };
 
-    wsRef.current.send(JSON.stringify(msg));
-  };
+      wsRef.current.send(JSON.stringify(msg));
+    },
+    [getUserMeta]
+  );
 
-  const sendLeave = () => {
+  const sendLeave = useCallback(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     wsRef.current.send(JSON.stringify({ type: "leave_room" }));
-  };
+  }, []);
 
-  // Heartbeat προς server
-  const startHeartbeat = () => {
+  const startHeartbeat = useCallback(() => {
     if (typeof window === "undefined") return;
     if (heartbeatRef.current !== null) return;
 
     const id = window.setInterval(() => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
       try {
         ws.send(JSON.stringify({ type: "ping" }));
       } catch {
@@ -181,31 +155,49 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
     }, 15000);
 
     heartbeatRef.current = id;
-  };
+  }, []);
 
-  const stopHeartbeat = () => {
+  const stopHeartbeat = useCallback(() => {
     if (typeof window === "undefined") return;
     if (heartbeatRef.current !== null) {
       window.clearInterval(heartbeatRef.current);
       heartbeatRef.current = null;
     }
-  };
+  }, []);
 
-  const scheduleReconnect = () => {
+  const clearReconnect = useCallback(() => {
     if (typeof window === "undefined") return;
+    if (reconnectRef.current !== null) {
+      window.clearTimeout(reconnectRef.current);
+      reconnectRef.current = null;
+    }
+  }, []);
+
+  const scheduleReconnect = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    // Αν δεν είμαστε mounted, δεν κάνουμε reconnect ποτέ.
+    if (!mountedRef.current) return;
+
+    // Αν το κλείσιμο ήταν intentional (cleanup / manual close), επίσης όχι reconnect.
+    if (intentionalCloseRef.current) return;
+
     if (reconnectRef.current !== null) return;
 
     const id = window.setTimeout(() => {
       reconnectRef.current = null;
+      // Ξανά: μην κάνεις connect αν έχει γίνει unmount στο μεταξύ.
+      if (!mountedRef.current) return;
+      if (intentionalCloseRef.current) return;
       connectWs();
     }, 5000);
 
     reconnectRef.current = id;
-  };
+  }, []);
 
-  // Βασική σύνδεση WebSocket
-  const connectWs = () => {
+  const connectWs = useCallback(() => {
     if (typeof window === "undefined") return;
+    if (!mountedRef.current) return;
 
     if (
       wsRef.current &&
@@ -220,10 +212,14 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
 
     console.log("[RoomsProvider] connecting to", wsUrl);
 
+    // νέο connect attempt => δεν είναι “intentional close”
+    intentionalCloseRef.current = false;
+
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (!mountedRef.current) return;
       console.log("[RoomsProvider] WebSocket open");
       setWsConnected(true);
       startHeartbeat();
@@ -236,9 +232,7 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
 
         const t = (data as any).type || (data as any).action;
 
-        if (t === "welcome") {
-          return;
-        }
+        if (t === "welcome") return;
 
         if (t === "join_accepted") {
           console.log(
@@ -259,7 +253,6 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (t === "update_count") {
-          // Ενημέρωση DOM / custom event για UI (όπως στο παλιό sync.js)
           if (typeof window !== "undefined") {
             const evt = new CustomEvent("rep_rooms_update_count", {
               detail: {
@@ -276,13 +269,9 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
           const syncId = Number((data as any).syncId ?? 0);
           setLastSyncId(syncId);
 
-          // Αν πρέπει να αγνοήσουμε sync μέχρι κάποιο timestamp
           const now = Date.now();
-          if (ignoreSyncUntil && now < ignoreSyncUntil) {
-            return;
-          }
+          if (ignoreSyncUntil && now < ignoreSyncUntil) return;
 
-          // Dispatch custom event στο window, ώστε ο score-player / JS να το πιάσει
           if (typeof window !== "undefined") {
             const evt = new CustomEvent("rep_song_sync", {
               detail: {
@@ -296,30 +285,57 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        if (t === "pong") {
-          return;
-        }
+        if (t === "pong") return;
       } catch (err) {
         console.error("[RoomsProvider] onmessage error:", err);
       }
     };
 
-    ws.onclose = () => {
-      console.log("[RoomsProvider] WebSocket closed");
-      setWsConnected(false);
+    ws.onclose = (e) => {
+      // Σημαντικό: μην προγραμματίζεις reconnect αν το component είναι unmounted
+      // ή αν το close ήταν intentional (cleanup).
+      console.log(
+        "[RoomsProvider] WebSocket closed",
+        { code: e.code, reason: e.reason, wasClean: e.wasClean }
+      );
+
+      if (mountedRef.current) {
+        setWsConnected(false);
+      }
+
       stopHeartbeat();
+
+      // Μόνο αν είμαστε mounted και δεν είναι intentional close, κάνε reconnect
       scheduleReconnect();
     };
 
     ws.onerror = (event) => {
+      // Αυτό είναι το “ψευδο-error” που βλέπεις σε StrictMode unmount/close
+      // Όταν κλείνουμε εμείς το socket (cleanup), το suppressάρουμε.
+      if (!mountedRef.current) return;
+      if (intentionalCloseRef.current) {
+        // προαιρετικά: console.debug αντί για error
+        // console.debug("[RoomsProvider] WebSocket error during intentional close:", event);
+        return;
+      }
       console.error("[RoomsProvider] WebSocket error:", event);
     };
-  };
+  }, [ignoreSyncUntil, scheduleReconnect, startHeartbeat, stopHeartbeat]);
 
   useEffect(() => {
+    mountedRef.current = true;
+
     connectWs();
 
     return () => {
+      mountedRef.current = false;
+
+      // ακυρώνουμε τυχόν reconnect ΠΡΙΝ δώσουμε close
+      clearReconnect();
+
+      // δηλώνουμε ότι το close είναι intentional ώστε να μην “φαίνεται” ως σφάλμα
+      intentionalCloseRef.current = true;
+
       if (wsRef.current) {
         try {
           wsRef.current.close();
@@ -328,105 +344,93 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
         }
         wsRef.current = null;
       }
+
       stopHeartbeat();
-      if (typeof window !== "undefined" && reconnectRef.current !== null) {
-        window.clearTimeout(reconnectRef.current);
-        reconnectRef.current = null;
-      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Όταν αλλάξει wsConnected ή currentRoom → κάνε join
   useEffect(() => {
     if (!wsConnected || !currentRoom) return;
     sendJoin(currentRoom, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsConnected, currentRoom]);
 
-  // Public API: switchRoom
-  const switchRoom = (room: string | null, password: string = "") => {
-    if (!room || room.trim() === "") {
-      sendLeave();
-      setCurrentRoom(null);
-      saveRoom(null);
-      return;
-    }
+  const switchRoom = useCallback(
+    (room: string | null, password: string = "") => {
+      if (!room || room.trim() === "") {
+        sendLeave();
+        setCurrentRoom(null);
+        saveRoom(null);
+        return;
+      }
 
-    const clean = room.trim();
-    setCurrentRoom(clean);
-    saveRoom(clean);
+      const clean = room.trim();
+      setCurrentRoom(clean);
+      saveRoom(clean);
 
-    // Αν το WebSocket είναι ήδη συνδεδεμένο, στείλε αμέσως join
-    if (wsConnected) {
-      sendJoin(clean, password);
-    }
-  };
+      if (wsConnected) {
+        sendJoin(clean, password);
+      }
+    },
+    [saveRoom, sendJoin, sendLeave, wsConnected]
+  );
 
-  // Public API: sendSongToRoom – χρησιμοποιεί το πρωτόκολλο song_sync
-  const sendSongToRoom = (payload: SongSyncPayload) => {
-    const ws = wsRef.current;
+  const sendSongToRoom = useCallback(
+    (payload: SongSyncPayload) => {
+      const ws = wsRef.current;
 
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.warn(
-        "[RoomsProvider] Cannot send song_sync – WebSocket not open",
-        { readyState: ws?.readyState }
-      );
-      return;
-    }
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.warn(
+          "[RoomsProvider] Cannot send song_sync – WebSocket not open",
+          { readyState: ws?.readyState }
+        );
+        return;
+      }
 
-    if (!currentRoom || !currentRoom.trim()) {
-      console.warn(
-        "[RoomsProvider] Cannot send song_sync – no active room selected"
-      );
-      alert("Δεν είσαι συνδεδεμένος σε κανένα room.");
-      return;
-    }
+      if (!currentRoom || !currentRoom.trim()) {
+        console.warn(
+          "[RoomsProvider] Cannot send song_sync – no active room selected"
+        );
+        alert("Δεν είσαι συνδεδεμένος σε κανένα room.");
+        return;
+      }
 
-    const room = currentRoom.trim();
+      const room = currentRoom.trim();
+      const syncId = Date.now();
 
-    // Χρησιμοποιούμε Date.now() σαν syncId (όπως ο νέος ws-handler)
-    const syncId = Date.now();
+      const msg = {
+        type: "song_sync",
+        room,
+        syncId,
+        payload: {
+          kind: "song",
+          songId: payload.songId ?? null,
+          title: payload.title ?? null,
+          url: payload.url,
+          selectedTonicity: payload.selectedTonicity ?? null,
+          sentAt: Date.now(),
+        },
+      };
 
-    const msg = {
-      type: "song_sync",
-      room, // συμβατό με ws-handler.js (type === "song_sync")
-      syncId, // θα αποθηκευτεί από τον RoomManager ως τελευταίο sync
-      payload: {
-        kind: "song",
-        songId: payload.songId ?? null,
-        title: payload.title ?? null,
-        url: payload.url,
-        selectedTonicity: payload.selectedTonicity ?? null,
-        sentAt: Date.now(),
-      },
-    };
+      try {
+        ws.send(JSON.stringify(msg));
+        console.log("[RoomsProvider] song_sync sent:", msg);
+      } catch (err) {
+        console.error("[RoomsProvider] song_sync send error:", err);
+      }
+    },
+    [currentRoom]
+  );
 
-    try {
-      ws.send(JSON.stringify(msg));
-      console.log("[RoomsProvider] song_sync sent:", msg);
-    } catch (err) {
-      console.error("[RoomsProvider] song_sync send error:", err);
-    }
-  };
-
-  // GLOBAL EXPOSE – για RoomsClient / WordPress / άλλα scripts
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const anyWindow = window as any;
 
-    // Επιλογή/αλλαγή room από εξωτερικό JS
     anyWindow.RepRoomsSwitchRoom = (room: string | null, password = "") =>
       switchRoom(room, password);
 
-    /**
-     * Αποστολή τρέχοντος τραγουδιού στο room.
-     *
-     * Παράδειγμα χρήσης:
-     *   window.RepRoomsSendSong(window.location.href);
-     *   window.RepRoomsSendSong(window.location.href, "Τα ματόκλαδά σου λάμπουν", 294, "Ρε-");
-     */
     anyWindow.RepRoomsSendSong = (
       url: string,
       title?: string | null,
@@ -452,11 +456,13 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [switchRoom, sendSongToRoom]);
 
-  const value: RoomsContextType = {
-    currentRoom,
-    switchRoom,
-    sendSongToRoom,
-  };
+  const value: RoomsContextType = useMemo(() => {
+    return {
+      currentRoom,
+      switchRoom,
+      sendSongToRoom,
+    };
+  }, [currentRoom, switchRoom, sendSongToRoom]);
 
   return (
     <RoomsContext.Provider value={value}>{children}</RoomsContext.Provider>

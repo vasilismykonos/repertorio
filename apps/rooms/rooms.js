@@ -125,6 +125,26 @@ class RoomManager {
     });
     this.saveMeta();
   }
+  /**
+   * Δημιουργεί ένα room (αν δεν υπάρχει ήδη) και προαιρετικά θέτει password.
+   * Αν το room υπάρχει, απλώς ενημερώνει ή καθαρίζει το password.
+   */
+  createRoom(room, password) {
+    const clean = String(room || "").trim();
+    if (!clean) {
+      throw new Error("Room name is required");
+    }
+
+    // Βεβαιώσου ότι υπάρχουν meta + clients set
+    this.ensureRoom(clean);
+
+    // Αν υπάρχει password, το ορίζουμε, αλλιώς καθαρίζουμε τυχόν παλιό.
+    if (typeof password === "string" && password.trim() !== "") {
+      this.setPassword(clean, password);
+    } else {
+      this.setPassword(clean, null);
+    }
+  }
 
   deleteRoom(room) {
     const clean = String(room || "").trim();
@@ -160,7 +180,7 @@ class RoomManager {
         hasPassword: !!meta.hasPassword,
       });
     }
-    // sort alfabetικά
+    // sort αλφαβητικά
     result.sort((a, b) => a.room.localeCompare(b.room, "el"));
     return result;
   }
@@ -176,9 +196,6 @@ class RoomManager {
    *   - last_sync_url
    *   - last_sync_timestamp
    *   - last_sync_username
-   *
-   * Έτσι, το /status μπορεί να εμφανίζει αναλυτικές πληροφορίες
-   * όπως στο παλιό WordPress / sync.js UI.
    */
   getRoomsOverview() {
     const base = this.getRoomsList();

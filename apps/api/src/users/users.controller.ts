@@ -1,5 +1,5 @@
-// src/users/users.controller.ts
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -8,8 +8,8 @@ import {
   Patch,
   Query,
 } from "@nestjs/common";
-import { UsersService, ListUsersOptions } from "./users.service";
-import { UserRole } from "./user-role.enum";
+import { UsersService, type ListUsersOptions } from "./users.service";
+import { UserRole } from "@prisma/client";
 
 @Controller("users")
 export class UsersController {
@@ -23,10 +23,13 @@ export class UsersController {
     @Query("sort") sort = "displayName",
     @Query("order") order: "asc" | "desc" = "asc",
   ) {
+    const pageNum = Number(page);
+    const pageSizeNum = Number(pageSize);
+
     const options: ListUsersOptions = {
       search: search?.trim() || undefined,
-      page: Number(page) || 1,
-      pageSize: Number(pageSize) || 10,
+      page: Number.isFinite(pageNum) && pageNum > 0 ? pageNum : 1,
+      pageSize: Number.isFinite(pageSizeNum) && pageSizeNum > 0 ? pageSizeNum : 10,
       sort,
       order: order === "desc" ? "desc" : "asc",
     };
@@ -44,11 +47,19 @@ export class UsersController {
     @Param("id", ParseIntPipe) id: number,
     @Body()
     body: {
-      displayName?: string;
+      displayName?: string | null;
       role?: UserRole;
       avatarUrl?: string | null;
     },
   ) {
+    // ελάχιστος έλεγχος τύπων (χωρίς να “μαντεύουμε” business rules)
+    if (body.displayName !== undefined && body.displayName !== null && typeof body.displayName !== "string") {
+      throw new BadRequestException("displayName must be string or null");
+    }
+    if (body.avatarUrl !== undefined && body.avatarUrl !== null && typeof body.avatarUrl !== "string") {
+      throw new BadRequestException("avatarUrl must be string or null");
+    }
+
     return this.usersService.updateUser(id, body);
   }
 }

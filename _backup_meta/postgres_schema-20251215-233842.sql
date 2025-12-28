@@ -1,0 +1,2558 @@
+--
+-- PostgreSQL database dump
+--
+
+\restrict ysKIHZEXwGN7PgNtFe6kqtMGAjuARg7daZInbsI8gICf9rKwrhbmvruKDVJgCUr
+
+-- Dumped from database version 16.11
+-- Dumped by pg_dump version 16.11
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: app; Type: SCHEMA; Schema: -; Owner: rep_user
+--
+
+CREATE SCHEMA app;
+
+
+ALTER SCHEMA app OWNER TO rep_user;
+
+--
+-- Name: legacy; Type: SCHEMA; Schema: -; Owner: rep_user
+--
+
+CREATE SCHEMA legacy;
+
+
+ALTER SCHEMA legacy OWNER TO rep_user;
+
+--
+-- Name: ListGroupMemberRole; Type: TYPE; Schema: app; Owner: rep_user
+--
+
+CREATE TYPE app."ListGroupMemberRole" AS ENUM (
+    'OWNER',
+    'EDITOR',
+    'VIEWER'
+);
+
+
+ALTER TYPE app."ListGroupMemberRole" OWNER TO rep_user;
+
+--
+-- Name: ListMemberRole; Type: TYPE; Schema: app; Owner: rep_user
+--
+
+CREATE TYPE app."ListMemberRole" AS ENUM (
+    'OWNER',
+    'EDITOR',
+    'VIEWER'
+);
+
+
+ALTER TYPE app."ListMemberRole" OWNER TO rep_user;
+
+--
+-- Name: SongCreditRole; Type: TYPE; Schema: app; Owner: rep_user
+--
+
+CREATE TYPE app."SongCreditRole" AS ENUM (
+    'COMPOSER',
+    'LYRICIST'
+);
+
+
+ALTER TYPE app."SongCreditRole" OWNER TO rep_user;
+
+--
+-- Name: SongStatus; Type: TYPE; Schema: app; Owner: rep_user
+--
+
+CREATE TYPE app."SongStatus" AS ENUM (
+    'DRAFT',
+    'PENDING_APPROVAL',
+    'PUBLISHED',
+    'ARCHIVED'
+);
+
+
+ALTER TYPE app."SongStatus" OWNER TO rep_user;
+
+--
+-- Name: UserRole; Type: TYPE; Schema: app; Owner: rep_user
+--
+
+CREATE TYPE app."UserRole" AS ENUM (
+    'ADMIN',
+    'EDITOR',
+    'AUTHOR',
+    'CONTRIBUTOR',
+    'USER'
+);
+
+
+ALTER TYPE app."UserRole" OWNER TO rep_user;
+
+--
+-- Name: VersionArtistRole; Type: TYPE; Schema: app; Owner: rep_user
+--
+
+CREATE TYPE app."VersionArtistRole" AS ENUM (
+    'SINGER_FRONT',
+    'SINGER_BACK',
+    'SOLOIST',
+    'MUSICIAN'
+);
+
+
+ALTER TYPE app."VersionArtistRole" OWNER TO rep_user;
+
+--
+-- Name: SongStatus; Type: TYPE; Schema: public; Owner: rep_user
+--
+
+CREATE TYPE public."SongStatus" AS ENUM (
+    'DRAFT',
+    'PENDING_APPROVAL',
+    'PUBLISHED',
+    'ARCHIVED'
+);
+
+
+ALTER TYPE public."SongStatus" OWNER TO rep_user;
+
+--
+-- Name: UserRole; Type: TYPE; Schema: public; Owner: rep_user
+--
+
+CREATE TYPE public."UserRole" AS ENUM (
+    'ADMIN',
+    'EDITOR',
+    'AUTHOR',
+    'CONTRIBUTOR',
+    'SUBSCRIBER',
+    'USER'
+);
+
+
+ALTER TYPE public."UserRole" OWNER TO rep_user;
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: Artist; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."Artist" (
+    id integer NOT NULL,
+    "legacyArtistId" integer,
+    title text NOT NULL,
+    "firstName" text,
+    "lastName" text,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL
+);
+
+
+ALTER TABLE app."Artist" OWNER TO rep_user;
+
+--
+-- Name: Artist_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."Artist_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."Artist_id_seq" OWNER TO rep_user;
+
+--
+-- Name: Artist_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."Artist_id_seq" OWNED BY app."Artist".id;
+
+
+--
+-- Name: Category; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."Category" (
+    id integer NOT NULL,
+    title text NOT NULL,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL
+);
+
+
+ALTER TABLE app."Category" OWNER TO rep_user;
+
+--
+-- Name: Category_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."Category_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."Category_id_seq" OWNER TO rep_user;
+
+--
+-- Name: Category_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."Category_id_seq" OWNED BY app."Category".id;
+
+
+--
+-- Name: List; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."List" (
+    id integer NOT NULL,
+    "legacyId" integer,
+    title text NOT NULL,
+    "groupId" integer,
+    marked boolean DEFAULT false NOT NULL,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL
+);
+
+
+ALTER TABLE app."List" OWNER TO rep_user;
+
+--
+-- Name: ListGroup; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."ListGroup" (
+    id integer NOT NULL,
+    "legacyId" integer,
+    title text NOT NULL,
+    "fullTitle" text,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL
+);
+
+
+ALTER TABLE app."ListGroup" OWNER TO rep_user;
+
+--
+-- Name: ListGroupMember; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."ListGroupMember" (
+    id integer NOT NULL,
+    "groupId" integer NOT NULL,
+    "userId" integer NOT NULL,
+    role app."ListGroupMemberRole" NOT NULL
+);
+
+
+ALTER TABLE app."ListGroupMember" OWNER TO rep_user;
+
+--
+-- Name: ListGroupMember_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."ListGroupMember_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."ListGroupMember_id_seq" OWNER TO rep_user;
+
+--
+-- Name: ListGroupMember_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."ListGroupMember_id_seq" OWNED BY app."ListGroupMember".id;
+
+
+--
+-- Name: ListGroup_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."ListGroup_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."ListGroup_id_seq" OWNER TO rep_user;
+
+--
+-- Name: ListGroup_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."ListGroup_id_seq" OWNED BY app."ListGroup".id;
+
+
+--
+-- Name: ListItem; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."ListItem" (
+    id integer NOT NULL,
+    "legacyId" integer,
+    "listId" integer NOT NULL,
+    "sortId" integer DEFAULT 0 NOT NULL,
+    notes text,
+    transport integer DEFAULT 0 NOT NULL,
+    title text NOT NULL,
+    chords text,
+    lyrics text,
+    "songId" integer
+);
+
+
+ALTER TABLE app."ListItem" OWNER TO rep_user;
+
+--
+-- Name: ListItem_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."ListItem_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."ListItem_id_seq" OWNER TO rep_user;
+
+--
+-- Name: ListItem_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."ListItem_id_seq" OWNED BY app."ListItem".id;
+
+
+--
+-- Name: ListMember; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."ListMember" (
+    id integer NOT NULL,
+    "listId" integer NOT NULL,
+    "userId" integer NOT NULL,
+    role app."ListMemberRole" NOT NULL
+);
+
+
+ALTER TABLE app."ListMember" OWNER TO rep_user;
+
+--
+-- Name: ListMember_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."ListMember_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."ListMember_id_seq" OWNER TO rep_user;
+
+--
+-- Name: ListMember_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."ListMember_id_seq" OWNED BY app."ListMember".id;
+
+
+--
+-- Name: List_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."List_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."List_id_seq" OWNER TO rep_user;
+
+--
+-- Name: List_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."List_id_seq" OWNED BY app."List".id;
+
+
+--
+-- Name: Rythm; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."Rythm" (
+    id integer NOT NULL,
+    title text NOT NULL,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL
+);
+
+
+ALTER TABLE app."Rythm" OWNER TO rep_user;
+
+--
+-- Name: Rythm_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."Rythm_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."Rythm_id_seq" OWNER TO rep_user;
+
+--
+-- Name: Rythm_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."Rythm_id_seq" OWNED BY app."Rythm".id;
+
+
+--
+-- Name: Song; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."Song" (
+    id integer NOT NULL,
+    "legacySongId" integer NOT NULL,
+    slug text NOT NULL,
+    title text NOT NULL,
+    "firstLyrics" text,
+    lyrics text,
+    chords text,
+    characteristics text,
+    "originalKey" text,
+    "defaultKey" text,
+    "highestVocalNote" text,
+    "basedOnSongId" integer,
+    "categoryId" integer,
+    "rythmId" integer,
+    "scoreFile" text,
+    "hasScore" boolean DEFAULT false NOT NULL,
+    status app."SongStatus" DEFAULT 'PENDING_APPROVAL'::app."SongStatus" NOT NULL,
+    views integer DEFAULT 0 NOT NULL,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL,
+    "createdByUserId" integer
+);
+
+
+ALTER TABLE app."Song" OWNER TO rep_user;
+
+--
+-- Name: SongCategory; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."SongCategory" (
+    id integer NOT NULL,
+    "songId" integer NOT NULL,
+    "categoryId" integer NOT NULL,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+
+ALTER TABLE app."SongCategory" OWNER TO rep_user;
+
+--
+-- Name: SongCategory_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."SongCategory_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."SongCategory_id_seq" OWNER TO rep_user;
+
+--
+-- Name: SongCategory_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."SongCategory_id_seq" OWNED BY app."SongCategory".id;
+
+
+--
+-- Name: SongCredit; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."SongCredit" (
+    id integer NOT NULL,
+    "songId" integer NOT NULL,
+    "artistId" integer NOT NULL,
+    role app."SongCreditRole" NOT NULL
+);
+
+
+ALTER TABLE app."SongCredit" OWNER TO rep_user;
+
+--
+-- Name: SongCredit_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."SongCredit_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."SongCredit_id_seq" OWNER TO rep_user;
+
+--
+-- Name: SongCredit_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."SongCredit_id_seq" OWNED BY app."SongCredit".id;
+
+
+--
+-- Name: SongVersion; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."SongVersion" (
+    id integer NOT NULL,
+    "legacyVersionId" integer,
+    "songId" integer NOT NULL,
+    title text,
+    year integer,
+    "youtubeUrl" text,
+    "youtubeSearch" text,
+    "playerCode" text,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "createdByUserId" integer
+);
+
+
+ALTER TABLE app."SongVersion" OWNER TO rep_user;
+
+--
+-- Name: SongVersionArtist; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."SongVersionArtist" (
+    id integer NOT NULL,
+    "versionId" integer NOT NULL,
+    "artistId" integer NOT NULL,
+    role app."VersionArtistRole" NOT NULL
+);
+
+
+ALTER TABLE app."SongVersionArtist" OWNER TO rep_user;
+
+--
+-- Name: SongVersionArtist_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."SongVersionArtist_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."SongVersionArtist_id_seq" OWNER TO rep_user;
+
+--
+-- Name: SongVersionArtist_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."SongVersionArtist_id_seq" OWNED BY app."SongVersionArtist".id;
+
+
+--
+-- Name: SongVersion_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."SongVersion_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."SongVersion_id_seq" OWNER TO rep_user;
+
+--
+-- Name: SongVersion_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."SongVersion_id_seq" OWNED BY app."SongVersion".id;
+
+
+--
+-- Name: Song_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."Song_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."Song_id_seq" OWNER TO rep_user;
+
+--
+-- Name: Song_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."Song_id_seq" OWNED BY app."Song".id;
+
+
+--
+-- Name: User; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app."User" (
+    id integer NOT NULL,
+    email text,
+    username text,
+    "displayName" text,
+    role app."UserRole" DEFAULT 'USER'::app."UserRole" NOT NULL,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL,
+    "legacyUserId" integer,
+    "avatarUrl" text
+);
+
+
+ALTER TABLE app."User" OWNER TO rep_user;
+
+--
+-- Name: User_id_seq; Type: SEQUENCE; Schema: app; Owner: rep_user
+--
+
+CREATE SEQUENCE app."User_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE app."User_id_seq" OWNER TO rep_user;
+
+--
+-- Name: User_id_seq; Type: SEQUENCE OWNED BY; Schema: app; Owner: rep_user
+--
+
+ALTER SEQUENCE app."User_id_seq" OWNED BY app."User".id;
+
+
+--
+-- Name: _prisma_migrations; Type: TABLE; Schema: app; Owner: rep_user
+--
+
+CREATE TABLE app._prisma_migrations (
+    id character varying(36) NOT NULL,
+    checksum character varying(64) NOT NULL,
+    finished_at timestamp with time zone,
+    migration_name character varying(255) NOT NULL,
+    logs text,
+    rolled_back_at timestamp with time zone,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    applied_steps_count integer DEFAULT 0 NOT NULL
+);
+
+
+ALTER TABLE app._prisma_migrations OWNER TO rep_user;
+
+--
+-- Name: legacy_artists; Type: TABLE; Schema: legacy; Owner: rep_user
+--
+
+CREATE TABLE legacy.legacy_artists (
+    "Artist_ID" integer NOT NULL,
+    "Old_Artist_ID" character varying(15),
+    "Title" character varying(255),
+    "FirstName" character varying(20),
+    "LastName" character varying(29),
+    "Sex" character varying(7),
+    "BornYear" character varying(4),
+    "DieYear" character varying(4),
+    "Image" bytea DEFAULT '\x'::bytea,
+    "Biography" character varying(4483),
+    "WiKi" character varying(194),
+    "Useremail" character varying(26),
+    "CountComposers" integer DEFAULT 0 NOT NULL,
+    "CountLyricists" integer DEFAULT 0 NOT NULL,
+    "CountSingersFront" integer DEFAULT 0 NOT NULL,
+    "CountSingersBack" integer DEFAULT 0 NOT NULL,
+    "Count_Composers" integer DEFAULT 0,
+    "Count_Lyricists" character varying(3),
+    "Count_Singers_Front" character varying(3),
+    "Count_Singers_Back" character varying(3),
+    "UserID" integer
+);
+
+
+ALTER TABLE legacy.legacy_artists OWNER TO rep_user;
+
+--
+-- Name: legacy_group_lists; Type: TABLE; Schema: legacy; Owner: rep_user
+--
+
+CREATE TABLE legacy.legacy_group_lists (
+    "Group_List_ID" integer NOT NULL,
+    "Title" character varying(30) DEFAULT ''::character varying,
+    "Date_Created" character varying(19) DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+    "Useremail" character varying(50) DEFAULT ''::character varying,
+    "View" character varying(500) DEFAULT ''::character varying,
+    "Edit" text,
+    "Count_Related_Lists" integer DEFAULT 0,
+    "FullTitle" text GENERATED ALWAYS AS (((((COALESCE("Title", ''::character varying))::text || ' ('::text) || (COALESCE("Count_Related_Lists", 0))::text) || ')'::text)) STORED,
+    "UserID" integer,
+    "New_View" character varying(20),
+    "New_Edit" character varying(20)
+);
+
+
+ALTER TABLE legacy.legacy_group_lists OWNER TO rep_user;
+
+--
+-- Name: legacy_lists; Type: TABLE; Schema: legacy; Owner: rep_user
+--
+
+CREATE TABLE legacy.legacy_lists (
+    "List_ID" integer NOT NULL,
+    "Emoji" character varying(10) DEFAULT ''::character varying,
+    "Title" character varying(81) DEFAULT ''::character varying,
+    "Date_Created" character varying(20) DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+    "Useremail1" character varying(100) DEFAULT ''::character varying,
+    "Group_List_ID" character varying(255),
+    "View1" character varying(500) DEFAULT ''::character varying,
+    "Edit1" character varying(500) DEFAULT ''::character varying,
+    "Count_ListItems" integer DEFAULT 0,
+    json_data jsonb,
+    "FullTitle" text GENERATED ALWAYS AS ((((((COALESCE("Emoji", ''::character varying))::text || (COALESCE("Title", ''::character varying))::text) || ' ('::text) || (COALESCE("Count_ListItems", 0))::text) || ')'::text)) STORED,
+    "Marked" boolean DEFAULT false NOT NULL,
+    "UserID" integer,
+    "View" character varying(200),
+    "Edit" character varying(200)
+);
+
+
+ALTER TABLE legacy.legacy_lists OWNER TO rep_user;
+
+--
+-- Name: legacy_lists_items; Type: TABLE; Schema: legacy; Owner: rep_user
+--
+
+CREATE TABLE legacy.legacy_lists_items (
+    "ListItem_ID" integer NOT NULL,
+    "List_ID" integer,
+    "Sort_ID" integer DEFAULT 1,
+    "Date_Created" character varying(20) DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+    "Default_Tune" character varying(8),
+    "Transport" character varying(4),
+    "EditTimestamp" character varying(19),
+    "Tune_Scale_ID" character varying(7),
+    "SongTitle" character varying(59),
+    "Color" character varying(6),
+    "Notes" character varying(500) NOT NULL,
+    "Tune" character varying(5),
+    "Song_ID" integer,
+    "Title" character varying(30) NOT NULL,
+    "Chords" character varying(500) NOT NULL,
+    "Rythm_ID" integer NOT NULL,
+    "Lyrics" character varying(1000) NOT NULL,
+    "UserID" integer
+);
+
+
+ALTER TABLE legacy.legacy_lists_items OWNER TO rep_user;
+
+--
+-- Name: legacy_lists_user_notes; Type: TABLE; Schema: legacy; Owner: rep_user
+--
+
+CREATE TABLE legacy.legacy_lists_user_notes (
+    "List_User_Note_ID" character varying(8),
+    "ListItem_ID" character varying(8),
+    "Notes" character varying(59),
+    "Useremail1" character varying(50),
+    "Color" character varying(6),
+    "UserID" integer
+);
+
+
+ALTER TABLE legacy.legacy_lists_user_notes OWNER TO rep_user;
+
+--
+-- Name: legacy_rythms; Type: TABLE; Schema: legacy; Owner: rep_user
+--
+
+CREATE TABLE legacy.legacy_rythms (
+    "Rythm_ID" integer NOT NULL,
+    "Title" character varying(23),
+    "Useremail" character varying(26),
+    "UserID" integer
+);
+
+
+ALTER TABLE legacy.legacy_rythms OWNER TO rep_user;
+
+--
+-- Name: legacy_songs; Type: TABLE; Schema: legacy; Owner: rep_user
+--
+
+CREATE TABLE legacy.legacy_songs (
+    "Song_ID" integer NOT NULL,
+    "Title" character varying(74) DEFAULT ''::character varying NOT NULL,
+    "Rythm_ID" character varying(255),
+    "Lyrics" character varying(1293) DEFAULT ''::character varying,
+    "FirstLyrics" character varying(100),
+    "Chords" character varying(529) DEFAULT ''::character varying,
+    "Composer" character varying(255) DEFAULT ''::character varying,
+    "ComposerTitle" character varying(255),
+    "Lyricist" character varying(255) DEFAULT ''::character varying,
+    "LyricistTitle" character varying(255),
+    "SingerFront" character varying(30) DEFAULT ''::character varying,
+    "SingerBack" character varying(30) DEFAULT ''::character varying,
+    "Category_ID" character varying(50),
+    "Makam_ID" character varying(8),
+    "Tune_Scale_ID" character varying(13),
+    "Date_Created" character varying(19) DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'::text),
+    "Useremail1" character varying(50),
+    "ChordBulder" character varying(11),
+    "Version_ID" character varying(71),
+    "Singer_Front" character varying(71),
+    "Singer_Back" character varying(62),
+    "Singer_Front_Sex" character varying(36),
+    "First_Song_Version" character varying(18),
+    "Song_NO" character varying(7),
+    "Tune_Writed" character varying(11),
+    "BasedOn" character varying(255),
+    "Partiture" character varying(50),
+    "Highest_Vocal_Note" character varying(18),
+    "Transport" character varying(9),
+    "Default_Tune" character varying(12),
+    "Song_Tune" character varying(9) DEFAULT ''::character varying,
+    "UserAction" character varying(10) DEFAULT ''::character varying,
+    "Characteristics" character varying(100) DEFAULT ''::character varying,
+    "Title_FirstLyrics" text GENERATED ALWAYS AS ((("Title")::text ||
+CASE
+    WHEN (("FirstLyrics" IS NULL) OR (("FirstLyrics")::text = ''::text)) THEN
+    CASE
+        WHEN (("Characteristics")::text ~~ '%Οργανικό%'::text) THEN ' (Οργανικό)'::text
+        ELSE ' (Χωρίς στίχους)'::text
+    END
+    ELSE ((' ('::text || ("FirstLyrics")::text) || ')'::text)
+END)) STORED,
+    "Count_Views" integer DEFAULT 0,
+    "Status" character varying(20) DEFAULT 'pending'::character varying,
+    "Song_ID_old" integer,
+    "UserID" integer
+);
+
+
+ALTER TABLE legacy.legacy_songs OWNER TO rep_user;
+
+--
+-- Name: legacy_songs_categories; Type: TABLE; Schema: legacy; Owner: rep_user
+--
+
+CREATE TABLE legacy.legacy_songs_categories (
+    "Category_ID" integer NOT NULL,
+    "Title" character varying(22) NOT NULL
+);
+
+
+ALTER TABLE legacy.legacy_songs_categories OWNER TO rep_user;
+
+--
+-- Name: legacy_songs_versions; Type: TABLE; Schema: legacy; Owner: rep_user
+--
+
+CREATE TABLE legacy.legacy_songs_versions (
+    "Version_ID" integer NOT NULL,
+    "Song_ID" integer,
+    "Singer_Front" character varying(255) DEFAULT ''::character varying,
+    "Singer_Front_Titles" character varying(200),
+    "Singer_Back" character varying(255) DEFAULT ''::character varying,
+    "Solist" character varying(17),
+    "Musicians" character varying(8),
+    "Player" character varying(2),
+    "Year" character varying(4),
+    "Useremail1" character varying(26),
+    "Composer_Old" character varying(30),
+    "Composer" integer,
+    "SongTitle" character varying(74),
+    "Youtube" character varying(100),
+    "Youtube_Search" character varying(200),
+    "New_ID" integer,
+    "Song_ID_old" integer,
+    "UserID" integer
+);
+
+
+ALTER TABLE legacy.legacy_songs_versions OWNER TO rep_user;
+
+--
+-- Name: legacy_users; Type: TABLE; Schema: legacy; Owner: rep_user
+--
+
+CREATE TABLE legacy.legacy_users (
+    "ID" bigint NOT NULL,
+    user_login character varying(60) DEFAULT ''::character varying NOT NULL,
+    user_pass character varying(255) DEFAULT ''::character varying NOT NULL,
+    user_nicename character varying(50) DEFAULT ''::character varying NOT NULL,
+    user_email character varying(100) DEFAULT ''::character varying NOT NULL,
+    user_url character varying(100) DEFAULT ''::character varying NOT NULL,
+    user_registered character varying(19) DEFAULT '0000-00-00 00:00:00'::character varying NOT NULL,
+    user_activation_key character varying(255) DEFAULT ''::character varying NOT NULL,
+    user_status integer DEFAULT 0 NOT NULL,
+    display_name character varying(250) DEFAULT ''::character varying NOT NULL,
+    "User_Room" character varying(15),
+    "Rooms" character varying(300) DEFAULT ''::character varying NOT NULL,
+    "Redirect_Field" character varying(255) DEFAULT 'lyrics'::character varying NOT NULL,
+    "Hide_Chords" boolean,
+    current_url character varying(256),
+    "Dark_Mode" integer DEFAULT 1,
+    "Devices" character varying(1000),
+    "FontSize" integer,
+    "View_Other_User_Chords" character varying(100),
+    "Hide_Info" boolean
+);
+
+
+ALTER TABLE legacy.legacy_users OWNER TO rep_user;
+
+--
+-- Name: Artist; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public."Artist" (
+    id integer NOT NULL,
+    "legacyArtistId" integer,
+    title text NOT NULL,
+    "firstName" text,
+    "lastName" text,
+    sex text,
+    "bornYear" integer,
+    "dieYear" integer,
+    "imageUrl" text,
+    biography text,
+    "wikiUrl" text,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL
+);
+
+
+ALTER TABLE public."Artist" OWNER TO rep_user;
+
+--
+-- Name: Artist_id_seq; Type: SEQUENCE; Schema: public; Owner: rep_user
+--
+
+CREATE SEQUENCE public."Artist_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public."Artist_id_seq" OWNER TO rep_user;
+
+--
+-- Name: Artist_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: rep_user
+--
+
+ALTER SEQUENCE public."Artist_id_seq" OWNED BY public."Artist".id;
+
+
+--
+-- Name: Category; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public."Category" (
+    id integer NOT NULL,
+    title text NOT NULL,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL
+);
+
+
+ALTER TABLE public."Category" OWNER TO rep_user;
+
+--
+-- Name: Category_id_seq; Type: SEQUENCE; Schema: public; Owner: rep_user
+--
+
+CREATE SEQUENCE public."Category_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public."Category_id_seq" OWNER TO rep_user;
+
+--
+-- Name: Category_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: rep_user
+--
+
+ALTER SEQUENCE public."Category_id_seq" OWNED BY public."Category".id;
+
+
+--
+-- Name: List; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public."List" (
+    id integer NOT NULL,
+    "legacyId" integer,
+    title text NOT NULL,
+    "groupId" integer,
+    "ownerWpId" integer,
+    "viewWpIds" text,
+    "editWpIds" text,
+    marked boolean DEFAULT false NOT NULL,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL
+);
+
+
+ALTER TABLE public."List" OWNER TO rep_user;
+
+--
+-- Name: ListGroup; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public."ListGroup" (
+    id integer NOT NULL,
+    "legacyId" integer,
+    title text NOT NULL,
+    "fullTitle" text,
+    "ownerWpId" integer,
+    "viewWpIds" text,
+    "editWpIds" text,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL
+);
+
+
+ALTER TABLE public."ListGroup" OWNER TO rep_user;
+
+--
+-- Name: ListGroup_id_seq; Type: SEQUENCE; Schema: public; Owner: rep_user
+--
+
+CREATE SEQUENCE public."ListGroup_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public."ListGroup_id_seq" OWNER TO rep_user;
+
+--
+-- Name: ListGroup_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: rep_user
+--
+
+ALTER SEQUENCE public."ListGroup_id_seq" OWNED BY public."ListGroup".id;
+
+
+--
+-- Name: ListItem; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public."ListItem" (
+    id integer NOT NULL,
+    "legacyId" integer,
+    "listId" integer NOT NULL,
+    "sortId" integer DEFAULT 0 NOT NULL,
+    notes text,
+    transport integer DEFAULT 0 NOT NULL,
+    title text NOT NULL,
+    chords text,
+    lyrics text,
+    "songId" integer
+);
+
+
+ALTER TABLE public."ListItem" OWNER TO rep_user;
+
+--
+-- Name: ListItem_id_seq; Type: SEQUENCE; Schema: public; Owner: rep_user
+--
+
+CREATE SEQUENCE public."ListItem_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public."ListItem_id_seq" OWNER TO rep_user;
+
+--
+-- Name: ListItem_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: rep_user
+--
+
+ALTER SEQUENCE public."ListItem_id_seq" OWNED BY public."ListItem".id;
+
+
+--
+-- Name: List_id_seq; Type: SEQUENCE; Schema: public; Owner: rep_user
+--
+
+CREATE SEQUENCE public."List_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public."List_id_seq" OWNER TO rep_user;
+
+--
+-- Name: List_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: rep_user
+--
+
+ALTER SEQUENCE public."List_id_seq" OWNED BY public."List".id;
+
+
+--
+-- Name: Makam; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public."Makam" (
+    id integer NOT NULL,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL,
+    title text NOT NULL
+);
+
+
+ALTER TABLE public."Makam" OWNER TO rep_user;
+
+--
+-- Name: Makam_id_seq; Type: SEQUENCE; Schema: public; Owner: rep_user
+--
+
+CREATE SEQUENCE public."Makam_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public."Makam_id_seq" OWNER TO rep_user;
+
+--
+-- Name: Makam_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: rep_user
+--
+
+ALTER SEQUENCE public."Makam_id_seq" OWNED BY public."Makam".id;
+
+
+--
+-- Name: Rythm; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public."Rythm" (
+    id integer NOT NULL,
+    title text NOT NULL,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+
+ALTER TABLE public."Rythm" OWNER TO rep_user;
+
+--
+-- Name: Rythm_id_seq; Type: SEQUENCE; Schema: public; Owner: rep_user
+--
+
+CREATE SEQUENCE public."Rythm_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public."Rythm_id_seq" OWNER TO rep_user;
+
+--
+-- Name: Rythm_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: rep_user
+--
+
+ALTER SEQUENCE public."Rythm_id_seq" OWNED BY public."Rythm".id;
+
+
+--
+-- Name: Song; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public."Song" (
+    id integer NOT NULL,
+    title text NOT NULL,
+    "firstLyrics" text,
+    lyrics text,
+    chords text,
+    characteristics text,
+    status public."SongStatus" DEFAULT 'PENDING_APPROVAL'::public."SongStatus" NOT NULL,
+    "originalKey" text,
+    "defaultKey" text,
+    "basedOn" text,
+    "scoreFile" text,
+    "highestVocalNote" text,
+    views integer DEFAULT 0 NOT NULL,
+    "legacySongId" integer,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL,
+    "createdByUserId" integer,
+    "categoryId" integer,
+    "rythmId" integer,
+    "makamId" integer,
+    "composerId" integer,
+    "lyricistId" integer,
+    "legacySongIdOld" integer
+);
+
+
+ALTER TABLE public."Song" OWNER TO rep_user;
+
+--
+-- Name: SongVersion; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public."SongVersion" (
+    id integer NOT NULL,
+    "songId" integer NOT NULL,
+    title text,
+    year integer,
+    "youtubeUrl" text,
+    "youtubeSearch" text,
+    "playerCode" text,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "createdByUserId" integer,
+    "singerFront" text,
+    "singerBack" text,
+    solist text,
+    musicians text,
+    "legacyVersionId" integer
+);
+
+
+ALTER TABLE public."SongVersion" OWNER TO rep_user;
+
+--
+-- Name: SongVersion_id_seq; Type: SEQUENCE; Schema: public; Owner: rep_user
+--
+
+CREATE SEQUENCE public."SongVersion_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public."SongVersion_id_seq" OWNER TO rep_user;
+
+--
+-- Name: SongVersion_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: rep_user
+--
+
+ALTER SEQUENCE public."SongVersion_id_seq" OWNED BY public."SongVersion".id;
+
+
+--
+-- Name: Song_id_seq; Type: SEQUENCE; Schema: public; Owner: rep_user
+--
+
+CREATE SEQUENCE public."Song_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public."Song_id_seq" OWNER TO rep_user;
+
+--
+-- Name: Song_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: rep_user
+--
+
+ALTER SEQUENCE public."Song_id_seq" OWNED BY public."Song".id;
+
+
+--
+-- Name: User; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public."User" (
+    id integer NOT NULL,
+    email text,
+    username text,
+    "displayName" text,
+    "createdAt" timestamp(3) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updatedAt" timestamp(3) without time zone NOT NULL,
+    "currentUrl" text,
+    "darkMode" boolean,
+    devices text,
+    "fontSize" integer,
+    "hideChords" boolean,
+    "hideInfo" boolean,
+    "redirectField" text,
+    role public."UserRole" DEFAULT 'USER'::public."UserRole" NOT NULL,
+    rooms text,
+    "userActivationKey" text,
+    "userLogin" text,
+    "userNicename" text,
+    "userRoom" text,
+    "userStatus" integer,
+    "userUrl" text,
+    "viewOtherUserChords" text,
+    "wpId" integer
+);
+
+
+ALTER TABLE public."User" OWNER TO rep_user;
+
+--
+-- Name: User_id_seq; Type: SEQUENCE; Schema: public; Owner: rep_user
+--
+
+CREATE SEQUENCE public."User_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public."User_id_seq" OWNER TO rep_user;
+
+--
+-- Name: User_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: rep_user
+--
+
+ALTER SEQUENCE public."User_id_seq" OWNED BY public."User".id;
+
+
+--
+-- Name: _prisma_migrations; Type: TABLE; Schema: public; Owner: rep_user
+--
+
+CREATE TABLE public._prisma_migrations (
+    id character varying(36) NOT NULL,
+    checksum character varying(64) NOT NULL,
+    finished_at timestamp with time zone,
+    migration_name character varying(255) NOT NULL,
+    logs text,
+    rolled_back_at timestamp with time zone,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    applied_steps_count integer DEFAULT 0 NOT NULL
+);
+
+
+ALTER TABLE public._prisma_migrations OWNER TO rep_user;
+
+--
+-- Name: Artist id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Artist" ALTER COLUMN id SET DEFAULT nextval('app."Artist_id_seq"'::regclass);
+
+
+--
+-- Name: Category id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Category" ALTER COLUMN id SET DEFAULT nextval('app."Category_id_seq"'::regclass);
+
+
+--
+-- Name: List id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."List" ALTER COLUMN id SET DEFAULT nextval('app."List_id_seq"'::regclass);
+
+
+--
+-- Name: ListGroup id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListGroup" ALTER COLUMN id SET DEFAULT nextval('app."ListGroup_id_seq"'::regclass);
+
+
+--
+-- Name: ListGroupMember id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListGroupMember" ALTER COLUMN id SET DEFAULT nextval('app."ListGroupMember_id_seq"'::regclass);
+
+
+--
+-- Name: ListItem id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListItem" ALTER COLUMN id SET DEFAULT nextval('app."ListItem_id_seq"'::regclass);
+
+
+--
+-- Name: ListMember id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListMember" ALTER COLUMN id SET DEFAULT nextval('app."ListMember_id_seq"'::regclass);
+
+
+--
+-- Name: Rythm id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Rythm" ALTER COLUMN id SET DEFAULT nextval('app."Rythm_id_seq"'::regclass);
+
+
+--
+-- Name: Song id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Song" ALTER COLUMN id SET DEFAULT nextval('app."Song_id_seq"'::regclass);
+
+
+--
+-- Name: SongCategory id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongCategory" ALTER COLUMN id SET DEFAULT nextval('app."SongCategory_id_seq"'::regclass);
+
+
+--
+-- Name: SongCredit id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongCredit" ALTER COLUMN id SET DEFAULT nextval('app."SongCredit_id_seq"'::regclass);
+
+
+--
+-- Name: SongVersion id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongVersion" ALTER COLUMN id SET DEFAULT nextval('app."SongVersion_id_seq"'::regclass);
+
+
+--
+-- Name: SongVersionArtist id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongVersionArtist" ALTER COLUMN id SET DEFAULT nextval('app."SongVersionArtist_id_seq"'::regclass);
+
+
+--
+-- Name: User id; Type: DEFAULT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."User" ALTER COLUMN id SET DEFAULT nextval('app."User_id_seq"'::regclass);
+
+
+--
+-- Name: Artist id; Type: DEFAULT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Artist" ALTER COLUMN id SET DEFAULT nextval('public."Artist_id_seq"'::regclass);
+
+
+--
+-- Name: Category id; Type: DEFAULT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Category" ALTER COLUMN id SET DEFAULT nextval('public."Category_id_seq"'::regclass);
+
+
+--
+-- Name: List id; Type: DEFAULT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."List" ALTER COLUMN id SET DEFAULT nextval('public."List_id_seq"'::regclass);
+
+
+--
+-- Name: ListGroup id; Type: DEFAULT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."ListGroup" ALTER COLUMN id SET DEFAULT nextval('public."ListGroup_id_seq"'::regclass);
+
+
+--
+-- Name: ListItem id; Type: DEFAULT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."ListItem" ALTER COLUMN id SET DEFAULT nextval('public."ListItem_id_seq"'::regclass);
+
+
+--
+-- Name: Makam id; Type: DEFAULT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Makam" ALTER COLUMN id SET DEFAULT nextval('public."Makam_id_seq"'::regclass);
+
+
+--
+-- Name: Rythm id; Type: DEFAULT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Rythm" ALTER COLUMN id SET DEFAULT nextval('public."Rythm_id_seq"'::regclass);
+
+
+--
+-- Name: Song id; Type: DEFAULT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Song" ALTER COLUMN id SET DEFAULT nextval('public."Song_id_seq"'::regclass);
+
+
+--
+-- Name: SongVersion id; Type: DEFAULT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."SongVersion" ALTER COLUMN id SET DEFAULT nextval('public."SongVersion_id_seq"'::regclass);
+
+
+--
+-- Name: User id; Type: DEFAULT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."User" ALTER COLUMN id SET DEFAULT nextval('public."User_id_seq"'::regclass);
+
+
+--
+-- Name: Artist Artist_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Artist"
+    ADD CONSTRAINT "Artist_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: Category Category_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Category"
+    ADD CONSTRAINT "Category_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: ListGroupMember ListGroupMember_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListGroupMember"
+    ADD CONSTRAINT "ListGroupMember_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: ListGroup ListGroup_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListGroup"
+    ADD CONSTRAINT "ListGroup_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: ListItem ListItem_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListItem"
+    ADD CONSTRAINT "ListItem_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: ListMember ListMember_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListMember"
+    ADD CONSTRAINT "ListMember_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: List List_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."List"
+    ADD CONSTRAINT "List_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: Rythm Rythm_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Rythm"
+    ADD CONSTRAINT "Rythm_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: SongCategory SongCategory_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongCategory"
+    ADD CONSTRAINT "SongCategory_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: SongCredit SongCredit_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongCredit"
+    ADD CONSTRAINT "SongCredit_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: SongVersionArtist SongVersionArtist_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongVersionArtist"
+    ADD CONSTRAINT "SongVersionArtist_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: SongVersion SongVersion_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongVersion"
+    ADD CONSTRAINT "SongVersion_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: Song Song_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Song"
+    ADD CONSTRAINT "Song_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: User User_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."User"
+    ADD CONSTRAINT "User_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: _prisma_migrations _prisma_migrations_pkey; Type: CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app._prisma_migrations
+    ADD CONSTRAINT _prisma_migrations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: legacy_artists legacy_artists_pkey; Type: CONSTRAINT; Schema: legacy; Owner: rep_user
+--
+
+ALTER TABLE ONLY legacy.legacy_artists
+    ADD CONSTRAINT legacy_artists_pkey PRIMARY KEY ("Artist_ID");
+
+
+--
+-- Name: legacy_group_lists legacy_group_lists_pkey; Type: CONSTRAINT; Schema: legacy; Owner: rep_user
+--
+
+ALTER TABLE ONLY legacy.legacy_group_lists
+    ADD CONSTRAINT legacy_group_lists_pkey PRIMARY KEY ("Group_List_ID");
+
+
+--
+-- Name: legacy_lists_items legacy_lists_items_pkey; Type: CONSTRAINT; Schema: legacy; Owner: rep_user
+--
+
+ALTER TABLE ONLY legacy.legacy_lists_items
+    ADD CONSTRAINT legacy_lists_items_pkey PRIMARY KEY ("ListItem_ID");
+
+
+--
+-- Name: legacy_lists legacy_lists_pkey; Type: CONSTRAINT; Schema: legacy; Owner: rep_user
+--
+
+ALTER TABLE ONLY legacy.legacy_lists
+    ADD CONSTRAINT legacy_lists_pkey PRIMARY KEY ("List_ID");
+
+
+--
+-- Name: legacy_rythms legacy_rythms_pkey; Type: CONSTRAINT; Schema: legacy; Owner: rep_user
+--
+
+ALTER TABLE ONLY legacy.legacy_rythms
+    ADD CONSTRAINT legacy_rythms_pkey PRIMARY KEY ("Rythm_ID");
+
+
+--
+-- Name: legacy_songs_categories legacy_songs_categories_pkey; Type: CONSTRAINT; Schema: legacy; Owner: rep_user
+--
+
+ALTER TABLE ONLY legacy.legacy_songs_categories
+    ADD CONSTRAINT legacy_songs_categories_pkey PRIMARY KEY ("Category_ID");
+
+
+--
+-- Name: legacy_songs legacy_songs_pkey; Type: CONSTRAINT; Schema: legacy; Owner: rep_user
+--
+
+ALTER TABLE ONLY legacy.legacy_songs
+    ADD CONSTRAINT legacy_songs_pkey PRIMARY KEY ("Song_ID");
+
+
+--
+-- Name: legacy_songs_versions legacy_songs_versions_pkey; Type: CONSTRAINT; Schema: legacy; Owner: rep_user
+--
+
+ALTER TABLE ONLY legacy.legacy_songs_versions
+    ADD CONSTRAINT legacy_songs_versions_pkey PRIMARY KEY ("Version_ID");
+
+
+--
+-- Name: legacy_users legacy_users_pkey; Type: CONSTRAINT; Schema: legacy; Owner: rep_user
+--
+
+ALTER TABLE ONLY legacy.legacy_users
+    ADD CONSTRAINT legacy_users_pkey PRIMARY KEY ("ID");
+
+
+--
+-- Name: Artist Artist_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Artist"
+    ADD CONSTRAINT "Artist_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: Category Category_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Category"
+    ADD CONSTRAINT "Category_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: ListGroup ListGroup_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."ListGroup"
+    ADD CONSTRAINT "ListGroup_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: ListItem ListItem_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."ListItem"
+    ADD CONSTRAINT "ListItem_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: List List_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."List"
+    ADD CONSTRAINT "List_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: Makam Makam_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Makam"
+    ADD CONSTRAINT "Makam_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: Rythm Rythm_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Rythm"
+    ADD CONSTRAINT "Rythm_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: SongVersion SongVersion_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."SongVersion"
+    ADD CONSTRAINT "SongVersion_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: Song Song_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Song"
+    ADD CONSTRAINT "Song_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: User User_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."User"
+    ADD CONSTRAINT "User_pkey" PRIMARY KEY (id);
+
+
+--
+-- Name: _prisma_migrations _prisma_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public._prisma_migrations
+    ADD CONSTRAINT _prisma_migrations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: Artist_legacyArtistId_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Artist_legacyArtistId_key" ON app."Artist" USING btree ("legacyArtistId");
+
+
+--
+-- Name: Category_title_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Category_title_key" ON app."Category" USING btree (title);
+
+
+--
+-- Name: ListGroupMember_groupId_userId_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "ListGroupMember_groupId_userId_key" ON app."ListGroupMember" USING btree ("groupId", "userId");
+
+
+--
+-- Name: ListGroup_legacyId_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "ListGroup_legacyId_key" ON app."ListGroup" USING btree ("legacyId");
+
+
+--
+-- Name: ListItem_legacyId_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "ListItem_legacyId_key" ON app."ListItem" USING btree ("legacyId");
+
+
+--
+-- Name: ListMember_listId_userId_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "ListMember_listId_userId_key" ON app."ListMember" USING btree ("listId", "userId");
+
+
+--
+-- Name: List_legacyId_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "List_legacyId_key" ON app."List" USING btree ("legacyId");
+
+
+--
+-- Name: Rythm_title_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Rythm_title_key" ON app."Rythm" USING btree (title);
+
+
+--
+-- Name: SongCategory_songId_categoryId_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "SongCategory_songId_categoryId_key" ON app."SongCategory" USING btree ("songId", "categoryId");
+
+
+--
+-- Name: SongCredit_songId_artistId_role_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "SongCredit_songId_artistId_role_key" ON app."SongCredit" USING btree ("songId", "artistId", role);
+
+
+--
+-- Name: SongVersionArtist_versionId_artistId_role_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "SongVersionArtist_versionId_artistId_role_key" ON app."SongVersionArtist" USING btree ("versionId", "artistId", role);
+
+
+--
+-- Name: SongVersion_legacyVersionId_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "SongVersion_legacyVersionId_key" ON app."SongVersion" USING btree ("legacyVersionId");
+
+
+--
+-- Name: Song_categoryId_idx; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE INDEX "Song_categoryId_idx" ON app."Song" USING btree ("categoryId");
+
+
+--
+-- Name: Song_createdByUserId_idx; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE INDEX "Song_createdByUserId_idx" ON app."Song" USING btree ("createdByUserId");
+
+
+--
+-- Name: Song_legacySongId_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Song_legacySongId_key" ON app."Song" USING btree ("legacySongId");
+
+
+--
+-- Name: Song_rythmId_idx; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE INDEX "Song_rythmId_idx" ON app."Song" USING btree ("rythmId");
+
+
+--
+-- Name: Song_slug_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Song_slug_key" ON app."Song" USING btree (slug);
+
+
+--
+-- Name: User_email_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "User_email_key" ON app."User" USING btree (email);
+
+
+--
+-- Name: User_legacyUserId_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "User_legacyUserId_key" ON app."User" USING btree ("legacyUserId");
+
+
+--
+-- Name: User_username_key; Type: INDEX; Schema: app; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "User_username_key" ON app."User" USING btree (username);
+
+
+--
+-- Name: legacy_artists_firstname_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_artists_firstname_idx ON legacy.legacy_artists USING btree ("FirstName");
+
+
+--
+-- Name: legacy_artists_lastname_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_artists_lastname_idx ON legacy.legacy_artists USING btree ("LastName");
+
+
+--
+-- Name: legacy_group_lists_title_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_group_lists_title_idx ON legacy.legacy_group_lists USING btree ("Title");
+
+
+--
+-- Name: legacy_lists_group_list_id_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_lists_group_list_id_idx ON legacy.legacy_lists USING btree ("Group_List_ID");
+
+
+--
+-- Name: legacy_lists_items_list_id_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_lists_items_list_id_idx ON legacy.legacy_lists_items USING btree ("List_ID");
+
+
+--
+-- Name: legacy_lists_items_song_id_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_lists_items_song_id_idx ON legacy.legacy_lists_items USING btree ("Song_ID");
+
+
+--
+-- Name: legacy_lists_items_songtitle_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_lists_items_songtitle_idx ON legacy.legacy_lists_items USING btree ("SongTitle");
+
+
+--
+-- Name: legacy_lists_title_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_lists_title_idx ON legacy.legacy_lists USING btree ("Title");
+
+
+--
+-- Name: legacy_lun_listitem_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_lun_listitem_idx ON legacy.legacy_lists_user_notes USING btree ("ListItem_ID");
+
+
+--
+-- Name: legacy_lun_userid_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_lun_userid_idx ON legacy.legacy_lists_user_notes USING btree ("UserID");
+
+
+--
+-- Name: legacy_rythms_rythm_id_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_rythms_rythm_id_idx ON legacy.legacy_rythms USING btree ("Rythm_ID");
+
+
+--
+-- Name: legacy_songs_categories_title_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_songs_categories_title_idx ON legacy.legacy_songs_categories USING btree ("Title");
+
+
+--
+-- Name: legacy_songs_categories_title_uq; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX legacy_songs_categories_title_uq ON legacy.legacy_songs_categories USING btree ("Title");
+
+
+--
+-- Name: legacy_songs_category_id_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_songs_category_id_idx ON legacy.legacy_songs USING btree ("Category_ID");
+
+
+--
+-- Name: legacy_songs_rythm_id_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_songs_rythm_id_idx ON legacy.legacy_songs USING btree ("Rythm_ID");
+
+
+--
+-- Name: legacy_songs_song_id_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_songs_song_id_idx ON legacy.legacy_songs USING btree ("Song_ID");
+
+
+--
+-- Name: legacy_songs_title_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_songs_title_idx ON legacy.legacy_songs USING btree ("Title");
+
+
+--
+-- Name: legacy_songs_unique_song_id_old; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX legacy_songs_unique_song_id_old ON legacy.legacy_songs USING btree ("Song_ID_old");
+
+
+--
+-- Name: legacy_songs_versions_song_id_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_songs_versions_song_id_idx ON legacy.legacy_songs_versions USING btree ("Song_ID");
+
+
+--
+-- Name: legacy_users_email_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_users_email_idx ON legacy.legacy_users USING btree (user_email);
+
+
+--
+-- Name: legacy_users_login_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_users_login_idx ON legacy.legacy_users USING btree (user_login);
+
+
+--
+-- Name: legacy_users_nicename_idx; Type: INDEX; Schema: legacy; Owner: rep_user
+--
+
+CREATE INDEX legacy_users_nicename_idx ON legacy.legacy_users USING btree (user_nicename);
+
+
+--
+-- Name: Artist_legacyArtistId_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Artist_legacyArtistId_key" ON public."Artist" USING btree ("legacyArtistId");
+
+
+--
+-- Name: Category_title_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Category_title_key" ON public."Category" USING btree (title);
+
+
+--
+-- Name: ListGroup_legacyId_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "ListGroup_legacyId_key" ON public."ListGroup" USING btree ("legacyId");
+
+
+--
+-- Name: ListItem_legacyId_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "ListItem_legacyId_key" ON public."ListItem" USING btree ("legacyId");
+
+
+--
+-- Name: ListItem_listId_idx; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE INDEX "ListItem_listId_idx" ON public."ListItem" USING btree ("listId");
+
+
+--
+-- Name: ListItem_songId_idx; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE INDEX "ListItem_songId_idx" ON public."ListItem" USING btree ("songId");
+
+
+--
+-- Name: List_legacyId_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "List_legacyId_key" ON public."List" USING btree ("legacyId");
+
+
+--
+-- Name: Makam_title_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Makam_title_key" ON public."Makam" USING btree (title);
+
+
+--
+-- Name: Rythm_title_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Rythm_title_key" ON public."Rythm" USING btree (title);
+
+
+--
+-- Name: SongVersion_legacyVersionId_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "SongVersion_legacyVersionId_key" ON public."SongVersion" USING btree ("legacyVersionId");
+
+
+--
+-- Name: SongVersion_songId_idx; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE INDEX "SongVersion_songId_idx" ON public."SongVersion" USING btree ("songId");
+
+
+--
+-- Name: Song_legacySongIdOld_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Song_legacySongIdOld_key" ON public."Song" USING btree ("legacySongIdOld");
+
+
+--
+-- Name: Song_legacySongId_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "Song_legacySongId_key" ON public."Song" USING btree ("legacySongId");
+
+
+--
+-- Name: User_email_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "User_email_key" ON public."User" USING btree (email);
+
+
+--
+-- Name: User_username_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "User_username_key" ON public."User" USING btree (username);
+
+
+--
+-- Name: User_wpId_key; Type: INDEX; Schema: public; Owner: rep_user
+--
+
+CREATE UNIQUE INDEX "User_wpId_key" ON public."User" USING btree ("wpId");
+
+
+--
+-- Name: ListGroupMember ListGroupMember_groupId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListGroupMember"
+    ADD CONSTRAINT "ListGroupMember_groupId_fkey" FOREIGN KEY ("groupId") REFERENCES app."ListGroup"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: ListGroupMember ListGroupMember_userId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListGroupMember"
+    ADD CONSTRAINT "ListGroupMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES app."User"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: ListItem ListItem_listId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListItem"
+    ADD CONSTRAINT "ListItem_listId_fkey" FOREIGN KEY ("listId") REFERENCES app."List"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: ListItem ListItem_songId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListItem"
+    ADD CONSTRAINT "ListItem_songId_fkey" FOREIGN KEY ("songId") REFERENCES app."Song"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: ListMember ListMember_listId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListMember"
+    ADD CONSTRAINT "ListMember_listId_fkey" FOREIGN KEY ("listId") REFERENCES app."List"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: ListMember ListMember_userId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."ListMember"
+    ADD CONSTRAINT "ListMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES app."User"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: List List_groupId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."List"
+    ADD CONSTRAINT "List_groupId_fkey" FOREIGN KEY ("groupId") REFERENCES app."ListGroup"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: SongCategory SongCategory_categoryId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongCategory"
+    ADD CONSTRAINT "SongCategory_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES app."Category"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: SongCategory SongCategory_songId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongCategory"
+    ADD CONSTRAINT "SongCategory_songId_fkey" FOREIGN KEY ("songId") REFERENCES app."Song"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: SongCredit SongCredit_artistId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongCredit"
+    ADD CONSTRAINT "SongCredit_artistId_fkey" FOREIGN KEY ("artistId") REFERENCES app."Artist"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: SongCredit SongCredit_songId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongCredit"
+    ADD CONSTRAINT "SongCredit_songId_fkey" FOREIGN KEY ("songId") REFERENCES app."Song"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: SongVersionArtist SongVersionArtist_artistId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongVersionArtist"
+    ADD CONSTRAINT "SongVersionArtist_artistId_fkey" FOREIGN KEY ("artistId") REFERENCES app."Artist"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: SongVersionArtist SongVersionArtist_versionId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongVersionArtist"
+    ADD CONSTRAINT "SongVersionArtist_versionId_fkey" FOREIGN KEY ("versionId") REFERENCES app."SongVersion"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: SongVersion SongVersion_createdByUserId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongVersion"
+    ADD CONSTRAINT "SongVersion_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES app."User"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: SongVersion SongVersion_songId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."SongVersion"
+    ADD CONSTRAINT "SongVersion_songId_fkey" FOREIGN KEY ("songId") REFERENCES app."Song"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: Song Song_basedOnSongId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Song"
+    ADD CONSTRAINT "Song_basedOnSongId_fkey" FOREIGN KEY ("basedOnSongId") REFERENCES app."Song"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: Song Song_categoryId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Song"
+    ADD CONSTRAINT "Song_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES app."Category"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: Song Song_createdByUserId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Song"
+    ADD CONSTRAINT "Song_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES app."User"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: Song Song_rythmId_fkey; Type: FK CONSTRAINT; Schema: app; Owner: rep_user
+--
+
+ALTER TABLE ONLY app."Song"
+    ADD CONSTRAINT "Song_rythmId_fkey" FOREIGN KEY ("rythmId") REFERENCES app."Rythm"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: ListItem ListItem_listId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."ListItem"
+    ADD CONSTRAINT "ListItem_listId_fkey" FOREIGN KEY ("listId") REFERENCES public."List"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: ListItem ListItem_songId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."ListItem"
+    ADD CONSTRAINT "ListItem_songId_fkey" FOREIGN KEY ("songId") REFERENCES public."Song"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: List List_groupId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."List"
+    ADD CONSTRAINT "List_groupId_fkey" FOREIGN KEY ("groupId") REFERENCES public."ListGroup"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: SongVersion SongVersion_createdByUserId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."SongVersion"
+    ADD CONSTRAINT "SongVersion_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES public."User"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: SongVersion SongVersion_songId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."SongVersion"
+    ADD CONSTRAINT "SongVersion_songId_fkey" FOREIGN KEY ("songId") REFERENCES public."Song"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: Song Song_categoryId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Song"
+    ADD CONSTRAINT "Song_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES public."Category"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: Song Song_composerId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Song"
+    ADD CONSTRAINT "Song_composerId_fkey" FOREIGN KEY ("composerId") REFERENCES public."Artist"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: Song Song_createdByUserId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Song"
+    ADD CONSTRAINT "Song_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES public."User"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: Song Song_lyricistId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Song"
+    ADD CONSTRAINT "Song_lyricistId_fkey" FOREIGN KEY ("lyricistId") REFERENCES public."Artist"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: Song Song_makamId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Song"
+    ADD CONSTRAINT "Song_makamId_fkey" FOREIGN KEY ("makamId") REFERENCES public."Makam"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: Song Song_rythmId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: rep_user
+--
+
+ALTER TABLE ONLY public."Song"
+    ADD CONSTRAINT "Song_rythmId_fkey" FOREIGN KEY ("rythmId") REFERENCES public."Rythm"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: SCHEMA legacy; Type: ACL; Schema: -; Owner: rep_user
+--
+
+GRANT USAGE ON SCHEMA legacy TO PUBLIC;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: legacy; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA legacy GRANT ALL ON SEQUENCES TO rep_user;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: legacy; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA legacy GRANT ALL ON FUNCTIONS TO rep_user;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: legacy; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA legacy GRANT ALL ON TABLES TO rep_user;
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+\unrestrict ysKIHZEXwGN7PgNtFe6kqtMGAjuARg7daZInbsI8gICf9rKwrhbmvruKDVJgCUr
+
