@@ -20,6 +20,13 @@ export class ElasticSongsController {
   private readonly ES_BASE = (process.env.ES_BASE_URL ?? "http://127.0.0.1:9200").replace(/\/$/, "");
   private readonly INDEX = process.env.ES_SONGS_INDEX ?? "app_songs";
 
+  /**
+   * Αν στο mapping το status είναι keyword, άστο "status".
+   * Αν είναι text, θα χρειαστεί να το κάνεις "status.keyword".
+   */
+  private readonly STATUS_FIELD = "status.keyword";
+
+
   private async esSearch<T>(body: any): Promise<EsSearchResponse<T>> {
     const url = `${this.ES_BASE}/${this.INDEX}/_search`;
 
@@ -80,7 +87,7 @@ export class ElasticSongsController {
     return undefined;
   }
 
-  // ✅ ΝΕΟ: Υποστήριξη CSV flags (π.χ. lyrics=0,1) ώστε να δουλεύουν σωστά τα checkboxes.
+  // ✅ CSV flags (π.χ. lyrics=0,1) ώστε να δουλεύουν σωστά τα checkboxes.
   private parseBoolCsv(
     value?: string,
     opts?: { nullMeansFalse?: boolean },
@@ -108,7 +115,7 @@ export class ElasticSongsController {
   }
 
   private parseStringCsv(value?: string): string[] | undefined {
-    if (!value) return undefined;
+    if (value == null) return undefined;
     const parts = String(value)
       .split(",")
       .map((x) => String(x ?? "").trim())
@@ -201,7 +208,7 @@ export class ElasticSongsController {
     @Query("yearFrom") yearFromStr?: string,
     @Query("yearTo") yearToStr?: string,
 
-    // ✅ optional: tagId του "Οργανικό" (για σωστά counts/φίλτρο "Χωρίς στίχους")
+    // ✅ optional: tagId του "Οργανικό"
     @Query("organikoTagId") organikoTagIdStr?: string,
   ) {
     try {
@@ -232,7 +239,7 @@ export class ElasticSongsController {
       const singerFrontId = this.parseNumber(singerFrontIdStr, 0, 0, 2_000_000) || null;
       const singerBackId = this.parseNumber(singerBackIdStr, 0, 0, 2_000_000) || null;
 
-      // ✅ ΝΕΟ: multi-select singers (CSV)
+      // ✅ multi-select singers (CSV) + legacy single
       const singerFrontIds = Array.from(
         new Set<number>([
           ...(this.parseIdList(singerFrontIdsStr) ?? []),
@@ -247,10 +254,10 @@ export class ElasticSongsController {
         ]),
       );
 
-      // legacy: years (CSV) multi-select
+      // years (CSV) multi-select
       const years = Array.from(new Set<number>(this.parseIdList(yearsStr) ?? []));
 
-      // ✅ ΝΕΟ: year range
+      // year range
       const yearFrom = this.parsePositiveIntOrNull(yearFromStr, 1, 3000);
       const yearTo = this.parsePositiveIntOrNull(yearToStr, 1, 3000);
 
@@ -259,35 +266,37 @@ export class ElasticSongsController {
       if (categoryIds?.length) filters.push({ terms: { categoryId: categoryIds } });
       if (rythmIds?.length) filters.push({ terms: { rythmId: rythmIds } });
 
-      if (status && String(status).trim()) filters.push({ term: { status: String(status).trim() } });
+      // ✅ status CSV: PUBLISHED,DRAFT
+      const statusList = this.parseStringCsv(status);
+      if (statusList?.length) {
+        // terms καλύπτει και length=1, αλλά κρατάω το term για σαφήνεια/debuggability.
+        if (statusList.length === 1) filters.push({ term: { [this.STATUS_FIELD]: statusList[0] } });
+        else filters.push({ terms: { [this.STATUS_FIELD]: statusList } });
+      }
 
-      if (chordsWanted && (chordsWanted.wantTrue !== chordsWanted.wantFalse)) {
+      if (chordsWanted && chordsWanted.wantTrue !== chordsWanted.wantFalse) {
         filters.push({ term: { hasChords: chordsWanted.wantTrue } });
       }
 
-      if (scoreWanted && (scoreWanted.wantTrue !== scoreWanted.wantFalse)) {
+      if (scoreWanted && scoreWanted.wantTrue !== scoreWanted.wantFalse) {
         filters.push({ term: { hasScore: scoreWanted.wantTrue } });
       }
 
-      if (lyricsWanted && (lyricsWanted.wantTrue !== lyricsWanted.wantFalse)) {
-        // lyrics=1 => hasLyrics=true
-        // lyrics=0 (ή lyrics=null) => hasLyrics=false
+      if (lyricsWanted && lyricsWanted.wantTrue !== lyricsWanted.wantFalse) {
         const wantLyrics = lyricsWanted.wantTrue;
         filters.push({ term: { hasLyrics: wantLyrics } });
 
-        // ✅ Βελτίωση: "Χωρίς στίχους" να ΜΗΝ περιλαμβάνει τα "Οργανικό"
+        // "Χωρίς στίχους" να ΜΗΝ περιλαμβάνει τα "Οργανικό"
         if (!wantLyrics && organikoTagId) {
           filters.push({ bool: { must_not: [{ term: { tagIds: organikoTagId } }] } });
         }
       }
 
-      // tags filter
       if (tagsIds?.length) filters.push({ terms: { tagIds: tagsIds } });
 
-      // ✅ years filter (legacy multi-select)
       if (years.length) filters.push({ terms: { years } });
 
-      // ✅ year range filter (overlap): [minYear,maxYear] intersects [yearFrom,yearTo]
+      // overlap range: [minYear,maxYear] intersects [yearFrom,yearTo]
       if (yearFrom !== null || yearTo !== null) {
         const must: any[] = [];
         if (yearFrom !== null) must.push({ range: { maxYear: { gte: yearFrom } } });
@@ -295,7 +304,6 @@ export class ElasticSongsController {
         filters.push({ bool: { must } });
       }
 
-      // composer / lyricist filters (IDs)
       if (composerIds?.length) filters.push({ terms: { composerId: composerIds } });
       if (lyricistIds?.length) filters.push({ terms: { lyricistId: lyricistIds } });
 
@@ -352,20 +360,15 @@ export class ElasticSongsController {
         }
       }
 
-      // ✅ singers filter (nested). Για multi-select κρατάμε AND λογική.
-      // (Αν θες "ζευγάρι" Α↔Β στην ίδια δισκογραφία, αυτό το nested καλύπτει ακριβώς αυτό.)
+      // singers filter (nested) AND λογική
       if (singerFrontIds.length || singerBackIds.length) {
         const nestedMust: any[] = [];
 
-        if (singerFrontIds.length === 1)
-          nestedMust.push({ term: { "versionSingerPairs.frontId": singerFrontIds[0] } });
-        else if (singerFrontIds.length > 1)
-          nestedMust.push({ terms: { "versionSingerPairs.frontId": singerFrontIds } });
+        if (singerFrontIds.length === 1) nestedMust.push({ term: { "versionSingerPairs.frontId": singerFrontIds[0] } });
+        else if (singerFrontIds.length > 1) nestedMust.push({ terms: { "versionSingerPairs.frontId": singerFrontIds } });
 
-        if (singerBackIds.length === 1)
-          nestedMust.push({ term: { "versionSingerPairs.backId": singerBackIds[0] } });
-        else if (singerBackIds.length > 1)
-          nestedMust.push({ terms: { "versionSingerPairs.backId": singerBackIds } });
+        if (singerBackIds.length === 1) nestedMust.push({ term: { "versionSingerPairs.backId": singerBackIds[0] } });
+        else if (singerBackIds.length > 1) nestedMust.push({ terms: { "versionSingerPairs.backId": singerBackIds } });
 
         filters.push({
           nested: {
@@ -392,11 +395,7 @@ export class ElasticSongsController {
                 ],
               },
             }
-          : {
-              bool: {
-                filter: filters,
-              },
-            };
+          : { bool: { filter: filters } };
 
       const sort =
         popular === "1"
@@ -418,28 +417,22 @@ export class ElasticSongsController {
           "categoryTitle",
           "rythmId",
           "rythmTitle",
-
           "composerId",
           "composerName",
           "lyricistId",
           "lyricistName",
-
           "singerFrontNames",
           "singerBackNames",
-
           "tagIds",
           "tagTitles",
           "tagSlugs",
-
           "years",
           "minYear",
           "maxYear",
           "yearText",
-
           "views",
           "status",
           "scoreFile",
-
           "hasChords",
           "hasLyrics",
           "hasScore",
@@ -450,6 +443,9 @@ export class ElasticSongsController {
           rythmId: { terms: { field: "rythmId", size: 200 } },
           tagIds: { terms: { field: "tagIds", size: 500 } },
 
+          // ✅ ΚΡΙΣΙΜΟ: Status aggregation (για σωστά counts στο modal)
+          status: { terms: { field: this.STATUS_FIELD, size: 20 } },
+
           hasChords: { terms: { field: "hasChords", size: 2 } },
           hasLyrics: { terms: { field: "hasLyrics", size: 2 } },
 
@@ -457,39 +453,29 @@ export class ElasticSongsController {
             ? {
                 organikoHasLyrics: {
                   filter: { term: { tagIds: organikoTagId } },
-                  aggs: {
-                    hasLyrics: { terms: { field: "hasLyrics", size: 2 } },
-                  },
+                  aggs: { hasLyrics: { terms: { field: "hasLyrics", size: 2 } } },
                 },
               }
             : {}),
 
           hasScore: { terms: { field: "hasScore", size: 2 } },
 
-          // ✅ για dropdowns (IDs + topName ώστε να πάρουμε και label)
           composerId: {
             terms: { field: "composerId", size: 500 },
-            aggs: {
-              topName: { top_hits: { size: 1, _source: { includes: ["composerName"] } } },
-            },
+            aggs: { topName: { top_hits: { size: 1, _source: { includes: ["composerName"] } } } },
           },
           lyricistId: {
             terms: { field: "lyricistId", size: 500 },
-            aggs: {
-              topName: { top_hits: { size: 1, _source: { includes: ["lyricistName"] } } },
-            },
+            aggs: { topName: { top_hits: { size: 1, _source: { includes: ["lyricistName"] } } } },
           },
 
-          // ✅ Ερμηνευτές/Έτη: nested aggs από versionSingerPairs + years[]
           singerFrontId: {
             nested: { path: "versionSingerPairs" },
             aggs: {
               byId: {
                 terms: { field: "versionSingerPairs.frontId", size: 1000 },
                 aggs: {
-                  topName: {
-                    top_hits: { size: 1, _source: { includes: ["versionSingerPairs.frontName"] } },
-                  },
+                  topName: { top_hits: { size: 1, _source: { includes: ["versionSingerPairs.frontName"] } } },
                 },
               },
             },
@@ -500,16 +486,15 @@ export class ElasticSongsController {
               byId: {
                 terms: { field: "versionSingerPairs.backId", size: 1000 },
                 aggs: {
-                  topName: {
-                    top_hits: { size: 1, _source: { includes: ["versionSingerPairs.backName"] } },
-                  },
+                  topName: { top_hits: { size: 1, _source: { includes: ["versionSingerPairs.backName"] } } },
                 },
               },
             },
           },
+
           years: { terms: { field: "years", size: 300 } },
 
-          // legacy (αν κάπου ζητηθούν ακόμα ως strings)
+          // legacy (αν ζητηθούν ακόμα ως strings)
           composerName: { terms: { field: "composerName.keyword", size: 500 } },
           lyricistName: { terms: { field: "lyricistName.keyword", size: 500 } },
         },

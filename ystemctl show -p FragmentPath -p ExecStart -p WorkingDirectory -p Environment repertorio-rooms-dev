@@ -1,0 +1,31 @@
+[0;1;34m# /etc/systemd/system/repertorio-rooms-dev.service[0m
+[Unit]
+Description=Repertorio Rooms WebSocket Server (DEV) on 4456
+After=network.target
+
+[Service]
+Type=simple
+
+WorkingDirectory=/home/reperto/repertorio-dev
+
+# Πολύ σημαντικό: systemd δεν φορτώνει nvm. Βάζουμε ρητά PATH.
+Environment=PATH=/root/.nvm/versions/node/v22.21.1/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
+Environment=NODE_ENV=development
+Environment=PORT=4456
+
+# Ξεκινάμε το σωστό workspace/package
+ExecStart=/usr/bin/bash -lc 'cd /home/reperto/repertorio-dev && pnpm --filter repertorio-rooms run dev'
+
+Restart=always
+RestartSec=2
+
+# Logs στο journal
+StandardOutput=journal
+StandardError=journal
+
+# (προαιρετικό αλλά καλό)
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

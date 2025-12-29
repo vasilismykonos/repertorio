@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "type": "commonjs",
+  "scripts": {
+    "dev": "node rooms.js",
+    "start": "node rooms.js"
+  },
   "dependencies": {
     "express": "^4.18.2",
     "ws": "^8.15.0",
