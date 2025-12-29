@@ -43,7 +43,6 @@ type SongVersionDto = {
   solistIds: number[] | null;
 };
 
-
 type SongForEdit = {
   id: number;
   title: string;
@@ -123,20 +122,20 @@ async function fetchSong(id: number): Promise<SongForEdit> {
 
     // ✅ NEW
     versions: Array.isArray(s.versions)
-    ? s.versions.map((v: any) => ({
-        id: Number(v.id),
-        year: typeof v.year === "number" ? v.year : null,
-        singerFront: v.singerFront ?? null,
-        singerBack: v.singerBack ?? null,
-        solist: v.solist ?? null,
-        youtubeSearch: v.youtubeSearch ?? null,
+      ? s.versions.map((v: any) => ({
+          id: Number(v.id),
+          year: typeof v.year === "number" ? v.year : null,
+          singerFront: v.singerFront ?? null,
+          singerBack: v.singerBack ?? null,
+          solist: v.solist ?? null,
+          youtubeSearch: v.youtubeSearch ?? null,
 
-        // ✅ ADD αυτά (όπως τα δίνει το API)
-        singerFrontIds: Array.isArray(v.singerFrontIds) ? v.singerFrontIds.map(Number) : [],
-        singerBackIds: Array.isArray(v.singerBackIds) ? v.singerBackIds.map(Number) : [],
-        solistIds: Array.isArray(v.solistIds) ? v.solistIds.map(Number) : [],
-      }))
-    : [],
+          // ✅ ADD αυτά (όπως τα δίνει το API)
+          singerFrontIds: Array.isArray(v.singerFrontIds) ? v.singerFrontIds.map(Number) : [],
+          singerBackIds: Array.isArray(v.singerBackIds) ? v.singerBackIds.map(Number) : [],
+          solistIds: Array.isArray(v.solistIds) ? v.solistIds.map(Number) : [],
+        }))
+      : [],
   };
 }
 
@@ -276,7 +275,12 @@ export default async function SongEditPage({ params }: SongEditPageProps) {
                   <>
                     {" "}
                     —{" "}
-                    <a href={scoreUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>
+                    <a
+                      href={scoreUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ textDecoration: "underline" }}
+                    >
                       {song.scoreFile}
                     </a>
                   </>
@@ -288,11 +292,21 @@ export default async function SongEditPage({ params }: SongEditPageProps) {
 
         <form method="POST" action={`/api/songs/${song.id}`} className="song-edit-form">
           {/* contract με route.ts */}
-          <input type="hidden" id="tagIdsJson" name="tagIdsJson" defaultValue={JSON.stringify(initialTagIds)} />
+          <input
+            type="hidden"
+            id="tagIdsJson"
+            name="tagIdsJson"
+            defaultValue={JSON.stringify(initialTagIds)}
+          />
           <input type="hidden" id="assetsJson" name="assetsJson" defaultValue={JSON.stringify(initialAssets)} />
 
           {/* ✅ NEW */}
-          <input type="hidden" id="versionsJson" name="versionsJson" defaultValue={JSON.stringify(initialVersions)} />
+          <input
+            type="hidden"
+            id="versionsJson"
+            name="versionsJson"
+            defaultValue={JSON.stringify(initialVersions)}
+          />
 
           <div className="song-edit-section">
             <h2 className="song-edit-section-title">Βασικές πληροφορίες</h2>
@@ -341,12 +355,7 @@ export default async function SongEditPage({ params }: SongEditPageProps) {
           {/* ✅ NEW: ΔΙΣΚΟΓΡΑΦΙΕΣ */}
           <div className="song-edit-section">
             <h2 className="song-edit-section-title">Δισκογραφίες</h2>
-            <DiscographiesEditorClient
-              songTitle={song.title}
-              initialVersions={song.versions}
-              hiddenInputId="versionsJson"
-            />
-
+            <DiscographiesEditorClient songTitle={song.title} initialVersions={song.versions} hiddenInputId="versionsJson" />
           </div>
 
           {/* ✅ ASSETS */}
@@ -489,7 +498,11 @@ export default async function SongEditPage({ params }: SongEditPageProps) {
 
             <div className="song-edit-field">
               <label htmlFor="categoryId">Κατηγορία</label>
-              <select id="categoryId" name="categoryId" defaultValue={song.categoryId != null ? String(song.categoryId) : ""}>
+              <select
+                id="categoryId"
+                name="categoryId"
+                defaultValue={song.categoryId != null ? String(song.categoryId) : ""}
+              >
                 <option value="">(Χωρίς κατηγορία)</option>
                 {categories.map((c) => (
                   <option key={c.id} value={String(c.id)}>

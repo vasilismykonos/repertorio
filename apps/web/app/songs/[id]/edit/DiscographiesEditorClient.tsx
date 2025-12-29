@@ -49,6 +49,15 @@ const API_BASE_URL = (
 const YEAR_MIN = 1900;
 const YEAR_MAX = 2050;
 
+// ✅ UI sizing knobs (για τα ζητούμενα)
+const PICKER_INPUT_MAX_WIDTH = 360; // μικραίνει το "μήκος" των πεδίων προσθήκης
+const PICKER_INPUT_HEIGHT = 32;
+const PICKER_INPUT_FONT_SIZE = 13;
+
+const CHIP_FONT_SIZE = 12; // μικραίνει τα γράμματα στους επιλεγμένους
+const CHIP_PADDING = "1px 8px";
+const CHIP_REMOVE_FONT_SIZE = 14;
+
 function uniqNums(ids: any[]): number[] {
   const out: number[] = [];
   const seen = new Set<number>();
@@ -251,7 +260,7 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
     const next = uniqNums([...(selectedIds ?? []), id]);
     onChange(next);
 
-    // ✅ ΖΗΤΟΥΜΕΝΟ: κλείσε dropdown και καθάρισε το search ώστε να συνεχίσεις με νέο
+    // ✅ κλείσε dropdown και καθάρισε το search
     setOpen(false);
     setQ("");
     setOptions([]);
@@ -277,7 +286,15 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
             setTimeout(() => setOpen(false), 150);
           }}
           placeholder="Αναζήτηση καλλιτέχνη (π.χ. Τσιτσάνης)"
-          style={{ flex: 1 }}
+          style={{
+            flex: "0 1 auto",
+            width: "100%",
+            maxWidth: PICKER_INPUT_MAX_WIDTH, // ✅ μικραίνει το μήκος
+            height: PICKER_INPUT_HEIGHT,
+            padding: "6px 10px",
+            fontSize: PICKER_INPUT_FONT_SIZE,
+            borderRadius: 8,
+          }}
         />
         {loading ? <small style={{ opacity: 0.7 }}>...</small> : null}
       </div>
@@ -315,6 +332,7 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
                     border: "1px solid transparent",
                     background: isSelected ? "#1a1a1a" : "transparent",
                     cursor: isSelected ? "default" : "pointer",
+                    fontSize: 13,
                   }}
                 >
                   <strong>{artistDisplay(a)}</strong>
@@ -339,8 +357,10 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
                 alignItems: "center",
                 border: "1px solid #444",
                 borderRadius: 999,
-                padding: "2px 8px",
+                padding: CHIP_PADDING, // ✅ πιο compact
                 opacity: 0.95,
+                fontSize: CHIP_FONT_SIZE, // ✅ μικρότερα γράμματα
+                lineHeight: 1.2,
               }}
             >
               <span>{labelById.get(id) || "Καλλιτέχνης"}</span>
@@ -352,6 +372,9 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
                   background: "transparent",
                   cursor: "pointer",
                   opacity: 0.8,
+                  fontSize: CHIP_REMOVE_FONT_SIZE,
+                  lineHeight: 1,
+                  padding: 0,
                 }}
                 aria-label="remove"
                 title="Αφαίρεση"
