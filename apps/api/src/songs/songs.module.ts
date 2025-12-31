@@ -15,20 +15,22 @@ import { SongTagsService } from "./tags.service";
 import { SongAssetsController } from "./assets.controller";
 import { SongAssetsService } from "./assets.service";
 
-// ✅ NEW
 import { ElasticsearchSongsSyncService } from "../elasticsearch/elasticsearch-songs-sync.service";
 
+
+// ✅ Credits
+import { SongCreditsController } from "./song-credits.controller";
+import { SongCreditsService } from "./song-credits.service";
+
 @Module({
-  /**
-   * ⚠️ ΣΕΙΡΑ CONTROLLERS:
-   * Πρέπει τα πιο “specific” routes να δηλώνονται ΠΡΙΝ το /songs/:id,
-   * αλλιώς το /songs/:id θα “καταπίνει” το /songs/tags και θα πετάει 400 από ParseIntPipe.
-   */
   controllers: [
-    SongsSearchController,
     SongTagsController,
     SongAssetsController,
+    SongsSearchController,
     SongsController,
+
+    // ✅ NEW
+    SongCreditsController,
   ],
   providers: [
     PrismaService,
@@ -38,6 +40,9 @@ import { ElasticsearchSongsSyncService } from "../elasticsearch/elasticsearch-so
     SongAssetsService,
 
     // ✅ NEW
+    SongCreditsService,
+
+    // ✅ existing
     ElasticsearchSongsSyncService,
   ],
 })

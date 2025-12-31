@@ -6,6 +6,11 @@ type ApiSongResponse = {
   title: string;
 };
 
+type CreditsJson = {
+  composerArtistIds?: unknown;
+  lyricistArtistIds?: unknown;
+};
+
 type PatchSongBody = {
   title?: string;
   firstLyrics?: string | null;
@@ -21,10 +26,7 @@ type PatchSongBody = {
 
   tagIds?: number[] | null;
 
-  // ✅ πλέον τα στέλνουμε (αφού στο API updateSong τα υποστηρίζεις)
   assets?: any[] | null;
-
-  // ✅ NEW
   versions?: any[] | null;
 };
 
@@ -48,56 +50,11 @@ function buildRedirectHtml(targetPath: string): string {
     <p>Μεταφορά...</p>
     <script>
       (function () {
-        try { window.location.replace(${JSON.stringify(safePath)}); }
-        catch (e) { window.location.href = ${JSON.stringify(safePath)}; }
+        try { window.location.replace(${JSON.stringify(safePath)}); } catch (e) {}
       })();
     </script>
   </body>
 </html>`;
-}
-
-function parseJsonSafe<T>(raw: FormDataEntryValue | null, fallback: T): T {
-  if (typeof raw !== "string") return fallback;
-  const s = raw.trim();
-  if (!s) return fallback;
-  try {
-    return JSON.parse(s) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function normalizeTagIds(input: unknown): number[] {
-  if (!Array.isArray(input)) return [];
-  const ids = input
-    .map((x) => Number(x))
-    .filter((n) => Number.isFinite(n) && n > 0)
-    .map((n) => Math.trunc(n));
-  return Array.from(new Set(ids));
-}
-
-function normalizeArray(input: unknown): any[] {
-  return Array.isArray(input) ? input : [];
-}
-
-function toNumberOrNull(v: FormDataEntryValue | null): number | null {
-  if (typeof v !== "string") return null;
-  const s = v.trim();
-  if (!s) return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
-}
-
-function toStringOrEmpty(v: FormDataEntryValue | null): string {
-  if (typeof v !== "string") return "";
-  return v;
-}
-
-function toStringOrNull(v: FormDataEntryValue | null): string | null {
-  if (typeof v !== "string") return null;
-  const s = v;
-  if (s.trim() === "") return null;
-  return s;
 }
 
 function pickForwardHeader(req: NextRequest, name: string): string | undefined {
@@ -105,124 +62,167 @@ function pickForwardHeader(req: NextRequest, name: string): string | undefined {
   return v && v.trim() ? v : undefined;
 }
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { id: string } },
-) {
-  const idNum = Number(params.id);
+function parseJsonSafe<T>(input: FormDataEntryValue | null, fallback: T): T {
+  try {
+    if (typeof input !== "string") return fallback;
+    const s = input.trim();
+    if (!s) return fallback;
+    return JSON.parse(s) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeIds(input: unknown): number[] {
+  if (!Array.isArray(input)) return [];
+  const out: number[] = [];
+  const seen = new Set<number>();
+  for (const x of input) {
+    const n = Math.trunc(Number(x));
+    if (!Number.isFinite(n) || n <= 0) continue;
+    if (seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
+function normalizeArray(input: unknown): any[] {
+  return Array.isArray(input) ? input : [];
+}
+
+function toStringOrNull(v: FormDataEntryValue | null): string | null {
+  if (typeof v !== "string") return null;
+  const s = v;
+  return s.trim() === "" ? null : s;
+}
+
+function toNumberOrNull(v: FormDataEntryValue | null): number | null {
+  if (typeof v !== "string") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
+  const idNum = Number(ctx.params.id);
   if (!Number.isFinite(idNum) || idNum <= 0) {
-    const html = buildRedirectHtml("/songs?error=1");
-    return new NextResponse(html, {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+    return new NextResponse(buildRedirectHtml("/songs"), {
+      status: 302,
+      headers: { "content-type": "text/html" },
     });
   }
 
   const formData = await req.formData();
 
-  // --- βασικά fields (ό,τι υπήρχε και πριν) ---
-  const title = toStringOrEmpty(formData.get("title")).trim();
-
+  const title = toStringOrNull(formData.get("title"));
   const firstLyrics = toStringOrNull(formData.get("firstLyrics"));
   const lyrics = toStringOrNull(formData.get("lyrics"));
   const characteristics = toStringOrNull(formData.get("characteristics"));
-
   const originalKey = toStringOrNull(formData.get("originalKey"));
   const chords = toStringOrNull(formData.get("chords"));
-
   const status = toStringOrNull(formData.get("status"));
 
   const categoryId = toNumberOrNull(formData.get("categoryId"));
   const rythmId = toNumberOrNull(formData.get("rythmId"));
   const makamId = toNumberOrNull(formData.get("makamId"));
 
-  // --- tags ---
   const parsedTagIds = parseJsonSafe<unknown>(formData.get("tagIdsJson"), []);
-  const tagIds = normalizeTagIds(parsedTagIds);
+  const tagIds = normalizeIds(parsedTagIds);
 
-  // --- assets (NEW) ---
   const parsedAssets = parseJsonSafe<unknown>(formData.get("assetsJson"), []);
   const assets = normalizeArray(parsedAssets);
 
-  // --- versions (NEW) ---
   const parsedVersions = parseJsonSafe<unknown>(formData.get("versionsJson"), []);
   const versions = normalizeArray(parsedVersions);
 
+  // ✅ creditsJson: IDS
+  const parsedCredits = parseJsonSafe<CreditsJson>(formData.get("creditsJson"), {});
+  const composerArtistIds = normalizeIds(parsedCredits?.composerArtistIds);
+  const lyricistArtistIds = normalizeIds(parsedCredits?.lyricistArtistIds);
+
   const body: PatchSongBody = {
     title: title || undefined,
-
-    // κρατάμε τη λογική του παλιού: στέλνουμε τα fields όπως υπάρχουν στη φόρμα
     firstLyrics,
     lyrics,
     characteristics,
     originalKey,
     chords,
     status,
-
     categoryId,
     rythmId,
     makamId,
-
     tagIds,
-
-    // ✅ τώρα τα στέλνουμε
     assets,
     versions,
   };
 
-  let ok = true;
-
-  // ✅ Forward auth context στο upstream API
   const cookie = pickForwardHeader(req, "cookie");
   const authorization = pickForwardHeader(req, "authorization");
 
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
+  const headers: Record<string, string> = { "content-type": "application/json" };
   if (cookie) headers.cookie = cookie;
   if (authorization) headers.authorization = authorization;
 
-  const upstreamUrl = `${API_BASE_URL}/songs/${idNum}`;
+  let ok = true;
 
+  // 1) PATCH song
+  const upstreamSongUrl = `${API_BASE_URL}/songs/${idNum}`;
   try {
-    const res = await fetch(upstreamUrl, {
+    const res = await fetch(upstreamSongUrl, {
       method: "PATCH",
       headers,
       body: JSON.stringify(body),
-      cache: "no-store",
     });
 
     if (!res.ok) {
       ok = false;
       const text = await res.text().catch(() => "");
-      console.error(
-        "Update song failed",
-        JSON.stringify(
-          {
-            id: idNum,
-            upstreamUrl,
-            status: res.status,
-            statusText: res.statusText,
-            bodySent: body,
-            responseText: text?.slice(0, 2000),
-          },
-          null,
-          2,
-        ),
-      );
+      console.error("Update song failed", {
+        id: idNum,
+        upstreamSongUrl,
+        status: res.status,
+        statusText: res.statusText,
+        responseText: text,
+      });
     } else {
       await res.json().catch(() => null as ApiSongResponse | null);
     }
   } catch (err) {
     ok = false;
-    console.error("Update song threw error", { id: idNum, upstreamUrl, err });
+    console.error("Update song threw error", { id: idNum, upstreamSongUrl, err });
+  }
+
+  // 2) PUT credits
+  const upstreamCreditsUrl = `${API_BASE_URL}/songs/${idNum}/credits`;
+  try {
+    const res = await fetch(upstreamCreditsUrl, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ composerArtistIds, lyricistArtistIds }),
+    });
+
+    if (!res.ok) {
+      ok = false;
+      const text = await res.text().catch(() => "");
+      console.error("Update credits failed", {
+        id: idNum,
+        upstreamCreditsUrl,
+        status: res.status,
+        statusText: res.statusText,
+        sent: { composerArtistIds, lyricistArtistIds },
+        responseText: text,
+      });
+    } else {
+      await res.json().catch(() => null);
+    }
+  } catch (err) {
+    ok = false;
+    console.error("Update credits threw error", { id: idNum, upstreamCreditsUrl, err });
   }
 
   const targetPath = ok ? `/songs/${idNum}` : `/songs/${idNum}?error=1`;
-  const html = buildRedirectHtml(targetPath);
-
-  return new NextResponse(html, {
-    status: 200,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
+  return new NextResponse(buildRedirectHtml(targetPath), {
+    status: 302,
+    headers: { "content-type": "text/html" },
   });
 }

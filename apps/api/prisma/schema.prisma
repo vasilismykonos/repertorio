@@ -24,16 +24,28 @@ model User {
 }
 
 model Artist {
-  id             Int                 @id @default(autoincrement())
-  legacyArtistId Int?                @unique
+  id             Int      @id @default(autoincrement())
+  legacyArtistId Int?     @unique
+
   title          String
   firstName      String?
   lastName       String?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+
+  imageUrl       String?
+  wikiUrl        String?
+  sex            String?
+  biography      String?
+
+  bornYear       Int?
+  dieYear        Int?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
   songCredits    SongCredit[]
   versionCredits SongVersionArtist[]
 }
+
 
 model Category {
   id             Int            @id @default(autoincrement())

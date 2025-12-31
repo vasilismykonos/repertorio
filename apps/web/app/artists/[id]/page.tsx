@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
+import DeleteArtistButton from "./DeleteArtistButton";
 
 type ArtistRoleEntry = {
   songId: number;
@@ -40,14 +41,10 @@ const ROLE_LABELS: Record<string, string> = {
   LYRICIST: "Στιχουργός",
 };
 
-export async function generateMetadata(
-  { params }: PageProps,
-): Promise<Metadata> {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const idNum = Number.parseInt(params.id, 10);
   if (!Number.isFinite(idNum) || idNum <= 0) {
-    return {
-      title: "Καλλιτέχνης | Repertorio.net",
-    };
+    return { title: "Καλλιτέχνης | Repertorio.net" };
   }
 
   try {
@@ -62,9 +59,7 @@ export async function generateMetadata(
       description,
     };
   } catch {
-    return {
-      title: "Καλλιτέχνης | Repertorio.net",
-    };
+    return { title: "Καλλιτέχνης | Repertorio.net" };
   }
 }
 
@@ -93,9 +88,7 @@ function groupRolesBySong(roles: ArtistRoleEntry[]) {
     }
     const songEntry = songsMap.get(r.songId)!;
 
-    let versionEntry = songEntry.versions.find(
-      (v) => v.versionId === r.versionId,
-    );
+    let versionEntry = songEntry.versions.find((v) => v.versionId === r.versionId);
     if (!versionEntry) {
       versionEntry = {
         versionId: r.versionId,
@@ -110,34 +103,31 @@ function groupRolesBySong(roles: ArtistRoleEntry[]) {
     }
   }
 
-  // Ταξινόμηση: κατά τίτλο τραγουδιού, μετά κατά έτος έκδοσης
   const songs = Array.from(songsMap.values());
 
   songs.sort((a, b) => {
     const titleCompare = a.songTitle.localeCompare(b.songTitle, "el");
     if (titleCompare !== 0) return titleCompare;
+
     const aMinYear =
       a.versions.reduce<number | null>((acc, v) => {
         if (v.year == null) return acc;
         if (acc == null) return v.year;
         return Math.min(acc, v.year);
       }, null) ?? 9999;
+
     const bMinYear =
       b.versions.reduce<number | null>((acc, v) => {
         if (v.year == null) return acc;
         if (acc == null) return v.year;
         return Math.min(acc, v.year);
       }, null) ?? 9999;
+
     return aMinYear - bMinYear;
   });
 
-  // Μέσα σε κάθε τραγούδι, ταξινομούμε τις εκδόσεις κατά έτος
   for (const song of songs) {
-    song.versions.sort((a, b) => {
-      const aYear = a.year ?? 9999;
-      const bYear = b.year ?? 9999;
-      return aYear - bYear;
-    });
+    song.versions.sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
   }
 
   return songs;
@@ -147,14 +137,7 @@ export default async function ArtistPage({ params }: PageProps) {
   const idNum = Number.parseInt(params.id, 10);
   if (!Number.isFinite(idNum) || idNum <= 0) {
     return (
-      <section
-        style={{
-          padding: "24px 16px",
-          maxWidth: 900,
-          margin: "0 auto",
-          color: "#fff",
-        }}
-      >
+      <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto", color: "#fff" }}>
         <p>Μη έγκυρο ID καλλιτέχνη.</p>
       </section>
     );
@@ -163,16 +146,9 @@ export default async function ArtistPage({ params }: PageProps) {
   let artist: ArtistDetail;
   try {
     artist = await fetchJson<ArtistDetail>(`/artists/${idNum}`);
-  } catch (err) {
+  } catch {
     return (
-      <section
-        style={{
-          padding: "24px 16px",
-          maxWidth: 900,
-          margin: "0 auto",
-          color: "#fff",
-        }}
-      >
+      <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto", color: "#fff" }}>
         <p>Δεν βρέθηκε καλλιτέχνης.</p>
       </section>
     );
@@ -180,14 +156,12 @@ export default async function ArtistPage({ params }: PageProps) {
 
   const currentUser = await getCurrentUserFromApi().catch(() => null);
   const allowedRoles: UserRole[] = ["ADMIN", "EDITOR"];
-  const canEdit =
-    currentUser && allowedRoles.includes(currentUser.role as UserRole);
+  const canEdit = !!currentUser && allowedRoles.includes(currentUser.role as UserRole);
+  const isAdmin = currentUser?.role === "ADMIN";
 
   const displayName =
     artist.firstName || artist.lastName
-      ? `${artist.firstName ?? ""} ${
-          artist.lastName ?? ""
-        }`.trim() || artist.title
+      ? `${artist.firstName ?? ""} ${artist.lastName ?? ""}`.trim() || artist.title
       : artist.title;
 
   const years =
@@ -198,34 +172,14 @@ export default async function ArtistPage({ params }: PageProps) {
   const groupedSongs = groupRolesBySong(artist.roles || []);
 
   return (
-    <section
-      style={{
-        padding: "24px 16px",
-        maxWidth: 900,
-        margin: "0 auto",
-        color: "#fff",
-      }}
-    >
-      {/* Επιστροφή στη λίστα */}
+    <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto", color: "#fff" }}>
       <div style={{ marginBottom: 16 }}>
-        <Link
-          href="/artists"
-          style={{ color: "#ccc", textDecoration: "none", fontSize: 14 }}
-        >
+        <Link href="/artists" style={{ color: "#ccc", textDecoration: "none", fontSize: 14 }}>
           ← Πίσω στη λίστα καλλιτεχνών
         </Link>
       </div>
 
-      {/* Header καλλιτέχνη */}
-      <div
-        style={{
-          display: "flex",
-          gap: 16,
-          marginBottom: 24,
-          alignItems: "flex-start",
-        }}
-      >
-        {/* Εικόνα / avatar */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 24, alignItems: "flex-start" }}>
         <div
           style={{
             width: 96,
@@ -247,14 +201,13 @@ export default async function ArtistPage({ params }: PageProps) {
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
           ) : (
-            <span style={{ fontSize: 48 }}>
-              {displayName.charAt(0).toUpperCase()}
-            </span>
+            <span style={{ fontSize: 48 }}>{displayName.charAt(0).toUpperCase()}</span>
           )}
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontSize: 28, marginBottom: 8 }}>{displayName}</h1>
+
           {canEdit && (
             <div style={{ marginBottom: 8 }}>
               <Link
@@ -274,21 +227,25 @@ export default async function ArtistPage({ params }: PageProps) {
               </Link>
             </div>
           )}
-          {years && (
-            <div style={{ fontSize: 14, color: "#ccc", marginBottom: 4 }}>
-              {years}
+
+          {isAdmin && (
+            <div style={{ marginBottom: 8 }}>
+              <DeleteArtistButton artistId={artist.id} />
             </div>
           )}
+
+          {years && <div style={{ fontSize: 14, color: "#ccc", marginBottom: 4 }}>{years}</div>}
+
           {artist.title && artist.title !== displayName && (
-            <div style={{ fontSize: 14, color: "#aaa", marginBottom: 8 }}>
-              {artist.title}
-            </div>
+            <div style={{ fontSize: 14, color: "#aaa", marginBottom: 8 }}>{artist.title}</div>
           )}
+
           {artist.sex && (
             <div style={{ fontSize: 13, color: "#aaa", marginBottom: 4 }}>
               Φύλο: {artist.sex}
             </div>
           )}
+
           {artist.wikiUrl && (
             <div style={{ marginTop: 8 }}>
               <a
@@ -304,7 +261,6 @@ export default async function ArtistPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Βιογραφία */}
       {artist.biography && (
         <div style={{ marginBottom: 32, lineHeight: 1.6, fontSize: 15 }}>
           {artist.biography.split("\n").map((p, idx) => (
@@ -315,10 +271,7 @@ export default async function ArtistPage({ params }: PageProps) {
         </div>
       )}
 
-      {/* Συμμετοχές σε τραγούδια */}
-      <h2 style={{ fontSize: 22, marginBottom: 12 }}>
-        Συμμετοχές σε τραγούδια
-      </h2>
+      <h2 style={{ fontSize: 22, marginBottom: 12 }}>Συμμετοχές σε τραγούδια</h2>
 
       {groupedSongs.length === 0 ? (
         <p style={{ fontSize: 14, color: "#ccc" }}>
@@ -353,11 +306,7 @@ export default async function ArtistPage({ params }: PageProps) {
               {song.versions.map((v) => (
                 <div
                   key={v.versionId}
-                  style={{
-                    marginLeft: 12,
-                    padding: "4px 0",
-                    fontSize: 14,
-                  }}
+                  style={{ marginLeft: 12, padding: "4px 0", fontSize: 14 }}
                 >
                   <div style={{ marginBottom: 2 }}>
                     Έκδοση:{" "}
@@ -367,8 +316,7 @@ export default async function ArtistPage({ params }: PageProps) {
                     {v.year && ` (${v.year})`}
                   </div>
                   <div style={{ fontSize: 13, color: "#ccc" }}>
-                    Ρόλοι:{" "}
-                    {v.roles.map((r) => ROLE_LABELS[r] || r).join(", ")}
+                    Ρόλοι: {v.roles.map((r) => ROLE_LABELS[r] || r).join(", ")}
                   </div>
                 </div>
               ))}

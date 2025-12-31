@@ -247,9 +247,7 @@ export default function TagsEditorClient({
 
         <span style={{ opacity: 0.75, fontSize: 12 }}>{status}</span>
 
-        <small style={{ opacity: 0.8 }}>
-          Στέλνονται tagIds στο <code>tagIdsJson</code>.
-        </small>
+        
       </div>
 
       {suggestions.length > 0 && (

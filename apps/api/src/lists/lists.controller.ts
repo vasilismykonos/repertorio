@@ -22,9 +22,7 @@ function parsePositiveIntOrThrow(value: string, fieldName: string): number {
  * - "null"         => groupId IS NULL (no group)
  * - "123"          => groupId = 123
  */
-function parseGroupIdParam(
-  groupIdStr?: string,
-): number | null | undefined {
+function parseGroupIdParam(groupIdStr?: string): number | null | undefined {
   if (groupIdStr === undefined) return undefined;
 
   const v = String(groupIdStr).trim();

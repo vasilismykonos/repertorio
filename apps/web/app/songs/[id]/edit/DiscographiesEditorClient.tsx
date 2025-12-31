@@ -12,7 +12,6 @@ type ArtistOption = {
 export type DiscographyRow = {
   id?: number; // existing SongVersion id (δεν το εμφανίζουμε στο UI)
   year: string; // keep as string in UI
-  youtubeSearch: string;
 
   // ✅ source of truth: arrays of NEW Artist IDs
   singerFrontIds: number[];
@@ -26,7 +25,6 @@ type Props = {
   initialVersions: Array<{
     id: number;
     year: number | null;
-    youtubeSearch: string | null;
 
     // display labels (optional, not source-of-truth)
     singerFront: string | null;
@@ -49,14 +47,15 @@ const API_BASE_URL = (
 const YEAR_MIN = 1900;
 const YEAR_MAX = 2050;
 
-// ✅ UI sizing knobs (για τα ζητούμενα)
-const PICKER_INPUT_MAX_WIDTH = 360; // μικραίνει το "μήκος" των πεδίων προσθήκης
-const PICKER_INPUT_HEIGHT = 32;
-const PICKER_INPUT_FONT_SIZE = 13;
-
-const CHIP_FONT_SIZE = 12; // μικραίνει τα γράμματα στους επιλεγμένους
+// ✅ UI sizing knobs
+const PICKER_INPUT_MAX_WIDTH = 360;
+const CHIP_FONT_SIZE = 12;
 const CHIP_PADDING = "1px 8px";
 const CHIP_REMOVE_FONT_SIZE = 14;
+
+function cleanName(s: any): string {
+  return String(s ?? "").trim().replace(/\s+/g, " ");
+}
 
 function uniqNums(ids: any[]): number[] {
   const out: number[] = [];
@@ -75,7 +74,6 @@ function toRow(v: Props["initialVersions"][number]): DiscographyRow {
   return {
     id: v.id,
     year: v.year != null ? String(v.year) : "",
-    youtubeSearch: v.youtubeSearch ?? "",
     singerFrontIds: uniqNums(Array.isArray(v.singerFrontIds) ? v.singerFrontIds : []),
     singerBackIds: uniqNums(Array.isArray(v.singerBackIds) ? v.singerBackIds : []),
     solistIds: uniqNums(Array.isArray(v.solistIds) ? v.solistIds : []),
@@ -87,7 +85,6 @@ function normalizeForSave(rows: DiscographyRow[]) {
   return rows.map((r) => ({
     id: typeof r.id === "number" ? r.id : null,
     year: (r.year ?? "").trim() || null,
-    youtubeSearch: (r.youtubeSearch ?? "").trim() || null,
 
     singerFrontIds: uniqNums(r.singerFrontIds ?? []),
     singerBackIds: uniqNums(r.singerBackIds ?? []),
@@ -103,6 +100,8 @@ function normalizeForSave(rows: DiscographyRow[]) {
  */
 async function fetchArtistsSearch(q: string, take = 20): Promise<ArtistOption[]> {
   const query = encodeURIComponent(q.trim());
+  if (!query) return [];
+
   const urls = [
     `${API_BASE_URL}/artists/search?q=${query}&take=${take}`,
     `${API_BASE_URL}/artists?q=${query}&take=${take}`,
@@ -146,7 +145,7 @@ async function fetchArtistsSearch(q: string, take = 20): Promise<ArtistOption[]>
 }
 
 /**
- * Lookup Artist by ID (για τα ήδη επιλεγμένα IDs ώστε να εμφανίζονται chips με όνομα)
+ * Lookup Artist by ID
  * Υποθέτει endpoint GET /artists/:id
  */
 async function fetchArtistById(id: number): Promise<ArtistOption | null> {
@@ -170,6 +169,32 @@ async function fetchArtistById(id: number): Promise<ArtistOption | null> {
   }
 }
 
+async function createArtist(title: string): Promise<ArtistOption> {
+  const t = cleanName(title);
+  const res = await fetch(`${API_BASE_URL}/artists`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: t }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Create artist failed: ${res.status} ${text}`);
+  }
+
+  const a: any = await res.json().catch(() => null);
+  if (!a || !Number.isFinite(Number(a?.id))) {
+    throw new Error("Create artist failed: invalid response");
+  }
+
+  return {
+    id: Number(a.id),
+    title: String(a?.title ?? "").trim(),
+    firstName: a?.firstName ?? null,
+    lastName: a?.lastName ?? null,
+  };
+}
+
 function artistDisplay(a: ArtistOption): string {
   const full = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim();
   const name = (full || a.title || "").trim();
@@ -186,27 +211,6 @@ function clampYearStr(input: string): string {
   return String(clamped);
 }
 
-function buildYouTubeSearchUrl(q: string): string {
-  const query = encodeURIComponent((q ?? "").trim());
-  return `https://www.youtube.com/results?search_query=${query}`;
-}
-
-function YouTubeIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M10 8.5v7l6-3.5-6-3.5z" />
-      <path d="M21.6 7.2c.2.8.4 1.9.4 4.8s-.2 4-.4 4.8c-.2.9-.9 1.6-1.8 1.8-.8.2-3.6.4-7.8.4s-7-.2-7.8-.4c-.9-.2-1.6-.9-1.8-1.8C2.2 16 2 14.9 2 12s.2-4 .4-4.8c.2-.9.9-1.6 1.8-1.8C5 5.2 7.8 5 12 5s7 .2 7.8.4c.9.2 1.6.9 1.8 1.8z" />
-    </svg>
-  );
-}
-
 type PickerProps = {
   selectedIds: number[];
   onChange: (ids: number[]) => void;
@@ -220,6 +224,8 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
   const [options, setOptions] = useState<ArtistOption[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const lastReq = useRef(0);
 
   // debounce search
@@ -228,6 +234,7 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
     if (!text) {
       setOptions([]);
       setLoading(false);
+      setErrorMsg(null);
       return;
     }
 
@@ -235,9 +242,9 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
       const reqId = Date.now();
       lastReq.current = reqId;
       setLoading(true);
+      setErrorMsg(null);
 
       const res = await fetchArtistsSearch(text, 20);
-
       if (lastReq.current !== reqId) return;
 
       setOptions(res);
@@ -260,16 +267,42 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
     const next = uniqNums([...(selectedIds ?? []), id]);
     onChange(next);
 
-    // ✅ κλείσε dropdown και καθάρισε το search
     setOpen(false);
     setQ("");
     setOptions([]);
     setLoading(false);
+    setErrorMsg(null);
   }
 
   function removeId(id: number) {
     onChange((selectedIds ?? []).filter((x) => x !== id));
   }
+
+  async function handleCreate() {
+    const text = cleanName(q);
+    if (!text) return;
+
+    try {
+      setCreating(true);
+      setErrorMsg(null);
+
+      const a = await createArtist(text);
+
+      setLabelById((prev) => {
+        const next = new Map(prev);
+        next.set(a.id, artistDisplay(a));
+        return next;
+      });
+
+      addId(a.id);
+    } catch (e: any) {
+      setErrorMsg(String(e?.message ?? "Σφάλμα δημιουργίας καλλιτέχνη"));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const canCreate = q.trim().length > 0 && options.length === 0 && !loading;
 
   return (
     <div>
@@ -282,17 +315,13 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
           }}
           onFocus={() => setOpen(true)}
           onBlur={() => {
-            // μικρό delay για click σε option
             setTimeout(() => setOpen(false), 150);
           }}
           placeholder="Αναζήτηση καλλιτέχνη (π.χ. Τσιτσάνης)"
           style={{
             flex: "0 1 auto",
             width: "100%",
-            maxWidth: PICKER_INPUT_MAX_WIDTH, // ✅ μικραίνει το μήκος
-            height: PICKER_INPUT_HEIGHT,
-            padding: "6px 10px",
-            fontSize: PICKER_INPUT_FONT_SIZE,
+            maxWidth: PICKER_INPUT_MAX_WIDTH,
             borderRadius: 8,
           }}
         />
@@ -307,12 +336,40 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
             marginTop: 6,
             padding: 6,
             background: "#0b0b0b",
-            maxHeight: 220,
+            maxHeight: 260,
             overflowY: "auto",
           }}
         >
           {options.length === 0 && !loading ? (
-            <div style={{ opacity: 0.8, padding: 6 }}>Δεν βρέθηκαν αποτελέσματα.</div>
+            <div style={{ display: "grid", gap: 8, padding: 6 }}>
+              <div style={{ opacity: 0.8, padding: 0 }}>Δεν βρέθηκαν αποτελέσματα.</div>
+
+              <button
+                key="__create__"
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleCreate}
+                disabled={!canCreate || creating}
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #555",
+                  background: "transparent",
+                  cursor: creating ? "wait" : "pointer",
+                  fontSize: 13,
+                  opacity: creating ? 0.7 : 1,
+                }}
+                title="Δημιουργία νέου καλλιτέχνη"
+              >
+                <strong>+ Δημιουργία “{cleanName(q)}”</strong>
+              </button>
+
+              {errorMsg ? (
+                <div style={{ color: "#ffb4b4", fontSize: 12 }}>{errorMsg}</div>
+              ) : null}
+            </div>
           ) : (
             options.map((a) => {
               const isSelected = selectedIds.includes(a.id);
@@ -357,9 +414,9 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
                 alignItems: "center",
                 border: "1px solid #444",
                 borderRadius: 999,
-                padding: CHIP_PADDING, // ✅ πιο compact
+                padding: CHIP_PADDING,
                 opacity: 0.95,
-                fontSize: CHIP_FONT_SIZE, // ✅ μικρότερα γράμματα
+                fontSize: CHIP_FONT_SIZE,
                 lineHeight: 1.2,
               }}
             >
@@ -389,11 +446,7 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
   );
 }
 
-export default function DiscographiesEditorClient({
-  songTitle,
-  initialVersions,
-  hiddenInputId,
-}: Props) {
+export default function DiscographiesEditorClient({ songTitle, initialVersions, hiddenInputId }: Props) {
   const [rows, setRows] = useState<DiscographyRow[]>([]);
 
   // ✅ reflect props
@@ -403,35 +456,20 @@ export default function DiscographiesEditorClient({
 
   // label map για να εμφανίζονται ονόματα στα chips
   const [labelById, setLabelById] = useState<Map<number, string>>(() => new Map());
+  // ✅ Responsive breakpoint: κάτω από 720px -> labels πάνω (1 στήλη)
+  const [isNarrow, setIsNarrow] = useState(false);
 
-  // Track manual override youtubeSearch per row
-  const [youtubeTouched, setYoutubeTouched] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    function recalc() {
+      setIsNarrow(window.innerWidth <= 720);
+    }
+    recalc();
+    window.addEventListener("resize", recalc);
+    return () => window.removeEventListener("resize", recalc);
+  }, []);
 
   function rowKey(r: DiscographyRow, idx: number) {
     return `${typeof r.id === "number" ? r.id : "new"}-${idx}`;
-  }
-
-  function computeYoutubeSearch(r: DiscographyRow): string {
-    const parts: string[] = [];
-    const title = String(songTitle ?? "").trim();
-    if (title) parts.push(title);
-
-    const names: string[] = [];
-    const addNames = (ids: number[]) => {
-      for (const id of ids ?? []) {
-        const label = (labelById.get(id) || "").trim();
-        if (label) names.push(label);
-      }
-    };
-
-    addNames(r.singerFrontIds);
-    addNames(r.singerBackIds);
-    addNames(r.solistIds);
-
-    const uniqNames = Array.from(new Set(names)).filter(Boolean);
-    if (uniqNames.length) parts.push(uniqNames.join(" "));
-
-    return parts.join(" ").replace(/\s+/g, " ").trim();
   }
 
   // 1) sync hidden input
@@ -486,7 +524,6 @@ export default function DiscographiesEditorClient({
       ...prev,
       {
         year: "",
-        youtubeSearch: "",
         singerFrontIds: [],
         singerBackIds: [],
         solistIds: [],
@@ -517,12 +554,6 @@ export default function DiscographiesEditorClient({
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {rows.map((r, idx) => {
             const key = rowKey(r, idx);
-            const touched = !!youtubeTouched[key];
-
-            const autoYoutube = computeYoutubeSearch(r);
-            const youtubeValue = touched ? r.youtubeSearch : r.youtubeSearch || autoYoutube;
-            const youtubeQuery = (youtubeValue ?? "").trim();
-            const youtubeHref = youtubeQuery ? buildYouTubeSearchUrl(youtubeQuery) : "";
 
             return (
               <div
@@ -536,14 +567,7 @@ export default function DiscographiesEditorClient({
                   gap: 10,
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 10,
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                  }}
-                >
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                   <strong>Δισκογραφία</strong>
 
                   <button
@@ -565,57 +589,12 @@ export default function DiscographiesEditorClient({
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "200px 1fr",
                     gap: 8,
                     alignItems: "start",
+                    gridTemplateColumns: isNarrow ? "1fr" : "minmax(140px, 200px) minmax(0, 1fr)",
                   }}
                 >
-                  <label style={{ opacity: 0.9, paddingTop: 6 }}>YouTube search</label>
-
-                  {/* input + youtube icon button */}
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <input
-                      value={youtubeValue}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setYoutubeTouched((prev) => ({ ...prev, [key]: true }));
-                        updateRow(idx, { youtubeSearch: val });
-                      }}
-                      placeholder="Συμπληρώνεται αυτόματα από τίτλο + ερμηνευτές"
-                      style={{ flex: 1 }}
-                    />
-
-                    <a
-                      href={youtubeHref || undefined}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-disabled={!youtubeHref}
-                      title={
-                        youtubeHref
-                          ? "Αναζήτηση στο YouTube"
-                          : "Δεν υπάρχει query για αναζήτηση"
-                      }
-                      onClick={(e) => {
-                        if (!youtubeHref) e.preventDefault();
-                      }}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: 36,
-                        height: 36,
-                        border: "1px solid #555",
-                        borderRadius: 10,
-                        textDecoration: "none",
-                        opacity: youtubeHref ? 0.95 : 0.4,
-                        cursor: youtubeHref ? "pointer" : "not-allowed",
-                      }}
-                    >
-                      <YouTubeIcon />
-                    </a>
-                  </div>
-
-                  <div style={{ opacity: 0.9, paddingTop: 6 }}>Ερμηνευτές (Front)</div>
+                  <div style={{ opacity: 0.9, paddingTop: isNarrow ? 0 : 6 }}>Ερμηνευτές (Front)</div>
                   <ArtistIdPicker
                     selectedIds={r.singerFrontIds}
                     onChange={(ids) => updateRow(idx, { singerFrontIds: ids })}
@@ -623,7 +602,7 @@ export default function DiscographiesEditorClient({
                     setLabelById={setLabelById}
                   />
 
-                  <div style={{ opacity: 0.9, paddingTop: 6 }}>Ερμηνευτές (Back)</div>
+                  <div style={{ opacity: 0.9, paddingTop: isNarrow ? 0 : 6 }}>Ερμηνευτές (Back)</div>
                   <ArtistIdPicker
                     selectedIds={r.singerBackIds}
                     onChange={(ids) => updateRow(idx, { singerBackIds: ids })}
@@ -631,7 +610,7 @@ export default function DiscographiesEditorClient({
                     setLabelById={setLabelById}
                   />
 
-                  <div style={{ opacity: 0.9, paddingTop: 6 }}>Σολίστες</div>
+                  <div style={{ opacity: 0.9, paddingTop: isNarrow ? 0 : 6 }}>Σολίστες</div>
                   <ArtistIdPicker
                     selectedIds={r.solistIds}
                     onChange={(ids) => updateRow(idx, { solistIds: ids })}
@@ -639,8 +618,7 @@ export default function DiscographiesEditorClient({
                     setLabelById={setLabelById}
                   />
 
-                  {/* ✅ Έτος τελευταίο */}
-                  <label style={{ color: "#fff", paddingTop: 6 }}>Έτος</label>
+                  <label style={{ color: "#fff", paddingTop: isNarrow ? 0 : 6 }}>Έτος</label>
                   <input
                     value={r.year}
                     onChange={(e) => {

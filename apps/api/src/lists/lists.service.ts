@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-} from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 
 /* =========================
@@ -15,6 +11,11 @@ export type ListSummaryDto = {
   groupId: number | null;
   marked: boolean;
   role: "OWNER" | "EDITOR" | "VIEWER";
+
+  // ✅ aliases για συμβατότητα (αν το UI τα περιμένει)
+  name?: string;
+  listTitle?: string;
+  list_title?: string;
 };
 
 export type ListGroupSummaryDto = {
@@ -49,12 +50,22 @@ export type ListItemDto = {
 
 export type ListDetailDto = {
   id: number;
+
+  // ✅ canonical
   title: string;
+
+  // ✅ aliases για συμβατότητα (αν το UI διαβάζει άλλο κλειδί)
+  name: string;
+  listTitle: string;
+  list_title: string;
+
   groupId: number | null;
   groupTitle: string | null;
   groupFullTitle: string | null;
+
   marked: boolean;
   role: "OWNER" | "EDITOR" | "VIEWER";
+
   items: ListItemDto[];
 };
 
@@ -63,6 +74,11 @@ export type ListItemsResponse = {
   total: number;
   page: number;
   pageSize: number;
+
+  // ✅ χρήσιμο αν το UI φορτώνει μόνο /items αλλά θέλει τίτλο
+  listId: number;
+  listTitle: string;
+  title: string; // canonical
 };
 
 /* =========================
@@ -82,7 +98,6 @@ export class ListsService {
   private normalizePageSize(pageSize?: number): number {
     const ps = Number(pageSize);
     if (!Number.isFinite(ps) || ps <= 0) return 50;
-    // προστασία από υπερβολικά μεγάλες τιμές
     const safe = Math.floor(ps);
     return Math.min(Math.max(safe, 1), 200);
   }
@@ -93,7 +108,6 @@ export class ListsService {
       select: { role: true },
     });
 
-    // αν δεν υπάρχει user, συμπεριφέρσου σαν μη-admin (και το ACL θα κόψει)
     const role = user?.role ?? "USER";
     return { isAdmin: role === "ADMIN" };
   }
@@ -107,12 +121,19 @@ export class ListsService {
     return "VIEWER";
   }
 
+  /**
+   * ✅ “Ανήκει στον χρήστη” = ο χρήστης είναι OWNER στο ListMember.
+   */
+  private ownershipAclWhere(userId: number) {
+    return { members: { some: { userId, role: "OWNER" as const } } };
+  }
+
   /* ---------- index ---------- */
 
   async getListsIndex(params: {
     userId: number;
     search?: string;
-    groupId?: number | null; // ✅ επιτρέπει null για "χωρίς ομάδα"
+    groupId?: number | null;
     page?: number;
     pageSize?: number;
   }): Promise<ListsIndexResponse> {
@@ -129,23 +150,19 @@ export class ListsService {
       filters.title = { contains: search.trim(), mode: "insensitive" };
     }
 
-    // ✅ groupId filter:
-    // - number => groupId = number
-    // - null   => groupId IS NULL
-    // - undefined => no filter
     if (groupId === null) {
       filters.groupId = null;
     } else if (typeof groupId === "number") {
       filters.groupId = groupId;
     }
 
-    const acl = isAdmin ? {} : { members: { some: { userId } } };
-    const where =
-      Object.keys(filters).length > 0
-        ? { AND: [acl, filters] }
-        : acl;
+    // ✅ Index δείχνει μόνο “δικές μου” (OWNER) — εκτός αν admin.
+    const acl = isAdmin ? {} : this.ownershipAclWhere(userId);
 
-    const [total, rows, groups] = await Promise.all([
+    const where =
+      Object.keys(filters).length > 0 ? { AND: [acl, filters] } : acl;
+
+    const [total, rows, groupsRaw] = await Promise.all([
       this.prisma.list.count({ where }),
 
       this.prisma.list.findMany({
@@ -160,38 +177,60 @@ export class ListsService {
           marked: true,
           members: isAdmin
             ? false
-            : { where: { userId }, select: { role: true } },
+            : {
+                where: { userId },
+                select: { role: true },
+              },
         },
       }),
 
       this.prisma.listGroup.findMany({
+        where: isAdmin
+          ? undefined
+          : {
+              lists: {
+                some: this.ownershipAclWhere(userId),
+              },
+            },
         orderBy: [{ title: "asc" }, { id: "asc" }],
         include: {
           lists: {
-            where: isAdmin ? undefined : { members: { some: { userId } } },
+            where: isAdmin ? undefined : this.ownershipAclWhere(userId),
             select: { id: true },
           },
         },
       }),
     ]);
 
-    return {
-      items: rows.map((r: any) => ({
-        id: r.id,
-        title: r.title,
-        groupId: r.groupId,
-        marked: r.marked,
-        role: isAdmin ? "OWNER" : this.computeRole(r.members),
-      })),
-      total,
-      page,
-      pageSize,
-      groups: groups.map((g) => ({
+    const groups: ListGroupSummaryDto[] = (groupsRaw ?? [])
+      .map((g) => ({
         id: g.id,
         title: g.title,
         fullTitle: g.fullTitle ?? null,
         listsCount: g.lists.length,
-      })),
+      }))
+      .filter((g) => g.listsCount > 0);
+
+    return {
+      items: rows.map((r: any) => {
+        const t = r.title ?? "";
+        return {
+          id: r.id,
+          title: t,
+          groupId: r.groupId ?? null,
+          marked: r.marked,
+          role: isAdmin ? "OWNER" : this.computeRole(r.members),
+
+          // ✅ aliases (δεν ενοχλούν, βοηθούν)
+          name: t,
+          listTitle: t,
+          list_title: t,
+        };
+      }),
+      total,
+      page,
+      pageSize,
+      groups,
     };
   }
 
@@ -208,6 +247,7 @@ export class ListsService {
       where: { id: listId },
       include: {
         group: true,
+        // ✅ εδώ μένει “member access” (shared lists)
         members: isAdmin ? false : { where: { userId }, select: { role: true } },
         items: {
           orderBy: [{ sortId: "asc" }, { id: "asc" }],
@@ -220,13 +260,22 @@ export class ListsService {
 
     const role = isAdmin ? "OWNER" : this.computeRole((list as any).members);
     if (!isAdmin && !(list as any).members?.length) {
-      // ασφαλής συμπεριφορά: κρύβουμε την ύπαρξη λίστας
       throw new NotFoundException("Η λίστα δεν βρέθηκε.");
     }
 
+    const title = list.title ?? "";
+
     return {
       id: list.id,
-      title: list.title,
+
+      // ✅ canonical
+      title,
+
+      // ✅ aliases για όποιο κλειδί περιμένει το UI
+      name: title,
+      listTitle: title,
+      list_title: title,
+
       groupId: list.groupId ?? null,
       groupTitle: list.group?.title ?? null,
       groupFullTitle: list.group?.fullTitle ?? null,
@@ -249,18 +298,10 @@ export class ListsService {
           title: it.title ?? songTitle,
 
           chords: listChords ?? songChords ?? null,
-          chordsSource: listChords
-            ? "LIST"
-            : songChords
-            ? "SONG"
-            : "NONE",
+          chordsSource: listChords ? "LIST" : songChords ? "SONG" : "NONE",
 
           lyrics: listLyrics ?? songLyrics ?? null,
-          lyricsSource: listLyrics
-            ? "LIST"
-            : songLyrics
-            ? "SONG"
-            : "NONE",
+          lyricsSource: listLyrics ? "LIST" : songLyrics ? "SONG" : "NONE",
         };
       }),
     };
@@ -277,7 +318,7 @@ export class ListsService {
     const page = this.normalizePage(params.page);
     const pageSize = this.normalizePageSize(params.pageSize);
 
-    // reuse detail (keeps ACL + ordering identical)
+    // reuse detail (same ACL + ordering)
     const detail = await this.getListDetail({
       listId: params.listId,
       userId: params.userId,
@@ -291,6 +332,9 @@ export class ListsService {
       total,
       page,
       pageSize,
+      listId: detail.id,
+      title: detail.title,
+      listTitle: detail.title,
     };
   }
 }
