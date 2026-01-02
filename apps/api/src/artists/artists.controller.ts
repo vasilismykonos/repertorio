@@ -1,3 +1,6 @@
+// apps/api/src/artists/artists.controller.ts
+
+
 import {
   BadRequestException,
   Body,
@@ -46,10 +49,45 @@ type UpdateArtistBody = {
 };
 
 type CreateArtistBody = {
-  title: string;
+  /**
+   * Optional display title for the artist.  If omitted the title will be
+   * generated automatically from the provided firstName/lastName.
+   */
+  title?: string | null;
+
+  /**
+   * Optional first name.  Used together with lastName to compute the
+   * display title when title is omitted.
+   */
+  firstName?: string | null;
+
+  /**
+   * Optional last name.  Used together with firstName to compute the
+   * display title when title is omitted.
+   */
+  lastName?: string | null;
+
+  /**
+   * Optional legacy ID for migration/compatibility purposes.
+   */
+  legacyArtistId?: number | null;
+};
+
+// ✅ NEW: Full Create/Update μέσω multipart/form-data (fields + optional file)
+type ArtistFullBody = {
+  title?: string | null;
   firstName?: string | null;
   lastName?: string | null;
-  legacyArtistId?: number | null;
+
+  sex?: string | null;
+  bornYear?: string | number | null;
+  dieYear?: string | number | null;
+
+  wikiUrl?: string | null;
+  biography?: string | null;
+
+  // (προαιρετικά) αν θέλεις να το δέχεσαι
+  imageUrl?: string | null;
 };
 
 function toInt(input: unknown, fallback: number): number {
@@ -73,6 +111,39 @@ function normalizeRoles(roleRaw?: string | string[]): VersionArtistRoleString[] 
 
   return out;
 }
+
+function normalizeNullableText(v: any): string | null {
+  if (v == null) return null;
+  const s = String(v).trim().replace(/\s+/g, " ");
+  return s ? s : null;
+}
+
+function parseNullableNumber(v: any): number | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) {
+    throw new BadRequestException("Invalid number");
+  }
+  return Math.trunc(n);
+}
+
+const IMAGE_INTERCEPTOR = FileInterceptor("file", {
+  storage: memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (_req, file, cb) => {
+    const ok = ["image/jpeg", "image/png", "image/webp"].includes(
+      String(file.mimetype || "").toLowerCase(),
+    );
+    cb(
+      ok
+        ? null
+        : new BadRequestException("Μόνο εικόνες JPG/PNG/WebP επιτρέπονται."),
+      ok,
+    );
+  },
+});
 
 @Controller("artists")
 export class ArtistsController {
@@ -115,26 +186,44 @@ export class ArtistsController {
       throw new BadRequestException("Invalid body");
     }
 
-    const title = String((body as any).title ?? "").trim().replace(/\s+/g, " ");
-    if (!title) throw new BadRequestException("title is required");
+    // Normalize the raw title and optional names.  Historically the title
+    // field was required, but we now allow clients to omit it and instead
+    // provide firstName/lastName which will be used to compute the display
+    // title.  If all of these are missing we throw a validation error.
+    const rawTitle = String((body as any).title ?? "").trim().replace(/\s+/g, " ");
+
+    const firstNameVal = Object.prototype.hasOwnProperty.call(body, "firstName")
+      ? (body.firstName ?? null)
+      : null;
+    const lastNameVal = Object.prototype.hasOwnProperty.call(body, "lastName")
+      ? (body.lastName ?? null)
+      : null;
+
+    // Reject completely empty submissions (no title and no names)
+    if (!rawTitle && !firstNameVal && !lastNameVal) {
+      throw new BadRequestException(
+        "title or firstName/lastName is required",
+      );
+    }
+
+    // Parse legacyArtistId safely
+    const legacyArtistId = (body as any).legacyArtistId == null
+      ? null
+      : Number.isFinite(Number((body as any).legacyArtistId))
+        ? Math.trunc(Number((body as any).legacyArtistId))
+        : null;
 
     return this.artistsService.findOrCreate({
-      title,
-      firstName: "firstName" in body ? (body.firstName ?? null) : null,
-      lastName: "lastName" in body ? (body.lastName ?? null) : null,
-      legacyArtistId:
-        (body as any).legacyArtistId == null
-          ? null
-          : Number.isFinite(Number((body as any).legacyArtistId))
-            ? Math.trunc(Number((body as any).legacyArtistId))
-            : null,
+      title: rawTitle,
+      firstName: firstNameVal,
+      lastName: lastNameVal,
+      legacyArtistId,
     });
   }
 
   // ✅ ΠΡΟΑΙΡΕΤΙΚΟ/ΝΕΟ: πιο “ρητό” endpoint για το ίδιο ακριβώς πράγμα
   @Post("find-or-create")
   async findOrCreate(@Body() body: CreateArtistBody) {
-    // ίδια λογική με το createArtist για να μην έχεις διπλά standards
     return this.createArtist(body);
   }
 
@@ -151,31 +240,99 @@ export class ArtistsController {
     return this.artistsService.updateArtist(id, body);
   }
 
-  // ✅ NEW: upload εικόνας (multipart/form-data, field name: "file")
+  // ✅ upload εικόνας (multipart/form-data, field name: "file")
   @Post(":id/image")
-  @UseInterceptors(
-    FileInterceptor("file", {
-      storage: memoryStorage(),
-      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-      fileFilter: (_req, file, cb) => {
-        const ok = ["image/jpeg", "image/png", "image/webp"].includes(
-          String(file.mimetype || "").toLowerCase(),
-        );
-        cb(
-          ok
-            ? null
-            : new BadRequestException("Μόνο εικόνες JPG/PNG/WebP επιτρέπονται."),
-          ok,
-        );
-      },
-    }),
-  )
+  @UseInterceptors(IMAGE_INTERCEPTOR)
   async uploadArtistImage(
     @Param("id", ParseIntPipe) id: number,
     @UploadedFile() file?: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException("Το αρχείο είναι υποχρεωτικό.");
     return this.artistsService.uploadArtistImage(id, file);
+  }
+
+  // ✅ NEW: “Full” create (δεν αποθηκεύεται τίποτα μέχρι να πατηθεί Save στο UI)
+  // multipart/form-data: fields + optional file
+  @Post("full")
+  @UseInterceptors(IMAGE_INTERCEPTOR)
+  async createArtistFull(
+    @Body() body: ArtistFullBody,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!body || typeof body !== "object") {
+      throw new BadRequestException("Invalid body");
+    }
+
+    const bornYear =
+      "bornYear" in body ? parseNullableNumber((body as any).bornYear) : null;
+    const dieYear =
+      "dieYear" in body ? parseNullableNumber((body as any).dieYear) : null;
+
+    return this.artistsService.createArtistFull(
+      {
+        title: normalizeNullableText((body as any).title),
+        firstName:
+          "firstName" in body ? normalizeNullableText((body as any).firstName) : null,
+        lastName:
+          "lastName" in body ? normalizeNullableText((body as any).lastName) : null,
+
+        sex: "sex" in body ? normalizeNullableText((body as any).sex) : null,
+        bornYear,
+        dieYear,
+
+        wikiUrl:
+          "wikiUrl" in body ? normalizeNullableText((body as any).wikiUrl) : null,
+        biography:
+          "biography" in body ? normalizeNullableText((body as any).biography) : null,
+
+        imageUrl:
+          "imageUrl" in body ? normalizeNullableText((body as any).imageUrl) : null,
+      },
+      file,
+    );
+  }
+
+  // ✅ NEW: “Full” update (multipart/form-data)
+  @Patch(":id/full")
+  @UseInterceptors(IMAGE_INTERCEPTOR)
+  async updateArtistFull(
+    @Param("id", ParseIntPipe) id: number,
+    @Body() body: ArtistFullBody,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!body || typeof body !== "object") {
+      throw new BadRequestException("Invalid body");
+    }
+
+    // ⚠️ στο update θέλουμε “undefined” όταν δεν υπάρχει field (ώστε το service να μην το πειράξει)
+    const bornYear =
+      "bornYear" in body ? parseNullableNumber((body as any).bornYear) : undefined;
+    const dieYear =
+      "dieYear" in body ? parseNullableNumber((body as any).dieYear) : undefined;
+
+    return this.artistsService.updateArtistFull(
+      id,
+      {
+        title: "title" in body ? normalizeNullableText((body as any).title) : undefined,
+        firstName:
+          "firstName" in body ? normalizeNullableText((body as any).firstName) : undefined,
+        lastName:
+          "lastName" in body ? normalizeNullableText((body as any).lastName) : undefined,
+
+        sex: "sex" in body ? normalizeNullableText((body as any).sex) : undefined,
+        bornYear,
+        dieYear,
+
+        wikiUrl:
+          "wikiUrl" in body ? normalizeNullableText((body as any).wikiUrl) : undefined,
+        biography:
+          "biography" in body ? normalizeNullableText((body as any).biography) : undefined,
+
+        imageUrl:
+          "imageUrl" in body ? normalizeNullableText((body as any).imageUrl) : undefined,
+      },
+      file,
+    );
   }
 
   @Delete(":id")

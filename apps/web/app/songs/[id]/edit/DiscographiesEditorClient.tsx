@@ -116,8 +116,8 @@ async function fetchArtistsSearch(q: string, take = 20): Promise<ArtistOption[]>
       const arr: any[] = Array.isArray(data)
         ? data
         : Array.isArray(data?.items)
-          ? data.items
-          : [];
+        ? data.items
+        : [];
 
       const mapped = arr
         .map((a) => ({
@@ -169,12 +169,30 @@ async function fetchArtistById(id: number): Promise<ArtistOption | null> {
   }
 }
 
-async function createArtist(title: string): Promise<ArtistOption> {
-  const t = cleanName(title);
+function artistDisplay(a: ArtistOption): string {
+  const full = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim();
+  const name = (full || a.title || "").trim();
+  return name || "Καλλιτέχνης";
+}
+
+async function createArtistWithNames(args: {
+  firstName: string | null;
+  lastName: string; // required
+}): Promise<ArtistOption> {
+  const firstName = cleanName(args.firstName ?? "") || null;
+  const lastName = cleanName(args.lastName);
+
+  if (!lastName) {
+    throw new Error("Το Επώνυμο είναι υποχρεωτικό.");
+  }
+
   const res = await fetch(`${API_BASE_URL}/artists`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title: t }),
+    body: JSON.stringify({
+      firstName: firstName ?? null,
+      lastName: lastName ?? null,
+    }),
   });
 
   if (!res.ok) {
@@ -195,12 +213,6 @@ async function createArtist(title: string): Promise<ArtistOption> {
   };
 }
 
-function artistDisplay(a: ArtistOption): string {
-  const full = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim();
-  const name = (full || a.title || "").trim();
-  return name || "Καλλιτέχνης";
-}
-
 function clampYearStr(input: string): string {
   const s = String(input ?? "").trim();
   if (!s) return "";
@@ -209,6 +221,159 @@ function clampYearStr(input: string): string {
   if (!Number.isFinite(n)) return "";
   const clamped = Math.min(YEAR_MAX, Math.max(YEAR_MIN, Math.trunc(n)));
   return String(clamped);
+}
+
+function CreateArtistModal(props: {
+  open: boolean;
+  initialQuery: string;
+  onClose: () => void;
+  onCreated: (a: ArtistOption) => void;
+}) {
+  const { open, initialQuery, onClose, onCreated } = props;
+
+  const [lastName, setLastName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // ✅ Προ-γέμισμα ΜΟΝΟ στο πεδίο Επώνυμο (χωρίς split/υποθέσεις).
+  useEffect(() => {
+    if (!open) return;
+    setErrorMsg(null);
+    setSaving(false);
+    setFirstName("");
+    setLastName(cleanName(initialQuery));
+  }, [open, initialQuery]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.55)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        zIndex: 9999,
+      }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          borderRadius: 12,
+          border: "1px solid #333",
+          background: "#0f0f0f",
+          padding: 14,
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <strong>Νέος καλλιτέχνης</strong>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: "1px solid #444",
+              background: "transparent",
+              borderRadius: 8,
+              padding: "4px 8px",
+              cursor: "pointer",
+            }}
+          >
+            Κλείσιμο
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gap: 10 }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontSize: 13, opacity: 0.9 }}>
+              Επώνυμο <span style={{ color: "#ffb4b4" }}>*</span>
+            </span>
+            <input
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              placeholder="π.χ. ΒΑΜΒΑΚΑΡΗΣ"
+              style={{ width: "100%", borderRadius: 8 }}
+            />
+          </label>
+
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontSize: 13, opacity: 0.9 }}>Όνομα (προαιρετικό)</span>
+            <input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              placeholder="π.χ. ΜΑΡΚΟΣ"
+              style={{ width: "100%", borderRadius: 8 }}
+            />
+          </label>
+        </div>
+
+        {errorMsg ? <div style={{ color: "#ffb4b4", fontSize: 12 }}>{errorMsg}</div> : null}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            style={{
+              border: "1px solid #444",
+              background: "transparent",
+              borderRadius: 10,
+              padding: "8px 10px",
+              cursor: saving ? "default" : "pointer",
+              opacity: saving ? 0.7 : 1,
+            }}
+          >
+            Άκυρο
+          </button>
+
+          <button
+            type="button"
+            disabled={saving}
+            onClick={async () => {
+              try {
+                setSaving(true);
+                setErrorMsg(null);
+
+                const a = await createArtistWithNames({
+                  lastName: cleanName(lastName),
+                  firstName: cleanName(firstName) || null,
+                });
+
+                onCreated(a);
+              } catch (e: any) {
+                setErrorMsg(String(e?.message ?? "Σφάλμα δημιουργίας καλλιτέχνη"));
+              } finally {
+                setSaving(false);
+              }
+            }}
+            style={{
+              border: "1px solid #555",
+              background: "transparent",
+              borderRadius: 10,
+              padding: "8px 10px",
+              cursor: saving ? "wait" : "pointer",
+              opacity: saving ? 0.7 : 1,
+              fontWeight: 700,
+            }}
+            title="Δημιουργία"
+          >
+            Δημιουργία
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 type PickerProps = {
@@ -224,9 +389,12 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
   const [options, setOptions] = useState<ArtistOption[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const lastReq = useRef(0);
+
+  // ✅ modal state
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createSeed, setCreateSeed] = useState("");
 
   // debounce search
   useEffect(() => {
@@ -278,34 +446,27 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
     onChange((selectedIds ?? []).filter((x) => x !== id));
   }
 
-  async function handleCreate() {
-    const text = cleanName(q);
-    if (!text) return;
-
-    try {
-      setCreating(true);
-      setErrorMsg(null);
-
-      const a = await createArtist(text);
-
-      setLabelById((prev) => {
-        const next = new Map(prev);
-        next.set(a.id, artistDisplay(a));
-        return next;
-      });
-
-      addId(a.id);
-    } catch (e: any) {
-      setErrorMsg(String(e?.message ?? "Σφάλμα δημιουργίας καλλιτέχνη"));
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  const canCreate = q.trim().length > 0 && options.length === 0 && !loading;
+  const canOpenCreate = q.trim().length > 0 && options.length === 0 && !loading;
 
   return (
     <div>
+      <CreateArtistModal
+        open={createOpen}
+        initialQuery={createSeed}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(a) => {
+          // store label
+          setLabelById((prev) => {
+            const next = new Map(prev);
+            next.set(a.id, artistDisplay(a));
+            return next;
+          });
+
+          setCreateOpen(false);
+          addId(a.id);
+        }}
+      />
+
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <input
           value={q}
@@ -314,10 +475,8 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          onBlur={() => {
-            setTimeout(() => setOpen(false), 150);
-          }}
-          placeholder="Αναζήτηση καλλιτέχνη (π.χ. Τσιτσάνης)"
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="Αναζήτηση καλλιτέχνη"
           style={{
             flex: "0 1 auto",
             width: "100%",
@@ -342,14 +501,21 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
         >
           {options.length === 0 && !loading ? (
             <div style={{ display: "grid", gap: 8, padding: 6 }}>
-              <div style={{ opacity: 0.8, padding: 0 }}>Δεν βρέθηκαν αποτελέσματα.</div>
+              <div style={{ opacity: 0.8 }}>Δεν βρέθηκαν αποτελέσματα.</div>
 
+              {/* ✅ ΜΟΝΟ modal - ΟΧΙ direct create */}
               <button
-                key="__create__"
                 type="button"
+                onPointerDown={(e) => e.preventDefault()} // prevent blur race
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={handleCreate}
-                disabled={!canCreate || creating}
+                onClick={() => {
+                  if (!canOpenCreate) return;
+                  setErrorMsg(null);
+                  setCreateSeed(cleanName(q));
+                  setCreateOpen(true);
+                  setOpen(false);
+                }}
+                disabled={!canOpenCreate}
                 style={{
                   width: "100%",
                   textAlign: "left",
@@ -357,13 +523,15 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
                   borderRadius: 8,
                   border: "1px solid #555",
                   background: "transparent",
-                  cursor: creating ? "wait" : "pointer",
+                  cursor: canOpenCreate ? "pointer" : "default",
                   fontSize: 13,
-                  opacity: creating ? 0.7 : 1,
+                  opacity: canOpenCreate ? 1 : 0.7,
                 }}
-                title="Δημιουργία νέου καλλιτέχνη"
               >
-                <strong>+ Δημιουργία “{cleanName(q)}”</strong>
+                <strong>+ Δημιουργία νέου καλλιτέχνη</strong>
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
+                  Θα συμπληρώσεις Επώνυμο/Όνομα.
+                </div>
               </button>
 
               {errorMsg ? (
@@ -377,7 +545,7 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
                 <button
                   key={a.id}
                   type="button"
-                  onMouseDown={(e) => e.preventDefault()} // keep focus
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     if (!isSelected) addId(a.id);
                   }}
@@ -433,7 +601,6 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
                   lineHeight: 1,
                   padding: 0,
                 }}
-                aria-label="remove"
                 title="Αφαίρεση"
               >
                 ×
@@ -445,6 +612,7 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
     </div>
   );
 }
+
 
 export default function DiscographiesEditorClient({ songTitle, initialVersions, hiddenInputId }: Props) {
   const [rows, setRows] = useState<DiscographyRow[]>([]);
@@ -548,6 +716,10 @@ export default function DiscographiesEditorClient({ songTitle, initialVersions, 
         background: "#0f0f0f",
       }}
     >
+      <div style={{ marginBottom: 10, opacity: 0.85 }}>
+        <strong>Δισκογραφία:</strong> {songTitle}
+      </div>
+
       {rows.length === 0 ? (
         <p style={{ opacity: 0.85, marginTop: 0 }}>Δεν υπάρχουν δισκογραφίες.</p>
       ) : (

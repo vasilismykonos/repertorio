@@ -83,8 +83,8 @@ async function fetchArtistsSearch(q: string, take = 20): Promise<ArtistOption[]>
       const arr: any[] = Array.isArray(data)
         ? data
         : Array.isArray(data?.items)
-          ? data.items
-          : [];
+        ? data.items
+        : [];
 
       const seen = new Set<number>();
       const out: ArtistOption[] = [];
@@ -132,12 +132,22 @@ async function fetchArtistById(id: number): Promise<ArtistOption | null> {
   }
 }
 
-async function createArtist(title: string): Promise<ArtistOption> {
-  const t = cleanName(title);
+async function createArtistWithNames(args: {
+  firstName: string | null;
+  lastName: string; // required
+}): Promise<ArtistOption> {
+  const firstName = cleanName(args.firstName ?? "") || null;
+  const lastName = cleanName(args.lastName);
+
+  if (!lastName) {
+    throw new Error("Το Επώνυμο είναι υποχρεωτικό.");
+  }
+
   const res = await fetch(`${API_BASE_URL}/artists`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title: t }),
+    // ✅ ΠΛΕΟΝ ΣΤΕΛΝΟΥΜΕ ΡΗΤΑ firstName/lastName (όχι title από free-text)
+    body: JSON.stringify({ firstName, lastName }),
   });
 
   if (!res.ok) {
@@ -183,6 +193,159 @@ function buildCreditsPayload(composers: SelectedArtist[], lyricists: SelectedArt
   return { composerArtistIds, lyricistArtistIds, composerNames, lyricistNames };
 }
 
+function CreateArtistModal(props: {
+  open: boolean;
+  initialQuery: string;
+  onClose: () => void;
+  onCreated: (a: ArtistOption) => void;
+}) {
+  const { open, initialQuery, onClose, onCreated } = props;
+
+  const [lastName, setLastName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // ✅ Προ-γέμισμα ΜΟΝΟ στο πεδίο Επώνυμο για να υποχρεώσεις τον χρήστη να το επιβεβαιώσει/διορθώσει.
+  // Δεν κάνουμε split και δεν υποθέτουμε τίποτα.
+  useEffect(() => {
+    if (!open) return;
+    setErrorMsg(null);
+    setSaving(false);
+    setFirstName("");
+    setLastName(cleanName(initialQuery));
+  }, [open, initialQuery]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.55)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        zIndex: 9999,
+      }}
+      onMouseDown={(e) => {
+        // click outside -> close
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          borderRadius: 12,
+          border: "1px solid #333",
+          background: "#0f0f0f",
+          padding: 14,
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <strong>Νέος καλλιτέχνης</strong>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: "1px solid #444",
+              background: "transparent",
+              borderRadius: 8,
+              padding: "4px 8px",
+              cursor: "pointer",
+            }}
+          >
+            Κλείσιμο
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gap: 10 }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontSize: 13, opacity: 0.9 }}>
+              Επώνυμο <span style={{ color: "#ffb4b4" }}>*</span>
+            </span>
+            <input
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              placeholder="π.χ. ΒΑΜΒΑΚΑΡΗΣ"
+              style={{ width: "100%", borderRadius: 8 }}
+            />
+          </label>
+
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontSize: 13, opacity: 0.9 }}>Όνομα (προαιρετικό)</span>
+            <input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              placeholder="π.χ. ΜΑΡΚΟΣ"
+              style={{ width: "100%", borderRadius: 8 }}
+            />
+          </label>
+        </div>
+
+        {errorMsg ? <div style={{ color: "#ffb4b4", fontSize: 12 }}>{errorMsg}</div> : null}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            style={{
+              border: "1px solid #444",
+              background: "transparent",
+              borderRadius: 10,
+              padding: "8px 10px",
+              cursor: saving ? "default" : "pointer",
+              opacity: saving ? 0.7 : 1,
+            }}
+          >
+            Άκυρο
+          </button>
+
+          <button
+            type="button"
+            disabled={saving}
+            onClick={async () => {
+              try {
+                setSaving(true);
+                setErrorMsg(null);
+                const a = await createArtistWithNames({
+                  lastName: cleanName(lastName),
+                  firstName: cleanName(firstName) || null,
+                });
+                onCreated(a);
+              } catch (e: any) {
+                setErrorMsg(String(e?.message ?? "Σφάλμα δημιουργίας καλλιτέχνη"));
+              } finally {
+                setSaving(false);
+              }
+            }}
+            style={{
+              border: "1px solid #555",
+              background: "transparent",
+              borderRadius: 10,
+              padding: "8px 10px",
+              cursor: saving ? "wait" : "pointer",
+              opacity: saving ? 0.7 : 1,
+              fontWeight: 700,
+            }}
+            title="Δημιουργία"
+          >
+            Δημιουργία
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ArtistPicker({
   selected,
   onChange,
@@ -194,7 +357,10 @@ function ArtistPicker({
   const [options, setOptions] = useState<ArtistOption[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createSeed, setCreateSeed] = useState("");
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const lastReq = useRef(0);
 
@@ -241,26 +407,20 @@ function ArtistPicker({
     onChange(selected.filter((x) => x.id !== id));
   }
 
-  async function handleCreate() {
-    const text = cleanName(q);
-    if (!text) return;
-
-    try {
-      setCreating(true);
-      setErrorMsg(null);
-      const a = await createArtist(text);
-      addArtist(a);
-    } catch (e: any) {
-      setErrorMsg(String(e?.message ?? "Σφάλμα δημιουργίας καλλιτέχνη"));
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  const canCreate = q.trim().length > 0 && options.length === 0 && !loading;
+  const canOpenCreate = q.trim().length > 0 && options.length === 0 && !loading;
 
   return (
     <div>
+      <CreateArtistModal
+        open={createOpen}
+        initialQuery={createSeed}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(a) => {
+          setCreateOpen(false);
+          addArtist(a);
+        }}
+      />
+
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <input
           value={q}
@@ -295,8 +455,13 @@ function ArtistPicker({
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={handleCreate}
-                disabled={!canCreate || creating}
+                onClick={() => {
+                  if (!canOpenCreate) return;
+                  setErrorMsg(null);
+                  setCreateSeed(cleanName(q));
+                  setCreateOpen(true);
+                }}
+                disabled={!canOpenCreate}
                 style={{
                   width: "100%",
                   textAlign: "left",
@@ -304,13 +469,16 @@ function ArtistPicker({
                   borderRadius: 8,
                   border: "1px solid #555",
                   background: "transparent",
-                  cursor: creating ? "wait" : "pointer",
+                  cursor: canOpenCreate ? "pointer" : "default",
                   fontSize: 13,
-                  opacity: creating ? 0.7 : 1,
+                  opacity: canOpenCreate ? 1 : 0.7,
                 }}
-                title="Δημιουργία νέου καλλιτέχνη"
+                title="Άνοιγμα φόρμας δημιουργίας καλλιτέχνη"
               >
-                <strong>+ Δημιουργία “{cleanName(q)}”</strong>
+                <strong>+ Δημιουργία νέου καλλιτέχνη</strong>
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
+                  Θα σου ζητηθεί Επώνυμο/Όνομα (ώστε να μη γίνει λάθος σειρά).
+                </div>
               </button>
 
               {errorMsg ? (

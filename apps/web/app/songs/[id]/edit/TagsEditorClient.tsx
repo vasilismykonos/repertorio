@@ -65,6 +65,8 @@ export default function TagsEditorClient({
       s.length > 0
         ? `${apiBaseUrl}/songs/tags?search=${encodeURIComponent(s)}&take=${encodeURIComponent(String(take))}`
         : `${apiBaseUrl}/songs/tags?take=${encodeURIComponent(String(take))}`;
+console.log("[TagsEditorClient] apiBaseUrl=", apiBaseUrl);
+console.log("[TagsEditorClient] tags url=", url);
 
     const res = await fetch(url, { credentials: "include" });
     if (!res.ok) throw new Error(`Tag search failed: HTTP ${res.status}`);

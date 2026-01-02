@@ -1,3 +1,4 @@
+// apps/api/src/artists/artists.service.ts
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, VersionArtistRole } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -7,7 +8,11 @@ import { promises as fs } from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 
-type VersionArtistRoleString = "SINGER_FRONT" | "SINGER_BACK" | "SOLOIST" | "MUSICIAN";
+type VersionArtistRoleString =
+  | "SINGER_FRONT"
+  | "SINGER_BACK"
+  | "SOLOIST"
+  | "MUSICIAN";
 
 type ArtistListItem = {
   id: number;
@@ -66,6 +71,37 @@ type FindOrCreateArgs = {
   firstName: string | null;
   lastName: string | null;
   legacyArtistId: number | null;
+};
+
+// ✅ NEW: used by /artists/full
+type CreateArtistFullArgs = {
+  title: string | null;
+  firstName: string | null;
+  lastName: string | null;
+
+  sex: string | null;
+  bornYear: number | null;
+  dieYear: number | null;
+
+  wikiUrl: string | null;
+  biography: string | null;
+
+  imageUrl: string | null;
+};
+
+type UpdateArtistFullArgs = {
+  title?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+
+  sex?: string | null;
+  bornYear?: number | null;
+  dieYear?: number | null;
+
+  wikiUrl?: string | null;
+  biography?: string | null;
+
+  imageUrl?: string | null;
 };
 
 function cleanSpaces(s: unknown): string {
@@ -182,13 +218,14 @@ function mapArtistForEdit(row: {
 export class ArtistsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ✅ NEW: uploads config (dir + public base URL)
+  // ✅ uploads config (dir + public base URL)
   private getUploadsConfig() {
     // Server filesystem path
     const uploadsDir =
-      process.env.ARTISTS_UPLOAD_DIR || "/var/www/repertorio-uploads/artists";
+      process.env.ARTISTS_UPLOAD_DIR || "/home/reperto/uploads/artist-images";
 
     // Public URL base that serves the uploads (nginx/static mount)
+    // IMPORTANT: πρέπει να σερβίρεις τον uploadsDir στο publicBase/artist-images
     const publicBase =
       process.env.PUBLIC_UPLOADS_BASE_URL || "https://api.repertorio.net/uploads";
 
@@ -200,6 +237,7 @@ export class ArtistsService {
     const take = Math.min(200, Math.max(1, Math.trunc(Number(args.take || 20))));
     const skip = Math.max(0, Math.trunc(Number(args.skip || 0)));
 
+    // accepts both roles or role (backward compat)
     const roles = normalizeRoles((args as any).roles ?? (args as any).role);
 
     const where: Prisma.ArtistWhereInput = q
@@ -213,7 +251,7 @@ export class ArtistsService {
       : {};
 
     if (roles.length) {
-      // σωστό relation name στο δικό σου prisma: Artist.versionCredits
+      // relation name στο prisma σου: Artist.versionCredits
       (where as any).versionCredits = {
         some: { role: { in: roles } },
       };
@@ -370,15 +408,13 @@ export class ArtistsService {
 
     const data: Prisma.ArtistUpdateInput = {};
 
-    const nameTouched = ("firstName" in body) || ("lastName" in body);
+    const nameTouched = "firstName" in body || "lastName" in body;
 
-    const nextFirstName = ("firstName" in body)
-      ? toUpperNoTonos(body.firstName)
-      : toUpperNoTonos(existing.firstName);
+    const nextFirstName =
+      "firstName" in body ? toUpperNoTonos(body.firstName) : toUpperNoTonos(existing.firstName);
 
-    const nextLastName = ("lastName" in body)
-      ? toUpperNoTonos(body.lastName)
-      : toUpperNoTonos(existing.lastName);
+    const nextLastName =
+      "lastName" in body ? toUpperNoTonos(body.lastName) : toUpperNoTonos(existing.lastName);
 
     if ("firstName" in body) (data as any).firstName = nextFirstName || null;
     if ("lastName" in body) (data as any).lastName = nextLastName || null;
@@ -388,13 +424,11 @@ export class ArtistsService {
     if (computedTitle) {
       (data as any).title = computedTitle;
     } else {
-      // Αν ο client προσπαθεί να αλλάξει ονόματα αλλά δεν προκύπτει τίτλος => error
       if (nameTouched) {
         throw new BadRequestException(
           "Συμπλήρωσε τουλάχιστον Επώνυμο (και προαιρετικά Όνομα).",
         );
       }
-      // αλλιώς: κρατάμε title ως έχει (ώστε να μπορείς να ενημερώσεις wiki/bio/etc)
       if (!existing.title || !String(existing.title).trim()) {
         throw new BadRequestException(
           "Ο καλλιτέχνης δεν έχει έγκυρο τίτλο. Συμπλήρωσε Επώνυμο/Όνομα.",
@@ -418,7 +452,7 @@ export class ArtistsService {
     return this.findOne(id);
   }
 
-  // ✅ NEW: upload image file + update imageUrl
+  // ✅ upload image file + update imageUrl
   async uploadArtistImage(id: number, file: Express.Multer.File) {
     const artist = await this.prisma.artist.findUnique({
       where: { id },
@@ -428,10 +462,13 @@ export class ArtistsService {
 
     const mime = String(file?.mimetype || "").toLowerCase();
     const ext =
-      mime === "image/jpeg" ? "jpg" :
-      mime === "image/png" ? "png" :
-      mime === "image/webp" ? "webp" :
-      null;
+      mime === "image/jpeg"
+        ? "jpg"
+        : mime === "image/png"
+          ? "png"
+          : mime === "image/webp"
+            ? "webp"
+            : null;
 
     if (!ext) {
       throw new BadRequestException("Μόνο εικόνες JPG/PNG/WebP επιτρέπονται.");
@@ -451,7 +488,8 @@ export class ArtistsService {
 
     await fs.writeFile(fullPath, file.buffer);
 
-    const imageUrl = `${String(publicBase).replace(/\/$/, "")}/artists/${filename}`;
+    // ✅ FIX: αν το uploadsDir είναι /.../artist-images, τότε το url πρέπει να σερβίρει /uploads/artist-images/<filename>
+    const imageUrl = `${String(publicBase).replace(/\/$/, "")}/artist-images/${filename}`;
 
     await this.prisma.artist.update({
       where: { id },
@@ -459,6 +497,68 @@ export class ArtistsService {
     });
 
     return { imageUrl };
+  }
+
+  // ✅ NEW: create πλήρες σε 1 request + optional file (multipart)
+  async createArtistFull(body: CreateArtistFullArgs, file?: Express.Multer.File) {
+    const firstNameNorm = body.firstName != null ? toUpperNoTonos(body.firstName) : "";
+    const lastNameNorm = body.lastName != null ? toUpperNoTonos(body.lastName) : "";
+
+    const computed = computeDisplayTitle(firstNameNorm, lastNameNorm);
+    const rawTitle = cleanSpaces(body.title ?? "");
+    const title = computed || rawTitle;
+
+    if (!title) {
+      throw new BadRequestException(
+        "Συμπλήρωσε τουλάχιστον Επώνυμο (και προαιρετικά Όνομα).",
+      );
+    }
+
+    const created = await this.prisma.artist.create({
+      data: {
+        title,
+        firstName: firstNameNorm ? firstNameNorm : null,
+        lastName: lastNameNorm ? lastNameNorm : null,
+
+        sex: normalizeNullableText(body.sex),
+        bornYear: body.bornYear ?? null,
+        dieYear: body.dieYear ?? null,
+
+        wikiUrl: normalizeNullableUrl(body.wikiUrl),
+        biography: normalizeNullableText(body.biography),
+
+        imageUrl: normalizeNullableUrl(body.imageUrl),
+      },
+      select: { id: true },
+    });
+
+    if (file) {
+      await this.uploadArtistImage(created.id, file);
+    }
+
+    return this.findOne(created.id);
+  }
+
+  // ✅ NEW: update πλήρες σε 1 request + optional file (multipart)
+  async updateArtistFull(id: number, body: UpdateArtistFullArgs, file?: Express.Multer.File) {
+    // reuse existing rules for computing title and validating names
+    await this.updateArtist(id, {
+      ...(body.title !== undefined ? { title: body.title } : {}),
+      ...(body.firstName !== undefined ? { firstName: body.firstName } : {}),
+      ...(body.lastName !== undefined ? { lastName: body.lastName } : {}),
+      ...(body.sex !== undefined ? { sex: body.sex } : {}),
+      ...(body.bornYear !== undefined ? { bornYear: body.bornYear } : {}),
+      ...(body.dieYear !== undefined ? { dieYear: body.dieYear } : {}),
+      ...(body.wikiUrl !== undefined ? { wikiUrl: body.wikiUrl } : {}),
+      ...(body.biography !== undefined ? { biography: body.biography } : {}),
+      ...(body.imageUrl !== undefined ? { imageUrl: body.imageUrl } : {}),
+    } as any);
+
+    if (file) {
+      await this.uploadArtistImage(id, file);
+    }
+
+    return this.findOne(id);
   }
 
   async deleteArtist(id: number): Promise<void> {

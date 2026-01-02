@@ -1,6 +1,7 @@
 // apps/web/app/artists/page.tsx
 import Link from "next/link";
 import { fetchJson } from "@/lib/api";
+import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
 
 type ArtistListItem = {
   id: number;
@@ -78,11 +79,7 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
   const take = Number(searchParams?.take ?? "50");
   const skip = Number(searchParams?.skip ?? "0");
 
-  const qRaw =
-    searchParams?.q ||
-    searchParams?.search_term ||
-    "";
-
+  const qRaw = searchParams?.q || searchParams?.search_term || "";
   const q = (Array.isArray(qRaw) ? qRaw[0] : qRaw)?.trim() ?? "";
 
   const activeRoles = normalizeQueryParam(searchParams?.role);
@@ -102,6 +99,11 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
   const hasPrev = skip > 0;
   const hasNext = skip + take < total;
 
+  // ✅ δικαίωμα δημιουργίας καλλιτέχνη
+  const currentUser = await getCurrentUserFromApi().catch(() => null);
+  const allowedRoles: UserRole[] = ["ADMIN", "EDITOR"];
+  const canCreate = !!currentUser && allowedRoles.includes(currentUser.role as UserRole);
+
   return (
     <section
       style={{
@@ -111,7 +113,37 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
         color: "#fff",
       }}
     >
-      <h1 style={{ fontSize: 28, marginBottom: 16 }}>Καλλιτέχνες</h1>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <h1 style={{ fontSize: 28, margin: 0 }}>Καλλιτέχνες</h1>
+
+        {canCreate && (
+          <Link
+            href="/artists/new"
+            style={{
+              padding: "8px 14px",
+              borderRadius: 999,
+              border: "1px solid #2f2f2f",
+              backgroundColor: "#111",
+              color: "#fff",
+              textDecoration: "none",
+              fontWeight: 700,
+              fontSize: 14,
+              whiteSpace: "nowrap",
+            }}
+          >
+            + Νέος καλλιτέχνης
+          </Link>
+        )}
+      </div>
 
       {/* Φόρμα αναζήτησης */}
       <form
@@ -211,8 +243,7 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
           <span>Δεν βρέθηκαν καλλιτέχνες.</span>
         ) : (
           <span>
-            Βρέθηκαν {total} καλλιτέχνες. Εμφάνιση{" "}
-            {skip + 1}–{Math.min(skip + take, total)}.
+            Βρέθηκαν {total} καλλιτέχνες. Εμφάνιση {skip + 1}–{Math.min(skip + take, total)}.
           </span>
         )}
       </div>
@@ -257,14 +288,11 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
                   }}
                 >
                   {artist.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={artist.imageUrl}
                       alt={displayName}
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                      }}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     />
                   ) : (
                     <span style={{ fontSize: 24 }}>
@@ -286,9 +314,7 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
                     {displayName}
                   </Link>
 
-                  {years && (
-                    <div style={{ fontSize: 13, color: "#ccc" }}>{years}</div>
-                  )}
+                  {years && <div style={{ fontSize: 13, color: "#ccc" }}>{years}</div>}
                 </div>
               </li>
             );

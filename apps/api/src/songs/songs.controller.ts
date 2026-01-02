@@ -8,6 +8,8 @@ import {
   ParseIntPipe,
   Patch,
   Query,
+  // ✅ NEW: enable POST requests for creating songs
+  Post,
 } from "@nestjs/common";
 import { SongsService } from "./songs.service";
 
@@ -81,5 +83,62 @@ export class SongsController {
     },
   ) {
     return this.songsService.updateSong(id, body as any);
+  }
+
+  /**
+   * Δημιουργεί ένα νέο τραγούδι. Το body έχει την ίδια μορφή με την
+   * ενημέρωση τραγουδιού, αλλά δεν παρέχεται id.  Όλα τα πεδία είναι
+   * προαιρετικά· αν δοθούν versions, tags ή assets, αυτά προστίθενται
+   * εξ αρχής.  Επιστρέφει το νέο τραγούδι όπως το findOne.
+   */
+  @Post()
+  async createSong(
+    @Body()
+    body: {
+      title?: string;
+      firstLyrics?: string | null;
+      lyrics?: string | null;
+      characteristics?: string | null;
+      originalKey?: string | null;
+      defaultKey?: string | null;
+      chords?: string | null;
+      status?: any;
+      categoryId?: number | null;
+      rythmId?: number | null;
+      basedOnSongId?: number | null;
+      scoreFile?: string | null;
+      highestVocalNote?: string | null;
+
+      tagIds?: number[] | null;
+      assets?: Array<{
+        id?: number;
+        kind: any;
+        type?: any;
+        title?: string | null;
+        url?: string | null;
+        filePath?: string | null;
+        mimeType?: string | null;
+        sizeBytes?: string | number | bigint | null;
+
+        label?: string | null;
+        sort?: number | null;
+        isPrimary?: boolean | null;
+      }> | null;
+
+      versions?: Array<{
+        id?: number | null;
+        year?: number | string | null;
+        youtubeSearch?: string | null;
+
+        singerFrontIds?: number[] | string | null;
+        singerBackIds?: number[] | string | null;
+        solistIds?: number[] | string | null;
+        singerFrontNames?: string | null;
+        singerBackNames?: string | null;
+        solistNames?: string | null;
+      }> | null;
+    },
+  ) {
+    return this.songsService.createSong(body as any);
   }
 }

@@ -452,7 +452,7 @@ export class SongsService {
       versions,
     };
   }
-
+  
   private validateAssetInput(input: {
     kind: AssetKind;
     url?: string | null;
@@ -873,5 +873,272 @@ export class SongsService {
     await this.esSync.upsertSong(id);
 
     return this.findOne(id, true);
+  }
+
+  /**
+   * Δημιουργεί ένα νέο τραγούδι. Χρησιμοποιεί τα ίδια πεδία με
+   * updateSong (UpdateSongBody) αλλά χωρίς id.  Τα tags,
+   * assets και versions προστίθενται ως replace-all στην αρχική
+   * δημιουργία.  Μετά το transaction συγχρονίζει στο Elasticsearch
+   * και επιστρέφει το νέο τραγούδι όπως το findOne.
+   */
+  async createSong(body: UpdateSongBody) {
+    // Βασικά δεδομένα για το νέο τραγούδι
+    const data: any = {};
+
+    if (typeof body.title === "string" && body.title.trim() !== "") {
+      data.title = body.title.trim();
+    } else {
+      // Δεν μπορούμε να δημιουργήσουμε τραγούδι χωρίς τίτλο
+      throw new BadRequestException("title is required for new song");
+    }
+
+    // Εξάγουμε firstLyrics από lyrics αν δοθεί, αλλιώς παίρνουμε
+    // explicitly το παρεχόμενο firstLyrics
+    if (Object.prototype.hasOwnProperty.call(body, "lyrics")) {
+      data.lyrics = body.lyrics ?? null;
+      data.firstLyrics = extractFirstLyricsFromLyrics(body.lyrics);
+    } else if (Object.prototype.hasOwnProperty.call(body, "firstLyrics")) {
+      data.firstLyrics = body.firstLyrics;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "characteristics"))
+      data.characteristics = body.characteristics;
+
+    if (Object.prototype.hasOwnProperty.call(body, "originalKey"))
+      data.originalKey = body.originalKey;
+
+    if (Object.prototype.hasOwnProperty.call(body, "defaultKey"))
+      data.defaultKey = body.defaultKey;
+
+    if (Object.prototype.hasOwnProperty.call(body, "highestVocalNote"))
+      data.highestVocalNote = body.highestVocalNote;
+
+    if (Object.prototype.hasOwnProperty.call(body, "chords"))
+      data.chords = body.chords;
+
+    if (Object.prototype.hasOwnProperty.call(body, "scoreFile"))
+      data.scoreFile = body.scoreFile;
+
+    if (body.status && Object.values(SongStatus).includes(body.status)) {
+      data.status = body.status;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "categoryId"))
+      data.categoryId = body.categoryId;
+
+    if (Object.prototype.hasOwnProperty.call(body, "rythmId"))
+      data.rythmId = body.rythmId;
+
+    if (Object.prototype.hasOwnProperty.call(body, "basedOnSongId"))
+      data.basedOnSongId = body.basedOnSongId;
+
+    const hasTagIds = Object.prototype.hasOwnProperty.call(body, "tagIds");
+    const hasAssets = Object.prototype.hasOwnProperty.call(body, "assets");
+    const hasVersions = Object.prototype.hasOwnProperty.call(body, "versions");
+
+    // Δημιουργούμε το τραγούδι και τις σχέσεις σε ένα transaction
+    const songId = await this.prisma.$transaction(async (tx) => {
+      // 1) Δημιουργία του Song
+      const createdSong = await tx.song.create({ data, select: { id: true } });
+      const songId = createdSong.id;
+
+      // 2) Tags: δημιουργούνται μέσω SongTag
+      if (hasTagIds) {
+        const ids = Array.isArray(body.tagIds)
+          ? body.tagIds.filter((x) => typeof x === "number" && Number.isFinite(x))
+          : [];
+        if (ids.length > 0) {
+          await tx.songTag.createMany({
+            data: ids.map((tagId) => ({ songId, tagId })),
+            skipDuplicates: true,
+          });
+        }
+      }
+
+      // 3) Assets: παρόμοια λογική με updateSong
+      if (hasAssets) {
+        const assets = Array.isArray(body.assets) ? body.assets : [];
+        for (let i = 0; i < assets.length; i++) {
+          const a = assets[i];
+          const kind = a.kind;
+          const type = a.type ?? AssetType.GENERIC;
+
+          // βεβαιωνόμαστε ότι τα απαραίτητα πεδία υπάρχουν
+          this.validateAssetInput({
+            kind,
+            url: a.url ?? null,
+            filePath: a.filePath ?? null,
+          });
+
+          const sort =
+            typeof a.sort === "number" && Number.isFinite(a.sort) ? a.sort : i * 10;
+          const isPrimary = a.isPrimary === true;
+
+          let assetId: number;
+          if (typeof a.id === "number" && Number.isFinite(a.id)) {
+            const updated = await tx.asset.update({
+              where: { id: a.id },
+              data: {
+                kind,
+                type,
+                title: Object.prototype.hasOwnProperty.call(a, "title")
+                  ? a.title ?? null
+                  : undefined,
+                url: kind === AssetKind.LINK ? a.url ?? null : null,
+                filePath: kind === AssetKind.FILE ? a.filePath ?? null : null,
+                mimeType: Object.prototype.hasOwnProperty.call(a, "mimeType")
+                  ? a.mimeType ?? null
+                  : undefined,
+                sizeBytes: Object.prototype.hasOwnProperty.call(a, "sizeBytes")
+                  ? toNullableBigInt(a.sizeBytes ?? null)
+                  : undefined,
+              },
+              select: { id: true },
+            });
+            assetId = updated.id;
+          } else {
+            const created = await tx.asset.create({
+              data: {
+                kind,
+                type,
+                title: a.title ?? null,
+                url: kind === AssetKind.LINK ? a.url ?? null : null,
+                filePath: kind === AssetKind.FILE ? a.filePath ?? null : null,
+                mimeType: a.mimeType ?? null,
+                sizeBytes: toNullableBigInt(a.sizeBytes ?? null),
+              },
+              select: { id: true },
+            });
+            assetId = created.id;
+          }
+
+          await tx.songAsset.create({
+            data: {
+              songId,
+              assetId,
+              label: a.label ?? null,
+              sort,
+              isPrimary,
+            },
+          });
+        }
+      }
+
+      // 4) Versions: παρόμοια λογική με updateSong
+      if (hasVersions) {
+        const incoming = Array.isArray(body.versions) ? body.versions : [];
+        const norm = incoming
+          .map((v) => {
+            const vid =
+              typeof v?.id === "number" && Number.isFinite(v.id)
+                ? Math.trunc(v.id)
+                : null;
+            const year = this.normalizeYear(v?.year);
+            const youtubeSearch =
+              Object.prototype.hasOwnProperty.call(v ?? {}, "youtubeSearch")
+                ? v?.youtubeSearch ?? null
+                : null;
+
+            const singerFrontNames = parseCsvNames(v?.singerFrontNames ?? "");
+            const singerBackNames = parseCsvNames(v?.singerBackNames ?? "");
+            const solistNames = parseCsvNames(v?.solistNames ?? "");
+
+            const singerFrontIds = normalizeArtistIds(v?.singerFrontIds);
+            const singerBackIds = normalizeArtistIds(v?.singerBackIds);
+            const solistIds = normalizeArtistIds(v?.solistIds);
+
+            const hasAny =
+              year !== null ||
+              (typeof youtubeSearch === "string" && youtubeSearch.trim() !== "") ||
+              singerFrontIds.length > 0 ||
+              singerBackIds.length > 0 ||
+              solistIds.length > 0 ||
+              singerFrontNames.length > 0 ||
+              singerBackNames.length > 0 ||
+              solistNames.length > 0;
+
+            if (!hasAny) return null;
+
+            return {
+              id: vid,
+              year,
+              youtubeSearch:
+                typeof youtubeSearch === "string" && youtubeSearch.trim() !== ""
+                  ? youtubeSearch
+                  : null,
+              singerFrontNames,
+              singerBackNames,
+              solistNames,
+              singerFrontIds,
+              singerBackIds,
+              solistIds,
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => !!x);
+
+        for (const v of norm) {
+          // Δημιουργούμε πάντα νέο version για createSong
+          const created = await tx.songVersion.create({
+            data: {
+              songId,
+              year: v.year,
+              youtubeSearch: v.youtubeSearch,
+            },
+            select: { id: true },
+          });
+          const versionId = created.id;
+
+          // If ids are provided we use them, otherwise upsert by titles
+          const finalSingerFrontIds =
+            v.singerFrontIds.length > 0
+              ? v.singerFrontIds
+              : await this.upsertArtistsByTitlesTx(tx, v.singerFrontNames);
+          const finalSingerBackIds =
+            v.singerBackIds.length > 0
+              ? v.singerBackIds
+              : await this.upsertArtistsByTitlesTx(tx, v.singerBackNames);
+          const finalSolistIds =
+            v.solistIds.length > 0
+              ? v.solistIds
+              : await this.upsertArtistsByTitlesTx(tx, v.solistNames);
+
+          await this.assertArtistsExistTx(
+            tx,
+            [...finalSingerFrontIds, ...finalSingerBackIds, ...finalSolistIds],
+            `versionsJson(songId=${songId})`,
+          );
+
+          const rows: Array<{
+            versionId: number;
+            artistId: number;
+            role: VersionArtistRole;
+          }> = [];
+
+          for (const artistId of finalSingerFrontIds) {
+            rows.push({ versionId, artistId, role: VersionArtistRole.SINGER_FRONT });
+          }
+          for (const artistId of finalSingerBackIds) {
+            rows.push({ versionId, artistId, role: VersionArtistRole.SINGER_BACK });
+          }
+          for (const artistId of finalSolistIds) {
+            rows.push({ versionId, artistId, role: VersionArtistRole.SOLOIST });
+          }
+
+          if (rows.length) {
+            await tx.songVersionArtist.createMany({ data: rows, skipDuplicates: true });
+          }
+        }
+      }
+
+      // ✅ Επιστρέφουμε songId ώστε να είναι πάντα ορισμένο εκτός transaction
+      return songId;
+    });
+
+    // Συγχρονίζουμε το νέο τραγούδι στο Elasticsearch
+    await this.esSync.upsertSong(songId);
+    // Επιστρέφουμε το νέο τραγούδι χωρίς να αυξήσουμε views
+    return this.findOne(songId, true);
+
   }
 }

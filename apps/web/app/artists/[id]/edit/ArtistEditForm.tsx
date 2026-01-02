@@ -1,10 +1,12 @@
 // apps/web/app/artists/[id]/edit/ArtistEditForm.tsx
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const API_BASE_URL = "https://api.repertorio.net/api/v1";
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.repertorio.net/api/v1"
+).replace(/\/$/, "");
 
 export type ArtistForEdit = {
   id: number;
@@ -20,7 +22,8 @@ export type ArtistForEdit = {
 };
 
 type ArtistEditFormProps = {
-  artist: ArtistForEdit;
+  // ✅ create mode: δεν περνάμε artist
+  artist?: ArtistForEdit | null;
 };
 
 function toUpperNoTonos(input: string): string {
@@ -46,116 +49,118 @@ function computeDisplayTitle(firstNameRaw: string, lastNameRaw: string): string 
 export default function ArtistEditForm({ artist }: ArtistEditFormProps) {
   const router = useRouter();
 
-  const [firstName, setFirstName] = useState(artist.firstName ?? "");
-  const [lastName, setLastName] = useState(artist.lastName ?? "");
+  // ✅ NEW: επιτρέπει create mode
+  const [artistId, setArtistId] = useState<number | null>(artist?.id ?? null);
+  const isNew = artistId == null;
+
+  const [firstName, setFirstName] = useState(artist?.firstName ?? "");
+  const [lastName, setLastName] = useState(artist?.lastName ?? "");
 
   // ✅ sex θα επιλέγεται από 2 κουμπιά (Άνδρας/Γυναίκα)
   // κρατάμε string για backward-compat: "Άνδρας" | "Γυναίκα" | ""
-  const [sex, setSex] = useState(artist.sex ?? "");
+  const [sex, setSex] = useState(artist?.sex ?? "");
 
   const [bornYear, setBornYear] = useState(
-    artist.bornYear != null ? String(artist.bornYear) : "",
+    artist?.bornYear != null ? String(artist.bornYear) : "",
   );
   const [dieYear, setDieYear] = useState(
-    artist.dieYear != null ? String(artist.dieYear) : "",
+    artist?.dieYear != null ? String(artist.dieYear) : "",
   );
 
-  // ⚠️ imageUrl πλέον ΔΕΝ αλλάζει από input URL. Γεμίζει μόνο από upload.
-  const [imageUrl, setImageUrl] = useState(artist.imageUrl ?? "");
-  const [wikiUrl, setWikiUrl] = useState(artist.wikiUrl ?? "");
-  const [biography, setBiography] = useState(artist.biography ?? "");
+  // ⚠️ imageUrl ΔΕΝ αλλάζει από input URL. Γεμίζει ΜΟΝΟ από backend μετά από Save.
+  const [imageUrl, setImageUrl] = useState(artist?.imageUrl ?? "");
+  const [wikiUrl, setWikiUrl] = useState(artist?.wikiUrl ?? "");
+  const [biography, setBiography] = useState(artist?.biography ?? "");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ upload state
+  // ✅ file state: ΔΕΝ ανεβαίνει μέχρι να πατηθεί Save
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  // ✅ local preview + img error state
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
+  const [imgError, setImgError] = useState(false);
+
+  // ✅ cache-bust token ΜΟΝΟ μετά από επιτυχημένο Save (όχι Date.now() στο render)
+  const [imageBust, setImageBust] = useState<number>(0);
 
   const computedTitle = useMemo(() => {
     return computeDisplayTitle(firstName, lastName);
   }, [firstName, lastName]);
 
-  // ✅ για προβολή εικόνας
+  // ✅ για προβολή εικόνας: local πρώτα, μετά server
+  // ✅ cache-bust μόνο αν imageBust > 0 (μετά από Save)
   const imagePreviewUrl = useMemo(() => {
+    if (localPreviewUrl) return localPreviewUrl;
+
     const v = String(imageUrl ?? "").trim();
-    return v ? v : null;
-  }, [imageUrl]);
+    if (!v) return null;
 
-  async function uploadImageFile(file: File) {
-    setError(null);
+    if (!imageBust) return v;
 
+    const sep = v.includes("?") ? "&" : "?";
+    return `${v}${sep}v=${imageBust}`;
+  }, [imageUrl, localPreviewUrl, imageBust]);
+
+  // ✅ reset imgError όταν αλλάζει το preview url
+  useEffect(() => {
+    setImgError(false);
+  }, [imagePreviewUrl]);
+
+  // ✅ cleanup ObjectURL (memory leak prevention)
+  useEffect(() => {
+    return () => {
+      if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
+    };
+  }, [localPreviewUrl]);
+
+  function validateAndSetFile(file: File) {
     // client-side validation
     const okTypes = ["image/jpeg", "image/png", "image/webp"];
-    if (!okTypes.includes(file.type)) {
+    if (!okTypes.includes(String(file.type || "").toLowerCase())) {
       throw new Error("Επίλεξε εικόνα JPG/PNG/WebP.");
     }
     if (file.size > 5 * 1024 * 1024) {
       throw new Error("Η εικόνα είναι πολύ μεγάλη (max 5MB).");
     }
 
-    const fd = new FormData();
-    fd.append("file", file);
-
-    setUploadingImage(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/artists/${artist.id}/image`, {
-        method: "POST",
-        credentials: "include",
-        body: fd,
-      });
-
-      if (!res.ok) {
-        let message = `Αποτυχία upload (HTTP ${res.status})`;
-        try {
-          const data = await res.json();
-          if (data?.message) {
-            message = Array.isArray(data.message)
-              ? data.message.join(", ")
-              : String(data.message);
-          }
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
-      }
-
-      const data = await res.json();
-      const nextUrl = String(data?.imageUrl ?? "").trim();
-      if (!nextUrl) throw new Error("Δεν επιστράφηκε imageUrl από το API.");
-
-      setImageUrl(nextUrl);
-    } finally {
-      setUploadingImage(false);
-    }
+    // ✅ local preview ΑΜΕΣΩΣ (χωρίς upload)
+    if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
+    const objUrl = URL.createObjectURL(file);
+    setLocalPreviewUrl(objUrl);
+    setSelectedFile(file);
   }
 
-  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
 
     try {
-      await uploadImageFile(f);
+      setError(null);
+      validateAndSetFile(f);
     } catch (err: any) {
-      setError(err?.message || "Αποτυχία upload εικόνας.");
+      setError(err?.message || "Αποτυχία επιλογής εικόνας.");
     }
   }
 
-  async function onDropFile(e: React.DragEvent<HTMLDivElement>) {
+  function onDropFile(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setDragOver(false);
 
-    if (uploadingImage) return;
+    if (saving) return;
 
     const f = e.dataTransfer.files?.[0];
     if (!f) return;
 
     try {
-      await uploadImageFile(f);
+      setError(null);
+      validateAndSetFile(f);
     } catch (err: any) {
-      setError(err?.message || "Αποτυχία upload εικόνας.");
+      setError(err?.message || "Αποτυχία επιλογής εικόνας.");
     }
   }
 
@@ -178,39 +183,41 @@ export default function ArtistEditForm({ artist }: ArtistEditFormProps) {
         );
       }
 
-      const bornYearNum = bornYear.trim() === "" ? null : Number(bornYear);
-      const dieYearNum = dieYear.trim() === "" ? null : Number(dieYear);
+      // bornYear/dieYear: στέλνουμε strings στο multipart (ή "" για null)
+      const bornYearVal = bornYear.trim() === "" ? "" : bornYear.trim();
+      const dieYearVal = dieYear.trim() === "" ? "" : dieYear.trim();
 
-      if (Number.isNaN(bornYearNum as number)) {
+      // basic validation numeric (client)
+      if (bornYearVal !== "" && Number.isNaN(Number(bornYearVal))) {
         throw new Error("Το έτος γέννησης δεν είναι έγκυρος αριθμός.");
       }
-      if (Number.isNaN(dieYearNum as number)) {
+      if (dieYearVal !== "" && Number.isNaN(Number(dieYearVal))) {
         throw new Error("Το έτος θανάτου δεν είναι έγκυρος αριθμός.");
       }
 
-      const payload: any = {
-        title: titleToSave,
+      // ✅ ΕΝΑ request: multipart (fields + optional file)
+      const fd = new FormData();
+      fd.set("title", titleToSave);
+      fd.set("firstName", normalizedFirstName || "");
+      fd.set("lastName", normalizedLastName || "");
+      fd.set("sex", sex.trim() || "");
+      fd.set("bornYear", bornYearVal);
+      fd.set("dieYear", dieYearVal);
+      fd.set("wikiUrl", wikiUrl.trim() || "");
+      fd.set("biography", biography.trim() || "");
 
-        firstName: normalizedFirstName || null,
-        lastName: normalizedLastName || null,
+      if (selectedFile) {
+        fd.set("file", selectedFile);
+      }
 
-        // ✅ sex: είτε "Άνδρας"/"Γυναίκα" είτε null
-        sex: sex.trim() || null,
+      const url = isNew
+        ? `${API_BASE_URL}/artists/full`
+        : `${API_BASE_URL}/artists/${artistId}/full`;
 
-        bornYear: bornYearNum,
-        dieYear: dieYearNum,
-
-        imageUrl: imageUrl.trim() || null,
-
-        wikiUrl: wikiUrl.trim() || null,
-        biography: biography.trim() || null,
-      };
-
-      const res = await fetch(`${API_BASE_URL}/artists/${artist.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch(url, {
+        method: isNew ? "POST" : "PATCH",
         credentials: "include",
-        body: JSON.stringify(payload),
+        body: fd,
       });
 
       if (!res.ok) {
@@ -228,7 +235,30 @@ export default function ArtistEditForm({ artist }: ArtistEditFormProps) {
         throw new Error(message);
       }
 
-      router.push(`/artists/${artist.id}`);
+      const data = await res.json().catch(() => null);
+
+      const savedId = Number(data?.id ?? artistId);
+      if (!Number.isFinite(savedId) || savedId <= 0) {
+        throw new Error("Δεν επιστράφηκε έγκυρο id από το API.");
+      }
+
+      setArtistId(savedId);
+
+      // ✅ ενημέρωση imageUrl (αν υπάρχει) + cache-bust μετά από επιτυχές Save
+      const nextUrl = String(data?.imageUrl ?? "").trim();
+      if (nextUrl) {
+        setImageUrl(nextUrl);
+        setImageBust(Date.now());
+      }
+
+      // ✅ καθαρίζουμε local file preview μετά το Save
+      setSelectedFile(null);
+      if (localPreviewUrl) {
+        URL.revokeObjectURL(localPreviewUrl);
+        setLocalPreviewUrl(null);
+      }
+
+      router.push(`/artists/${savedId}`);
       router.refresh();
     } catch (err: any) {
       setError(err?.message || "Κάτι πήγε στραβά κατά την αποθήκευση.");
@@ -310,32 +340,27 @@ export default function ArtistEditForm({ artist }: ArtistEditFormProps) {
               <div className="segmented" role="group" aria-label="Φύλο">
                 <button
                   type="button"
-                  className={`segBtn ${
-                    sexValue === "Άνδρας" ? "segBtnActive" : ""
-                  }`}
+                  className={`segBtn ${sexValue === "Άνδρας" ? "segBtnActive" : ""}`}
                   onClick={() => setSex(sexValue === "Άνδρας" ? "" : "Άνδρας")}
-                  disabled={saving || uploadingImage}
+                  disabled={saving}
                 >
                   Άνδρας
                 </button>
 
                 <button
                   type="button"
-                  className={`segBtn ${
-                    sexValue === "Γυναίκα" ? "segBtnActive" : ""
-                  }`}
+                  className={`segBtn ${sexValue === "Γυναίκα" ? "segBtnActive" : ""}`}
                   onClick={() => setSex(sexValue === "Γυναίκα" ? "" : "Γυναίκα")}
-                  disabled={saving || uploadingImage}
+                  disabled={saving}
                 >
                   Γυναίκα
                 </button>
 
-                {/* Προαιρετικό: κουμπί καθαρισμού */}
                 <button
                   type="button"
                   className="segBtn segBtnClear"
                   onClick={() => setSex("")}
-                  disabled={saving || uploadingImage || !sexValue}
+                  disabled={saving || !sexValue}
                   title="Καθαρισμός"
                 >
                   Καθαρισμός
@@ -396,67 +421,65 @@ export default function ArtistEditForm({ artist }: ArtistEditFormProps) {
             {/* ✅ Preview εικόνας */}
             <div className="field">
               <div className="imagePreviewWrap">
-                {imagePreviewUrl ? (
+                {imagePreviewUrl && !imgError ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
+                    key={imagePreviewUrl}
                     src={imagePreviewUrl}
                     alt="Εικόνα καλλιτέχνη"
                     className="imagePreview"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display =
-                        "none";
-                      const parent = e.currentTarget.parentElement;
-                      if (parent) {
-                        const el = parent.querySelector(
-                          ".imagePreviewFallback",
-                        ) as HTMLElement | null;
-                        if (el) el.style.display = "block";
-                      }
-                    }}
+                    onLoad={() => setImgError(false)}
+                    onError={() => setImgError(true)}
                   />
                 ) : null}
 
                 <div
                   className="imagePreviewFallback"
-                  style={{ display: imagePreviewUrl ? "none" : "block" }}
+                  style={{
+                    display: imagePreviewUrl && !imgError ? "none" : "block",
+                  }}
                 >
                   Δεν υπάρχει εικόνα για προβολή.
                 </div>
               </div>
             </div>
 
-            {/* ✅ Upload / Drag & Drop ΜΟΝΟ */}
+            {/* ✅ Επιλογή εικόνας (χωρίς upload μέχρι Save) */}
             <div className="field">
-              <label className="label">Εικόνα (Upload ή Drag & Drop)</label>
+              <label className="label">
+                Εικόνα (θα αποθηκευτεί μόνο όταν πατήσεις Αποθήκευση)
+              </label>
 
               <div
                 className={`dropZone ${dragOver ? "dropZoneActive" : ""} ${
-                  uploadingImage ? "dropZoneDisabled" : ""
+                  saving ? "dropZoneDisabled" : ""
                 }`}
                 onDragOver={(e) => {
                   e.preventDefault();
-                  if (!uploadingImage) setDragOver(true);
+                  if (!saving) setDragOver(true);
                 }}
                 onDragLeave={() => setDragOver(false)}
                 onDrop={onDropFile}
                 onClick={() => {
-                  if (!uploadingImage) fileInputRef.current?.click();
+                  if (!saving) fileInputRef.current?.click();
                 }}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
-                  if (uploadingImage) return;
+                  if (saving) return;
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     fileInputRef.current?.click();
                   }
                 }}
-                aria-disabled={uploadingImage}
+                aria-disabled={saving}
               >
                 <div className="dropZoneTitle">
-                  {uploadingImage
-                    ? "Ανέβασμα εικόνας..."
-                    : "Ρίξε εδώ μια εικόνα ή κάνε κλικ για επιλογή"}
+                  {saving
+                    ? "Αποθήκευση..."
+                    : selectedFile
+                      ? `Επιλεγμένο: ${selectedFile.name}`
+                      : "Ρίξε εδώ μια εικόνα ή κάνε κλικ για επιλογή"}
                 </div>
                 <div className="dropZoneHint">JPG/PNG/WebP έως 5MB</div>
               </div>
@@ -467,7 +490,7 @@ export default function ArtistEditForm({ artist }: ArtistEditFormProps) {
                 accept="image/jpeg,image/png,image/webp"
                 onChange={onPickFile}
                 style={{ display: "none" }}
-                disabled={uploadingImage}
+                disabled={saving}
               />
             </div>
 
@@ -515,19 +538,18 @@ export default function ArtistEditForm({ artist }: ArtistEditFormProps) {
         </div>
 
         <div className="actions">
-          <button
-            type="submit"
-            disabled={saving || uploadingImage}
-            className="btn btnPrimary"
-          >
+          <button type="submit" disabled={saving} className="btn btnPrimary">
             {saving ? "Αποθήκευση..." : "Αποθήκευση"}
           </button>
 
           <button
             type="button"
-            disabled={saving || uploadingImage}
+            disabled={saving}
             className="btn btnGhost"
-            onClick={() => router.push(`/artists/${artist.id}`)}
+            onClick={() => {
+              if (isNew) router.push("/artists");
+              else router.push(`/artists/${artistId}`);
+            }}
           >
             Άκυρο
           </button>
@@ -725,7 +747,6 @@ export default function ArtistEditForm({ artist }: ArtistEditFormProps) {
           line-height: 1.35;
         }
 
-        /* ✅ Segmented control για Φύλο */
         .segmented {
           display: flex;
           gap: 8px;
