@@ -12,6 +12,9 @@ type CreditsJson = {
 };
 
 type PatchSongBody = {
+  composerArtistIds?: number[] | null;
+  lyricistArtistIds?: number[] | null;
+
   title?: string;
   firstLyrics?: string | null;
   lyrics?: string | null;
@@ -33,7 +36,7 @@ type PatchSongBody = {
 const API_BASE_URL = (
   process.env.API_INTERNAL_BASE_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://api.repertorio.net/api/v1"
+  "/api/v1"
 ).replace(/\/$/, "");
 
 function buildRedirectHtml(targetPath: string): string {
@@ -103,6 +106,65 @@ function toNumberOrNull(v: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
+  const idNum = Number(ctx.params.id);
+  if (!Number.isFinite(idNum) || idNum <= 0) {
+    return NextResponse.json({ message: "Μη έγκυρο ID τραγουδιού" }, { status: 400 });
+  }
+
+  const cookie = pickForwardHeader(req, "cookie");
+  const authorization = pickForwardHeader(req, "authorization");
+
+  const headers: Record<string, string> = {};
+  if (cookie) headers.cookie = cookie;
+  if (authorization) headers.authorization = authorization;
+
+  const { searchParams } = new URL(req.url);
+  const noIncrement = searchParams.get("noIncrement");
+  const qs = noIncrement ? `?noIncrement=${encodeURIComponent(noIncrement)}` : "";
+
+  const upstreamUrl = `${API_BASE_URL}/songs/${idNum}${qs}`;
+
+  try {
+    const res = await fetch(upstreamUrl, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
+
+    const contentType = res.headers.get("content-type") || "";
+
+    if (!res.ok) {
+      if (contentType.includes("application/json")) {
+        const data = await res.json().catch(() => null);
+        return NextResponse.json(
+          data ?? { message: `Αποτυχία ανάκτησης (${res.status})` },
+          { status: res.status },
+        );
+      }
+
+      const text = await res.text().catch(() => "");
+      return NextResponse.json(
+        { message: text || `Αποτυχία ανάκτησης (${res.status})` },
+        { status: res.status },
+      );
+    }
+
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      return NextResponse.json(data, { status: 200 });
+    }
+
+    const text = await res.text().catch(() => "");
+    return NextResponse.json({ ok: true, text }, { status: 200 });
+  } catch (err: any) {
+    return NextResponse.json(
+      { message: err?.message || "Σφάλμα επικοινωνίας με API" },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
   const idNum = Number(ctx.params.id);
   if (!Number.isFinite(idNum) || idNum <= 0) {
@@ -135,7 +197,6 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
   const parsedVersions = parseJsonSafe<unknown>(formData.get("versionsJson"), []);
   const versions = normalizeArray(parsedVersions);
 
-  // ✅ creditsJson: IDS
   const parsedCredits = parseJsonSafe<CreditsJson>(formData.get("creditsJson"), {});
   const composerArtistIds = normalizeIds(parsedCredits?.composerArtistIds);
   const lyricistArtistIds = normalizeIds(parsedCredits?.lyricistArtistIds);
@@ -154,6 +215,8 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
     tagIds,
     assets,
     versions,
+    composerArtistIds,
+    lyricistArtistIds,
   };
 
   const cookie = pickForwardHeader(req, "cookie");
@@ -165,13 +228,13 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
 
   let ok = true;
 
-  // 1) PATCH song
-  const upstreamSongUrl = `${API_BASE_URL}/songs/${idNum}`;
+  const upstreamSongUrl = `${API_BASE_URL}/songs/${idNum}/full`;
   try {
     const res = await fetch(upstreamSongUrl, {
       method: "PATCH",
       headers,
       body: JSON.stringify(body),
+      cache: "no-store",
     });
 
     if (!res.ok) {
@@ -190,34 +253,6 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
   } catch (err) {
     ok = false;
     console.error("Update song threw error", { id: idNum, upstreamSongUrl, err });
-  }
-
-  // 2) PUT credits
-  const upstreamCreditsUrl = `${API_BASE_URL}/songs/${idNum}/credits`;
-  try {
-    const res = await fetch(upstreamCreditsUrl, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ composerArtistIds, lyricistArtistIds }),
-    });
-
-    if (!res.ok) {
-      ok = false;
-      const text = await res.text().catch(() => "");
-      console.error("Update credits failed", {
-        id: idNum,
-        upstreamCreditsUrl,
-        status: res.status,
-        statusText: res.statusText,
-        sent: { composerArtistIds, lyricistArtistIds },
-        responseText: text,
-      });
-    } else {
-      await res.json().catch(() => null);
-    }
-  } catch (err) {
-    ok = false;
-    console.error("Update credits threw error", { id: idNum, upstreamCreditsUrl, err });
   }
 
   const targetPath = ok ? `/songs/${idNum}` : `/songs/${idNum}?error=1`;

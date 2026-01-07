@@ -14,7 +14,7 @@ import SongEditForm, {
 export const dynamic = "force-dynamic";
 
 const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.repertorio.net/api/v1"
+  process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1"
 ).replace(/\/$/, "");
 
 function normalizeIds(input: unknown): number[] {
@@ -28,17 +28,30 @@ function normalizeIds(input: unknown): number[] {
   );
 }
 
-async function fetchSong(id: number): Promise<SongForEdit> {
+async function fetchSongBundle(
+  id: number,
+): Promise<{ song: SongForEdit; credits: SongCreditsDto }> {
   const s = await fetchJson<any>(`/songs/${id}?noIncrement=1`);
 
-  return {
+  const composerArtistIds = normalizeIds(
+    Array.isArray(s?.credits?.composers)
+      ? s.credits.composers.map((x: any) => x?.artistId)
+      : [],
+  );
+
+  const lyricistArtistIds = normalizeIds(
+    Array.isArray(s?.credits?.lyricists)
+      ? s.credits.lyricists.map((x: any) => x?.artistId)
+      : [],
+  );
+
+  const song: SongForEdit = {
     id: Number(s.id),
     title: String(s.title ?? ""),
     firstLyrics: s.firstLyrics ?? null,
     lyrics: s.lyrics ?? null,
     characteristics: s.characteristics ?? null,
 
-    // ✅ legacy strings
     composerName: s.composerName ?? null,
     lyricistName: s.lyricistName ?? null,
 
@@ -46,15 +59,15 @@ async function fetchSong(id: number): Promise<SongForEdit> {
       ? s.tags.map((t: any) => ({
           id: Number(t.id),
           title: String(t.title ?? ""),
-          slug: String(t.slug ?? ""),
+          slug: t.slug ?? null,
         }))
       : [],
 
     assets: Array.isArray(s.assets)
       ? s.assets.map((a: any) => ({
           id: Number(a.id),
-          kind: String(a.kind ?? "LINK") as "LINK" | "FILE",
-          type: String(a.type ?? "GENERIC"),
+          kind: a.kind === "FILE" ? "FILE" : "LINK",
+          type: String(a.type ?? ""),
           title: a.title ?? null,
           url: a.url ?? null,
           filePath: a.filePath ?? null,
@@ -73,7 +86,8 @@ async function fetchSong(id: number): Promise<SongForEdit> {
     categoryId: typeof s.categoryId === "number" ? s.categoryId : null,
     rythmId: typeof s.rythmId === "number" ? s.rythmId : null,
 
-    createdByUserId: typeof s.createdByUserId === "number" ? s.createdByUserId : null,
+    createdByUserId:
+      typeof s.createdByUserId === "number" ? s.createdByUserId : null,
 
     hasScore: Boolean(s.hasScore),
     scoreFile: s.scoreFile ?? null,
@@ -84,33 +98,21 @@ async function fetchSong(id: number): Promise<SongForEdit> {
       ? s.versions.map((v: any) => ({
           id: Number(v.id),
           year: typeof v.year === "number" ? v.year : null,
+          youtubeSearch: v.youtubeSearch ?? null,
           singerFront: v.singerFront ?? null,
           singerBack: v.singerBack ?? null,
           solist: v.solist ?? null,
-          youtubeSearch: v.youtubeSearch ?? null,
-
-          singerFrontIds: Array.isArray(v.singerFrontIds) ? v.singerFrontIds.map(Number) : [],
-          singerBackIds: Array.isArray(v.singerBackIds) ? v.singerBackIds.map(Number) : [],
-          solistIds: Array.isArray(v.solistIds) ? v.solistIds.map(Number) : [],
+          singerFrontIds: normalizeIds(v.singerFrontIds),
+          singerBackIds: normalizeIds(v.singerBackIds),
+          solistIds: normalizeIds(v.solistIds),
         }))
       : [],
   };
-}
 
-async function fetchSongCredits(id: number): Promise<SongCreditsDto> {
-  // expected payload (βάσει song-credits.service.ts):
-  // { composers: [{artistId,...}], lyricists: [{artistId,...}] }
-  const c = await fetchJson<any>(`/songs/${id}/credits`);
-
-  const composerArtistIds = normalizeIds(
-    Array.isArray(c?.composers) ? c.composers.map((x: any) => x?.artistId) : [],
-  );
-
-  const lyricistArtistIds = normalizeIds(
-    Array.isArray(c?.lyricists) ? c.lyricists.map((x: any) => x?.artistId) : [],
-  );
-
-  return { composerArtistIds, lyricistArtistIds };
+  return {
+    song,
+    credits: { composerArtistIds, lyricistArtistIds },
+  };
 }
 
 async function fetchCategories(): Promise<CategoryOption[]> {
@@ -136,6 +138,7 @@ export const metadata: Metadata = {
 
 type SongEditPageProps = {
   params: { id: string };
+  searchParams?: Record<string, string | string[] | undefined>;
 };
 
 const EDIT_ROLES: UserRole[] = ["ADMIN", "EDITOR", "AUTHOR"];
@@ -145,17 +148,28 @@ function isPrivilegedRole(role: UserRole | null | undefined): boolean {
   return EDIT_ROLES.includes(role);
 }
 
-export default async function SongEditPage({ params }: SongEditPageProps) {
+function parsePositiveInt(v: string | string[] | undefined): number | null {
+  const s = Array.isArray(v) ? v[0] : v;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  const i = Math.trunc(n);
+  return i > 0 ? i : null;
+}
+
+export default async function SongEditPage({
+  params,
+  searchParams,
+}: SongEditPageProps) {
   const songId = Number(params.id);
   if (!Number.isFinite(songId) || songId <= 0) redirect("/songs");
 
-  const [song, credits, currentUser, categories, rythms] = await Promise.all([
-    fetchSong(songId),
-    fetchSongCredits(songId).catch(() => ({ composerArtistIds: [], lyricistArtistIds: [] })),
+  const [bundle, currentUser, categories, rythms] = await Promise.all([
+    fetchSongBundle(songId),
     getCurrentUserFromApi().catch(() => null),
     fetchCategories().catch(() => []),
     fetchRythms().catch(() => []),
   ]);
+  const { song, credits } = bundle;
 
   if (!currentUser) redirect(`/songs/${songId}`);
 
@@ -167,9 +181,20 @@ export default async function SongEditPage({ params }: SongEditPageProps) {
   const canEdit = isPrivilegedRole(currentUser.role) || isOwner;
   if (!canEdit) redirect(`/songs/${songId}`);
 
+  // ✅ APPLY return flow overrides (from /categories/new)
+  const overrideCategoryId = parsePositiveInt(searchParams?.categoryId);
+  const overrideRythmId = parsePositiveInt(searchParams?.rythmId);
+
+  const songForForm: SongForEdit = {
+    ...song,
+    categoryId:
+      overrideCategoryId != null ? overrideCategoryId : song.categoryId,
+    rythmId: overrideRythmId != null ? overrideRythmId : song.rythmId,
+  };
+
   return (
     <SongEditForm
-      song={song}
+      song={songForForm}
       credits={credits}
       categories={categories}
       rythms={rythms}

@@ -225,9 +225,12 @@ export class ArtistsService {
       process.env.ARTISTS_UPLOAD_DIR || "/home/reperto/uploads/artist-images";
 
     // Public URL base that serves the uploads (nginx/static mount)
-    // IMPORTANT: πρέπει να σερβίρεις τον uploadsDir στο publicBase/artist-images
+    // IMPORTANT: πρέπει να σερβίρεις τον uploadsDir στο publicBase/artist-images.
+    // Χρησιμοποιούμε σχετικό path ως default αντί για production URL, ώστε το
+    // backend να μην «διαρρεύσει» σε ζωντανό περιβάλλον όταν το αντίστοιχο env
+    // δεν έχει οριστεί.
     const publicBase =
-      process.env.PUBLIC_UPLOADS_BASE_URL || "https://api.repertorio.net/uploads";
+      process.env.PUBLIC_UPLOADS_BASE_URL || "/uploads";
 
     return { uploadsDir, publicBase };
   }

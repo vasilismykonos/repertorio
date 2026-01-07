@@ -7,6 +7,9 @@ type CreditsJson = {
 };
 
 type CreateSongBody = {
+  composerArtistIds?: number[];
+  lyricistArtistIds?: number[];
+
   title: string;
 
   firstLyrics?: string | null;
@@ -150,6 +153,8 @@ export async function POST(req: NextRequest) {
     tagIds,
     assets,
     versions,
+    composerArtistIds,
+    lyricistArtistIds,
   };
 
   const cookie = pickForwardHeader(req, "cookie");
@@ -163,7 +168,7 @@ export async function POST(req: NextRequest) {
   let newId: number | null = null;
 
   // 1) CREATE song (upstream)
-  const upstreamCreateUrl = `${API_BASE_URL}/songs`;
+  const upstreamCreateUrl = `${API_BASE_URL}/songs/full`;
   try {
     const res = await fetch(upstreamCreateUrl, {
       method: "POST",
@@ -199,35 +204,9 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // 2) PUT credits στο νέο id
-  const upstreamCreditsUrl = `${API_BASE_URL}/songs/${newId}/credits`;
-  try {
-    const res = await fetch(upstreamCreditsUrl, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ composerArtistIds, lyricistArtistIds }),
-    });
+  // 2) ✅ Credits πλέον περιλαμβάνονται στο /songs/full payload (no extra request)
 
-    if (!res.ok) {
-      ok = false;
-      const text = await res.text().catch(() => "");
-      console.error("Update credits after create failed", {
-        id: newId,
-        upstreamCreditsUrl,
-        status: res.status,
-        statusText: res.statusText,
-        sent: { composerArtistIds, lyricistArtistIds },
-        responseText: text,
-      });
-    } else {
-      await res.json().catch(() => null);
-    }
-  } catch (err) {
-    ok = false;
-    console.error("Update credits after create threw error", { id: newId, upstreamCreditsUrl, err });
-  }
-
-  // redirect: αν credits fail, ακόμα έχεις τραγούδι, απλώς δείξε error
+// redirect: αν credits fail, ακόμα έχεις τραγούδι, απλώς δείξε error
   const targetPath = ok ? `/songs/${newId}/edit` : `/songs/${newId}/edit?error=1`;
   return new NextResponse(buildRedirectHtml(targetPath), {
     status: 302,

@@ -1,32 +1,25 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Put } from "@nestjs/common";
-import { SongCreditsService } from "./song-credits.service";
+// apps/api/src/songs/song-credits.controller.ts
 
-type UpsertSongCreditsBody = {
-  composerArtistIds?: number[]; // replace set
-  lyricistArtistIds?: number[]; // replace set
-};
+import { Controller, Get, GoneException, Param, ParseIntPipe, Put } from "@nestjs/common";
 
+/**
+ * ❌ DEPRECATED (legacy split architecture)
+ *
+ * Credits are now managed exclusively through the unified Song Full endpoints:
+ *   - POST  /songs/full
+ *   - PATCH /songs/:id/full
+ */
 @Controller("songs")
 export class SongCreditsController {
-  constructor(private readonly credits: SongCreditsService) {}
-
   @Get(":id/credits")
-  async getCredits(@Param("id", ParseIntPipe) songId: number) {
-    return this.credits.getSongCredits(songId);
+  async getCredits(@Param("id", ParseIntPipe) _songId: number) {
+    throw new GoneException(
+      "Deprecated endpoint. Use GET /songs/:id (credits are included) or PATCH /songs/:id/full.",
+    );
   }
 
-  /**
-   * Replace credits για το τραγούδι.
-   * Στέλνεις arrays με artist ids.
-   */
   @Put(":id/credits")
-  async replaceCredits(
-    @Param("id", ParseIntPipe) songId: number,
-    @Body() body: UpsertSongCreditsBody,
-  ) {
-    return this.credits.replaceSongCredits(songId, {
-      composerArtistIds: body.composerArtistIds ?? [],
-      lyricistArtistIds: body.lyricistArtistIds ?? [],
-    });
+  async replaceCredits(@Param("id", ParseIntPipe) _songId: number) {
+    throw new GoneException("Deprecated endpoint. Use PATCH /songs/:id/full.");
   }
 }

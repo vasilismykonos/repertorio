@@ -4,6 +4,7 @@ import Link from "next/link";
 import TagsEditorClient, { type TagDto } from "./TagsEditorClient";
 import DiscographiesEditorClient from "./DiscographiesEditorClient";
 import SongCreditsEditorClient from "./SongCreditsEditorClient";
+import CategoryRythmPickerClient from "./CategoryRythmPickerClient";
 
 type SongAssetDto = {
   id: number;
@@ -101,18 +102,22 @@ type Props = {
 
   isOwner: boolean;
   currentUserRoleLabel: string;
+
+  /**
+   * ⚠️ Παραμένει προς το παρόν γιατί το TagsEditorClient χρησιμοποιεί
+   * απευθείας apiBaseUrl. Δεν το πειράζουμε σε αυτή τη φάση.
+   */
   apiBase: string;
 
   createMode?: boolean; // ✅ NEW
 };
-
 
 export default function SongEditForm({
   song,
   credits,
   categories,
   rythms,
-  createMode, 
+  createMode,
   isOwner,
   currentUserRoleLabel,
   apiBase,
@@ -132,7 +137,9 @@ export default function SongEditForm({
   // ✅ fallback names από legacy song fields
   const initialComposerNames = splitNames(song.composerName ?? null);
   const initialLyricistNames = splitNames(song.lyricistName ?? null);
+
   const formAction = isCreate ? "/api/songs" : `/api/songs/${song.id}`;
+
   return (
     <main className="song-edit-page">
       {/* ✅ ΣΤΥΛ: άσπρο φόντο + μαύρα γράμματα για Τίτλο/Στίχους/Συγχορδίες */}
@@ -162,13 +169,11 @@ export default function SongEditForm({
             <span className="song-edit-breadcrumb-current">
               {isCreate ? "Νέο τραγούδι" : "Επεξεργασία"}
             </span>
-
           </p>
 
           <h1 className="song-edit-title">
             {isCreate ? "Δημιουργία νέου τραγουδιού" : `Επεξεργασία τραγουδιού ${song.title}`}
           </h1>
-
 
           <div className="song-edit-meta" style={{ marginTop: 10 }}>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -210,10 +215,8 @@ export default function SongEditForm({
             </div>
           </div>
         </header>
-         
-       
-        <form method="POST" action={formAction} className="song-edit-form">
 
+        <form method="POST" action={formAction} className="song-edit-form">
           <input
             type="hidden"
             id="tagIdsJson"
@@ -311,58 +314,30 @@ export default function SongEditForm({
             />
           </div>
 
-          {/* ✅ Κατηγορία / Ρυθμός */}
-          <div className="song-edit-section song-edit-grid">
-            <div className="song-edit-field">
-              <label htmlFor="categoryId">Κατηγορία</label>
-              <select
-                id="categoryId"
-                name="categoryId"
-                defaultValue={song.categoryId != null ? String(song.categoryId) : ""}
-                className="song-edit-input-light"
-              >
-                <option value="">(Χωρίς κατηγορία)</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    {c.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="song-edit-field">
-              <label htmlFor="rythmId">Ρυθμός</label>
-              <select
-                id="rythmId"
-                name="rythmId"
-                defaultValue={song.rythmId != null ? String(song.rythmId) : ""}
-                className="song-edit-input-light"
-              >
-                <option value="">(Χωρίς ρυθμό)</option>
-                {rythms.map((r) => (
-                  <option key={r.id} value={String(r.id)}>
-                    {r.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* TODO: ΕΔΩ κάνε paste αυτούσιο το “υπόλοιπο” που έχεις στο παλιό page.tsx
-              (assets, status, category, rythm, script κλπ) — δεν μου το έστειλες στο μήνυμα. */}
+          {/* ✅ Κατηγορία / Ρυθμός (με inline δημιουργία μέσω BFF /api/*) */}
+          <CategoryRythmPickerClient
+            initialCategoryId={song.categoryId}
+            initialRythmId={song.rythmId}
+            categories={categories}
+            rythms={rythms}
+          />
 
           <footer className="song-edit-actions">
-           <button type="submit" className="song-edit-submit">
+            <button type="submit" className="song-edit-submit">
               {isCreate ? "Δημιουργία τραγουδιού" : "Αποθήκευση αλλαγών"}
             </button>
 
             <Link href={isCreate ? "/songs" : `/songs/${song.id}`} className="song-edit-cancel">
               Άκυρο
             </Link>
-
           </footer>
         </form>
       </section>
     </main>
   );
 }
+
+// -----------------------------------------------------------------------------
+// Backwards-compatibility exports
+export type SongEditFormSong = SongForEdit;
+export type SongCredits = SongCreditsDto;

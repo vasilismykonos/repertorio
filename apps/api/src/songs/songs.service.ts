@@ -4,7 +4,9 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Optional,
 } from "@nestjs/common";
+
 import { PrismaService } from "../prisma/prisma.service";
 import {
   AssetKind,
@@ -80,6 +82,22 @@ type SongDetailDto = {
   categoryTitle: string | null;
   composerName: string | null;
   lyricistName: string | null;
+  credits: {
+    composers: Array<{
+      creditId: number;
+      artistId: number;
+      title: string;
+      firstName: string | null;
+      lastName: string | null;
+    }>;
+    lyricists: Array<{
+      creditId: number;
+      artistId: number;
+      title: string;
+      firstName: string | null;
+      lastName: string | null;
+    }>;
+  };
   rythmTitle: string | null;
 
   basedOnSongId: number | null;
@@ -253,8 +271,9 @@ export class SongsService {
   // ✅ CHANGED: inject και το ES sync service
   constructor(
     private readonly prisma: PrismaService,
-    private readonly esSync: ElasticsearchSongsSyncService,
+    @Optional() private readonly esSync?: ElasticsearchSongsSyncService,
   ) {}
+
 
   /**
    * Επιστρέφει 1 τραγούδι σε DTO συμβατό με το SongDetail του Next.
@@ -323,6 +342,29 @@ export class SongsService {
       lyricistArtists.length > 0
         ? lyricistArtists.map((a) => buildArtistDisplayName(a)).join(", ")
         : null;
+
+// ✅ NEW: Credits details (for edit UI) - replaces legacy /songs/:id/credits
+const creditsDto = {
+  composers: (song.credits ?? [])
+    .filter((c) => c.role === SongCreditRole.COMPOSER)
+    .map((c) => ({
+      creditId: c.id,
+      artistId: c.artistId,
+      title: c.artist.title,
+      firstName: c.artist.firstName ?? null,
+      lastName: c.artist.lastName ?? null,
+    })),
+  lyricists: (song.credits ?? [])
+    .filter((c) => c.role === SongCreditRole.LYRICIST)
+    .map((c) => ({
+      creditId: c.id,
+      artistId: c.artistId,
+      title: c.artist.title,
+      firstName: c.artist.firstName ?? null,
+      lastName: c.artist.lastName ?? null,
+    })),
+};
+
 
     const basedOnSongId = song.basedOnSong?.id ?? null;
     const basedOnSongTitle = song.basedOnSong?.title ?? null;
@@ -440,6 +482,7 @@ export class SongsService {
       categoryTitle,
       composerName,
       lyricistName,
+      credits: creditsDto,
       rythmTitle,
 
       basedOnSongId,
@@ -870,7 +913,8 @@ export class SongsService {
     });
 
     // ✅ NEW: sync στο Elasticsearch ΠΑΝΤΑ μετά το transaction
-    await this.esSync.upsertSong(id);
+    await this.esSync?.upsertSong(id);
+
 
     return this.findOne(id, true);
   }
@@ -1136,7 +1180,7 @@ export class SongsService {
     });
 
     // Συγχρονίζουμε το νέο τραγούδι στο Elasticsearch
-    await this.esSync.upsertSong(songId);
+    await this.esSync?.upsertSong(songId);
     // Επιστρέφουμε το νέο τραγούδι χωρίς να αυξήσουμε views
     return this.findOne(songId, true);
 

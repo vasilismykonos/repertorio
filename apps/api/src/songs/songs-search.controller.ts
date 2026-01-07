@@ -3,15 +3,17 @@ import { Controller, Get, HttpException, HttpStatus, Query } from "@nestjs/commo
 
 @Controller("songs")
 export class SongsSearchController {
-  private readonly ES_URL =
-    process.env.ES_SONGS_URL ?? "http://localhost:9200/app_songs/_search";
+  private readonly ES_URL: string;
 
-  private parseNumber(
-    value: string | undefined,
-    fallback: number,
-    min?: number,
-    max?: number,
-  ) {
+  constructor() {
+    const ES_URL = process.env.ES_SONGS_URL;
+    if (!ES_URL) {
+      throw new HttpException("Missing ES_SONGS_URL", HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+    this.ES_URL = ES_URL;
+  }
+
+  private parseNumber(value: string | undefined, fallback: number, min?: number, max?: number) {
     const n = Number(value);
     if (!Number.isFinite(n)) return fallback;
     if (typeof min === "number" && n < min) return min;
@@ -164,10 +166,7 @@ export class SongsSearchController {
 
       return { total, items };
     } catch (e: any) {
-      throw new HttpException(
-        e?.message ?? "Elasticsearch request failed",
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new HttpException(e?.message ?? "Elasticsearch request failed", HttpStatus.BAD_GATEWAY);
     }
   }
 }

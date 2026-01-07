@@ -12,7 +12,7 @@ type ArtistOption = {
 type SelectedArtist = { id: number; label: string };
 
 type Props = {
-  // truth from /songs/:id/credits
+  // truth from GET /songs/:id (credits included)
   initialComposerArtistIds: number[];
   initialLyricistArtistIds: number[];
 
