@@ -7,8 +7,6 @@ export type CategoryOption = { id: number; title: string };
 export type RythmOption = { id: number; title: string };
 
 type Props = {
-  apiBase: string; // κρατιέται για parity, δεν χρησιμοποιείται για categories
-
   initialCategoryId: number | null;
   initialRythmId: number | null;
 
@@ -16,17 +14,18 @@ type Props = {
   rythms: RythmOption[];
 };
 
+
 function sortByTitle<T extends { title: string }>(arr: T[]): T[] {
   return [...arr].sort((a, b) => a.title.localeCompare(b.title, "el"));
 }
 
 export default function CategoryRythmPickerClient({
-  apiBase,
   initialCategoryId,
   initialRythmId,
   categories,
   rythms,
 }: Props) {
+
   const [categoryId, setCategoryId] = useState(
     initialCategoryId != null ? String(initialCategoryId) : "",
   );
