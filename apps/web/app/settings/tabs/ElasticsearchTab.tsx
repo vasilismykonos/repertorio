@@ -105,10 +105,12 @@ function formatDiscographies(d?: PreviewItem["discographies"]) {
 }
 
 export default function ElasticsearchTab() {
-  const apiBase = useMemo(() => {
-    const raw = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.repertorio.net/api/v1";
-    return raw.replace(/\/$/, "");
-  }, []);
+  /**
+   * ✅ NEW ARCH RULE (categories template):
+   * Client-side calls MUST stay same-origin to avoid CORS / wrong domain.
+   * Nginx proxies /api/v1 -> API server.
+   */
+  const apiBase = "/api/v1";
 
   const [status, setStatus] = useState<ReindexStatus | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
@@ -134,7 +136,10 @@ export default function ElasticsearchTab() {
     setError(null);
 
     try {
-      const res = await fetch(`${apiBase}/admin/es/status`, { cache: "no-store" });
+      const res = await fetch(`${apiBase}/admin/es/status`, {
+        cache: "no-store",
+        headers: { accept: "application/json" },
+      });
 
       if (!res.ok) {
         const t = await res.text().catch(() => "");
@@ -160,7 +165,10 @@ export default function ElasticsearchTab() {
     setError(null);
 
     try {
-      const res = await fetch(`${apiBase}/admin/es/preview?take=25`, { cache: "no-store" });
+      const res = await fetch(`${apiBase}/admin/es/preview?take=25`, {
+        cache: "no-store",
+        headers: { accept: "application/json" },
+      });
 
       if (!res.ok) {
         const t = await res.text().catch(() => "");
@@ -194,7 +202,10 @@ export default function ElasticsearchTab() {
 
       const res = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
         body: JSON.stringify({}),
       });
 

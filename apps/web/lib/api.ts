@@ -17,14 +17,11 @@ const API_INTERNAL_BASE_URL: string = (
 ).replace(/\/$/, "");
 
 /**
- * Βασικό URL για κλήσεις από browser (client-side).
- *
- * - Αν υπάρχει NEXT_PUBLIC_API_BASE_URL το χρησιμοποιούμε αυτούσιο.
- * - Αλλιώς fallback στο "/api/v1" ώστε να παίζει μέσω Nginx reverse proxy.
+ * ✅ NEW ARCH RULE (categories-template consistency):
+ * Browser calls must ALWAYS stay same-origin to avoid CORS / wrong domain.
+ * Nginx is responsible for proxying /api/v1 -> API server.
  */
-const API_BROWSER_BASE_URL: string = (
-  process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1"
-).replace(/\/$/, "");
+const API_BROWSER_BASE_URL: string = "/api/v1";
 
 /**
  * Επιστρέφει true αν το path είναι absolute URL.
@@ -82,26 +79,36 @@ function applyServerNoStoreDefaults(options: RequestInit): RequestInit {
  * - Αν το path είναι absolute (http/https), χρησιμοποιείται αυτούσιο.
  * - Αλλιώς:
  *   - Server (SSR / RSC) → API_INTERNAL_BASE_URL (ή NEXT_PUBLIC_API_BASE_URL)
- *   - Browser → API_BROWSER_BASE_URL
+ *   - Browser → ALWAYS same-origin "/api/v1"
  */
 export async function fetchJson<T = any>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
   const finalOptionsBase = applyServerNoStoreDefaults(options);
-  const method = getMethod(finalOptionsBase);
 
   // Συνθέτουμε headers χωρίς να “σπάμε” caller headers.
-  // Content-Type: application/json έχει νόημα κυρίως σε requests με body,
-  // αλλά δεν κάνει κακό στα GET — παρ’ όλα αυτά το κρατάμε απλό/σταθερό.
   const headers: Record<string, string> = {
     ...(finalOptionsBase.headers as any),
   };
 
-  if (!headers["Content-Type"] && !headers["content-type"]) {
+  if (!headers["Accept"] && !headers["accept"]) {
+    headers["Accept"] = "application/json";
+  }
+
+  // Μόνο αν υπάρχει body και δεν έχει δηλωθεί content-type, βάζουμε JSON.
+  const method = getMethod(finalOptionsBase);
+  const hasBody =
+    typeof (finalOptionsBase as any).body !== "undefined" &&
+    (finalOptionsBase as any).body !== null &&
+    method !== "GET" &&
+    method !== "HEAD";
+
+  if (hasBody && !headers["Content-Type"] && !headers["content-type"]) {
     headers["Content-Type"] = "application/json";
   }
 
+  // Absolute URL: χρησιμοποιείται αυτούσιο
   if (isAbsoluteUrl(path)) {
     const res = await fetch(path, {
       ...finalOptionsBase,
@@ -122,12 +129,14 @@ export async function fetchJson<T = any>(
     return (await res.text()) as any;
   }
 
+  // ✅ Base επιλογή ανά περιβάλλον
   const base =
     typeof window === "undefined" ? API_INTERNAL_BASE_URL : API_BROWSER_BASE_URL;
 
-  if (!base) {
+  // Server-side απαιτείται absolute base URL. Browser base είναι πάντα /api/v1.
+  if (typeof window === "undefined" && !base) {
     throw new Error(
-      "Missing API base URL. Set API_INTERNAL_BASE_URL (server) and/or NEXT_PUBLIC_API_BASE_URL (client).",
+      "Missing API base URL. Set API_INTERNAL_BASE_URL (server) (or NEXT_PUBLIC_API_BASE_URL fallback).",
     );
   }
 

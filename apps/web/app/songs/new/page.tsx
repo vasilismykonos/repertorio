@@ -22,10 +22,6 @@ export const metadata: Metadata = {
   title: "Νέο τραγούδι",
 };
 
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.repertorio.net/api/v1"
-).replace(/\/$/, "");
-
 function isPrivilegedRole(role?: UserRole | null): boolean {
   return role === "ADMIN" || role === "EDITOR" || role === "AUTHOR";
 }
@@ -44,13 +40,14 @@ export default async function NewSongPage() {
     redirect("/songs");
   }
 
+  // ✅ Server-side fetch (NO hardcoded domain)
   const [categories, rythms] = await Promise.all([
-    fetchJson<CategoryOption[]>(`${API_BASE_URL}/categories`, {
-      cache: "no-store",
-    }).catch(() => [] as CategoryOption[]),
-    fetchJson<RythmOption[]>(`${API_BASE_URL}/rythms`, {
-      cache: "no-store",
-    }).catch(() => [] as RythmOption[]),
+    fetchJson<CategoryOption[]>("/categories", { cache: "no-store" }).catch(
+      () => [] as CategoryOption[],
+    ),
+    fetchJson<RythmOption[]>("/rythms", { cache: "no-store" }).catch(
+      () => [] as RythmOption[],
+    ),
   ]);
 
   const blankSong: SongEditFormSong = {
@@ -86,7 +83,6 @@ export default async function NewSongPage() {
     versions: [],
   };
 
-
   const blankCredits: SongCredits = {
     composerArtistIds: [],
     lyricistArtistIds: [],
@@ -110,7 +106,8 @@ export default async function NewSongPage() {
         // ✅ αντί για currentUser prop
         isOwner={true}
         currentUserRoleLabel={roleLabel(currentUser?.role)}
-        apiBase={API_BASE_URL}
+        // ✅ NEW ARCH RULE: client calls must be same-origin
+        apiBase="/api/v1"
       />
     </main>
   );

@@ -5,9 +5,10 @@ import Link from "next/link";
 import FiltersModal from "./FiltersModal";
 import type { Option } from "./FilterSelectWithSearch";
 
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.repertorio.net/api/v1"
-).replace(/\/$/, "");
+// ✅ NEW ARCH RULE:
+// Browser calls must ALWAYS stay same-origin to avoid CORS / wrong domain.
+// Nginx is responsible for proxying /api/v1 -> API server.
+const API_BASE_URL = "/api/v1";
 
 type SongSearchItem = {
   id?: number;
@@ -124,6 +125,7 @@ type TagDto = {
   slug?: string | null;
   [key: string]: any;
 };
+
 function findOrganikoTagId(tags: TagDto[]): string | null {
   for (const t of tags || []) {
     const title = String(t?.title ?? "").trim();
@@ -237,7 +239,6 @@ function normalizeParam(p: string | string[] | undefined): string {
 }
 
 function buildEsQueryFromFilters(filters: FiltersState, organikoTagId: string | null): URLSearchParams {
-
   const params = new URLSearchParams();
 
   params.set("take", String(filters.take));
@@ -683,18 +684,16 @@ export default function SongsSearchClient({ searchParams }: Props) {
     null: 0,
   } as any);
 
-    const [lyricsCounts, setLyricsCounts] = useState<Record<string, number>>({
+  const [lyricsCounts, setLyricsCounts] = useState<Record<string, number>>({
     "1": 0,
     "0": 0,
   } as any);
-
 
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
 
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [organikoTagId, setOrganikoTagId] = useState<string | null>(null);
-
 
   // static filters
   useEffect(() => {
@@ -729,7 +728,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
         setTags(normalizedTags);
         setOrganikoTagId(findOrganikoTagId(normalizedTags));
-
       } catch {
         if (cancelled) return;
         setCategories([]);
@@ -982,7 +980,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
       cancelled = true;
     };
   }, [filters, categories, rythms, tags, organikoTagId]);
-
 
   const patchFilters = (patch: Partial<FiltersState>) => {
     setFilters((prev) => ({

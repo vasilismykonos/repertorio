@@ -129,7 +129,13 @@ export default function SongEditForm({
   const firstLyricsDerived = deriveFirstLyricsFromLyrics(song.lyrics);
   const initialTagIds = song.tags.map((t) => t.id);
   const initialAssets = song.assets;
-  const initialVersions = song.versions;
+  const initialVersions = (song.versions ?? []).map((v) => ({
+    ...v,
+    singerFrontIds: v.singerFrontIds ?? [],
+    singerBackIds: v.singerBackIds ?? [],
+    solistIds: v.solistIds ?? [],
+  }));
+
 
   const initialComposerArtistIds = credits.composerArtistIds;
   const initialLyricistArtistIds = credits.lyricistArtistIds;
@@ -139,6 +145,7 @@ export default function SongEditForm({
   const initialLyricistNames = splitNames(song.lyricistName ?? null);
 
   const formAction = isCreate ? "/api/songs" : `/api/songs/${song.id}`;
+ 
 
   return (
     <main className="song-edit-page">
@@ -284,11 +291,11 @@ export default function SongEditForm({
             <h2 className="song-edit-section-title">Tags</h2>
 
             <TagsEditorClient
-              apiBaseUrl={apiBase}
               initialTags={song.tags}
               hiddenInputId="tagIdsJson"
               take={25}
             />
+
           </div>
 
           {/* ✅ Credits ΠΑΝΩ από Discographies */}
@@ -312,6 +319,9 @@ export default function SongEditForm({
               initialVersions={initialVersions}
               hiddenInputId="versionsJson"
             />
+
+
+
           </div>
 
           {/* ✅ Κατηγορία / Ρυθμός (με inline δημιουργία μέσω BFF /api/*) */}

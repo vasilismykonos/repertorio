@@ -1,17 +1,24 @@
 // apps/web/app/api/songs/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import {
+  buildForwardHeaders,
+  getApiBaseUrl,
+  missingApiBaseUrlResponse,
+  readBodyAsJson,
+} from "../_lib/proxy";
 
-type CreditsJson = {
-  composerArtistIds?: unknown;
-  lyricistArtistIds?: unknown;
+type ApiSongResponse = {
+  id: number;
+  title: string;
 };
 
-type CreateSongBody = {
-  composerArtistIds?: number[];
-  lyricistArtistIds?: number[];
+type CreditsBody = {
+  composerArtistIds: number[];
+  lyricistArtistIds: number[];
+};
 
-  title: string;
-
+type PatchSongBody = {
+  title?: string;
   firstLyrics?: string | null;
   lyrics?: string | null;
   characteristics?: string | null;
@@ -25,15 +32,12 @@ type CreateSongBody = {
 
   tagIds?: number[] | null;
 
+  // ✅ πλέον τα στέλνουμε
   assets?: any[] | null;
+
+  // ✅ NEW
   versions?: any[] | null;
 };
-
-const API_BASE_URL = (
-  process.env.API_INTERNAL_BASE_URL ||
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://api.repertorio.net/api/v1"
-).replace(/\/$/, "");
 
 function buildRedirectHtml(targetPath: string): string {
   const safePath = targetPath.startsWith("/") ? targetPath : `/${targetPath}`;
@@ -41,175 +45,85 @@ function buildRedirectHtml(targetPath: string): string {
 <html lang="el">
   <head>
     <meta charset="utf-8" />
-    <title>Μεταφορά...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="refresh" content="0; url=${safePath}" />
-    <meta name="robots" content="noindex" />
+    <title>Redirecting...</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; }
+      a { color: #2563eb; }
+    </style>
   </head>
   <body>
-    <p>Μεταφορά...</p>
-    <script>
-      (function () {
-        try { window.location.replace(${JSON.stringify(safePath)}); } catch (e) {}
-      })();
-    </script>
+    <p>Redirecting to <a href="${safePath}">${safePath}</a> ...</p>
+    <script>window.location.replace(${JSON.stringify(safePath)});</script>
   </body>
 </html>`;
 }
 
-function pickForwardHeader(req: NextRequest, name: string): string | undefined {
-  const v = req.headers.get(name);
-  return v && v.trim() ? v : undefined;
-}
-
-function parseJsonSafe<T>(input: FormDataEntryValue | null, fallback: T): T {
-  try {
-    if (typeof input !== "string") return fallback;
-    const s = input.trim();
-    if (!s) return fallback;
-    return JSON.parse(s) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function normalizeIds(input: unknown): number[] {
-  if (!Array.isArray(input)) return [];
-  const out: number[] = [];
-  const seen = new Set<number>();
-  for (const x of input) {
-    const n = Math.trunc(Number(x));
-    if (!Number.isFinite(n) || n <= 0) continue;
-    if (seen.has(n)) continue;
-    seen.add(n);
-    out.push(n);
-  }
-  return out;
-}
-
-function normalizeArray(input: unknown): any[] {
-  return Array.isArray(input) ? input : [];
-}
-
-function toStringOrNull(v: FormDataEntryValue | null): string | null {
-  if (typeof v !== "string") return null;
-  const s = v;
-  return s.trim() === "" ? null : s;
-}
-
-function toNumberOrNull(v: FormDataEntryValue | null): number | null {
-  if (typeof v !== "string") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
 export async function POST(req: NextRequest) {
-  const formData = await req.formData();
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) return missingApiBaseUrlResponse();
 
-  // ίδια ονόματα fields με SongEditForm
-  const title = toStringOrNull(formData.get("title"));
-  const firstLyrics = toStringOrNull(formData.get("firstLyrics"));
-  const lyrics = toStringOrNull(formData.get("lyrics"));
-  const characteristics = toStringOrNull(formData.get("characteristics"));
-  const originalKey = toStringOrNull(formData.get("originalKey"));
-  const chords = toStringOrNull(formData.get("chords"));
-  const status = toStringOrNull(formData.get("status"));
-
-  const categoryId = toNumberOrNull(formData.get("categoryId"));
-  const rythmId = toNumberOrNull(formData.get("rythmId"));
-  const makamId = toNumberOrNull(formData.get("makamId"));
-
-  const parsedTagIds = parseJsonSafe<unknown>(formData.get("tagIdsJson"), []);
-  const tagIds = normalizeIds(parsedTagIds);
-
-  const parsedAssets = parseJsonSafe<unknown>(formData.get("assetsJson"), []);
-  const assets = normalizeArray(parsedAssets);
-
-  const parsedVersions = parseJsonSafe<unknown>(formData.get("versionsJson"), []);
-  const versions = normalizeArray(parsedVersions);
-
-  // creditsJson: IDS
-  const parsedCredits = parseJsonSafe<CreditsJson>(formData.get("creditsJson"), {});
-  const composerArtistIds = normalizeIds(parsedCredits?.composerArtistIds);
-  const lyricistArtistIds = normalizeIds(parsedCredits?.lyricistArtistIds);
-
-  if (!title) {
-    return new NextResponse(buildRedirectHtml("/songs/new?error=1"), {
-      status: 302,
-      headers: { "content-type": "text/html" },
-    });
+  let bodyJson: Record<string, any>;
+  try {
+    bodyJson = await readBodyAsJson(req);
+  } catch (e: any) {
+    return NextResponse.json(
+      { message: e?.message || "Invalid request body" },
+      { status: 400 },
+    );
   }
 
-  const body: CreateSongBody = {
-    title,
-    firstLyrics,
-    lyrics,
-    characteristics,
-    originalKey,
-    chords,
-    status,
-    categoryId,
-    rythmId,
-    makamId,
-    tagIds,
-    assets,
-    versions,
-    composerArtistIds,
-    lyricistArtistIds,
-  };
+  const upstreamCreateUrl = `${baseUrl}/songs/full`;
 
-  const cookie = pickForwardHeader(req, "cookie");
-  const authorization = pickForwardHeader(req, "authorization");
+  const headers = buildForwardHeaders(req, {
+    "content-type": "application/json",
+  });
 
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (cookie) headers.cookie = cookie;
-  if (authorization) headers.authorization = authorization;
-
-  let ok = true;
-  let newId: number | null = null;
-
-  // 1) CREATE song (upstream)
-  const upstreamCreateUrl = `${API_BASE_URL}/songs/full`;
+  let upstreamRes: Response;
   try {
-    const res = await fetch(upstreamCreateUrl, {
+    upstreamRes = await fetch(upstreamCreateUrl, {
       method: "POST",
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify(bodyJson),
     });
-
-    if (!res.ok) {
-      ok = false;
-      const text = await res.text().catch(() => "");
-      console.error("Create song failed", {
-        upstreamCreateUrl,
-        status: res.status,
-        statusText: res.statusText,
-        responseText: text,
-      });
-    } else {
-      const created = (await res.json().catch(() => null)) as { id?: number } | null;
-      const idCandidate = Number(created?.id);
-      if (Number.isFinite(idCandidate) && idCandidate > 0) newId = idCandidate;
-      else ok = false;
-    }
-  } catch (err) {
-    ok = false;
-    console.error("Create song threw error", { upstreamCreateUrl, err });
+  } catch (e: any) {
+    return NextResponse.json(
+      { message: e?.message || "Upstream request failed" },
+      { status: 502 },
+    );
   }
 
-  // αν δεν δημιουργήθηκε, γύρνα πίσω
-  if (!ok || !newId) {
-    return new NextResponse(buildRedirectHtml("/songs/new?error=1"), {
-      status: 302,
-      headers: { "content-type": "text/html" },
-    });
+  const contentType = upstreamRes.headers.get("content-type") || "";
+  const isJson = contentType.includes("application/json");
+
+  if (!upstreamRes.ok) {
+    const errBody = isJson ? await upstreamRes.json().catch(() => null) : null;
+    return NextResponse.json(
+      errBody || { message: `Upstream error (${upstreamRes.status})` },
+      { status: upstreamRes.status },
+    );
   }
 
-  // 2) ✅ Credits πλέον περιλαμβάνονται στο /songs/full payload (no extra request)
+  const created: ApiSongResponse | null = isJson
+    ? await upstreamRes.json().catch(() => null)
+    : null;
 
-// redirect: αν credits fail, ακόμα έχεις τραγούδι, απλώς δείξε error
-  const targetPath = ok ? `/songs/${newId}/edit` : `/songs/${newId}/edit?error=1`;
-  return new NextResponse(buildRedirectHtml(targetPath), {
-    status: 302,
-    headers: { "content-type": "text/html" },
+  if (!created?.id) {
+    return NextResponse.json(
+      { message: "Invalid upstream response" },
+      { status: 502 },
+    );
+  }
+
+  const targetPath = `/songs/${created.id}/edit`;
+  const html = buildRedirectHtml(targetPath);
+
+  return new NextResponse(html, {
+    status: 303,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      location: targetPath,
+    },
   });
 }

@@ -10,11 +10,12 @@ function toStr(v: unknown): string {
 }
 
 export default function TagsTab() {
-  const apiBase = useMemo(() => {
-    const raw =
-      process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.repertorio.net/api/v1";
-    return raw.replace(/\/$/, "");
-  }, []);
+  /**
+   * ✅ NEW ARCH RULE:
+   * Client-side calls MUST stay same-origin (avoid CORS / wrong domain).
+   * Nginx proxies /api/v1 -> API server.
+   */
+  const apiBase = "/api/v1";
 
   const routes = useMemo(() => {
     return {
@@ -87,6 +88,7 @@ export default function TagsTab() {
         const res = await fetch(routes.list(q), {
           cache: "no-store",
           signal: abortRef.current.signal,
+          headers: { accept: "application/json" },
         });
 
         if (!res.ok) {
@@ -130,7 +132,10 @@ export default function TagsTab() {
     try {
       const res = await fetch(routes.create, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
         body: JSON.stringify({ title }),
       });
 
@@ -170,7 +175,10 @@ export default function TagsTab() {
     try {
       const res = await fetch(routes.update(id), {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
         body: JSON.stringify({ title }),
       });
 
@@ -194,7 +202,9 @@ export default function TagsTab() {
 
       // ✅ UI protection
       if ((t.usageCount ?? 0) > 0) {
-        setError(`Δεν μπορείς να διαγράψεις tag που χρησιμοποιείται (usageCount=${t.usageCount}).`);
+        setError(
+          `Δεν μπορείς να διαγράψεις tag που χρησιμοποιείται (usageCount=${t.usageCount}).`,
+        );
         return;
       }
 
@@ -204,7 +214,10 @@ export default function TagsTab() {
       setBusy(`del:${t.id}`);
       setError(null);
       try {
-        const res = await fetch(routes.del(t.id), { method: "DELETE" });
+        const res = await fetch(routes.del(t.id), {
+          method: "DELETE",
+          headers: { accept: "application/json" },
+        });
 
         if (!res.ok) {
           const body = await res.text().catch(() => "");
@@ -406,9 +419,7 @@ export default function TagsTab() {
                   </td>
 
                   <td style={{ padding: 8, borderBottom: `1px solid ${UI.tableRowBorder}`, color: UI.text }}>
-                    <span style={{ color: inUse ? UI.text : UI.muted }}>
-                      {t.usageCount ?? 0}
-                    </span>
+                    <span style={{ color: inUse ? UI.text : UI.muted }}>{t.usageCount ?? 0}</span>
                   </td>
 
                   <td style={{ padding: 8, borderBottom: `1px solid ${UI.tableRowBorder}` }}>

@@ -40,9 +40,12 @@ type Props = {
   hiddenInputId: string;
 };
 
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.repertorio.net/api/v1"
-).replace(/\/$/, "");
+/**
+ * ✅ NEW ARCH RULE:
+ * Client-side calls MUST stay same-origin to avoid CORS / wrong domain.
+ * Nginx proxies /api/v1 -> Nest API.
+ */
+const API_BASE_URL = "/api/v1";
 
 const YEAR_MIN = 1900;
 const YEAR_MAX = 2050;
@@ -534,9 +537,7 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
                 </div>
               </button>
 
-              {errorMsg ? (
-                <div style={{ color: "#ffb4b4", fontSize: 12 }}>{errorMsg}</div>
-              ) : null}
+              {errorMsg ? <div style={{ color: "#ffb4b4", fontSize: 12 }}>{errorMsg}</div> : null}
             </div>
           ) : (
             options.map((a) => {
@@ -612,7 +613,6 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
     </div>
   );
 }
-
 
 export default function DiscographiesEditorClient({ songTitle, initialVersions, hiddenInputId }: Props) {
   const [rows, setRows] = useState<DiscographyRow[]>([]);

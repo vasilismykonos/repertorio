@@ -9,7 +9,6 @@ export type TagDto = {
 };
 
 type Props = {
-  apiBaseUrl: string; // π.χ. https://api.repertorio.net/api/v1 (χωρίς trailing /)
   initialTags: TagDto[];
   hiddenInputId?: string; // default tagIdsJson
   take?: number; // default 25
@@ -27,9 +26,9 @@ function normalizeIds(input: unknown): number[] {
 function uniqueTags(tags: TagDto[]): TagDto[] {
   const map = new Map<number, TagDto>();
   for (const t of tags || []) {
-    const id = Number(t?.id);
-    const title = String(t?.title ?? "").trim();
-    const slug = String(t?.slug ?? "").trim();
+    const id = Number((t as any)?.id);
+    const title = String((t as any)?.title ?? "").trim();
+    const slug = String((t as any)?.slug ?? "").trim();
     if (!Number.isFinite(id) || id <= 0) continue;
     if (!title) continue;
     if (!map.has(id)) map.set(id, { id, title, slug });
@@ -38,7 +37,6 @@ function uniqueTags(tags: TagDto[]): TagDto[] {
 }
 
 export default function TagsEditorClient({
-  apiBaseUrl,
   initialTags,
   hiddenInputId = "tagIdsJson",
   take = 25,
@@ -61,14 +59,14 @@ export default function TagsEditorClient({
 
   async function fetchTags(search: string): Promise<TagDto[]> {
     const s = search.trim();
-    const url =
-      s.length > 0
-        ? `${apiBaseUrl}/songs/tags?search=${encodeURIComponent(s)}&take=${encodeURIComponent(String(take))}`
-        : `${apiBaseUrl}/songs/tags?take=${encodeURIComponent(String(take))}`;
-console.log("[TagsEditorClient] apiBaseUrl=", apiBaseUrl);
-console.log("[TagsEditorClient] tags url=", url);
 
-    const res = await fetch(url, { credentials: "include" });
+    // ✅ ΠΑΝΤΑ μέσω BFF για να μη χτυπάμε CORS (browser -> same origin)
+    const upstream =
+      s.length > 0
+        ? `/api/songs/tags?search=${encodeURIComponent(s)}&take=${encodeURIComponent(String(take))}`
+        : `/api/songs/tags?take=${encodeURIComponent(String(take))}`;
+
+    const res = await fetch(upstream, { credentials: "include" });
     if (!res.ok) throw new Error(`Tag search failed: HTTP ${res.status}`);
 
     const data = (await res.json()) as unknown;
@@ -84,7 +82,8 @@ console.log("[TagsEditorClient] tags url=", url);
   }
 
   async function createTag(title: string): Promise<TagDto> {
-    const res = await fetch(`${apiBaseUrl}/songs/tags`, {
+    // ✅ ΠΑΝΤΑ μέσω BFF
+    const res = await fetch(`/api/songs/tags`, {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
@@ -115,7 +114,7 @@ console.log("[TagsEditorClient] tags url=", url);
       } catch (e) {
         console.error(e);
         setSuggestions([]);
-        setStatus("Tag search failed (έλεγξε endpoint /songs/tags)");
+        setStatus("Tag search failed (έλεγξε /api/songs/tags)");
       }
     }, 250);
 
@@ -123,7 +122,7 @@ console.log("[TagsEditorClient] tags url=", url);
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, apiBaseUrl, take, selectedIds.join(",")]);
+  }, [query, take, selectedIds.join(",")]);
 
   async function loadTopTags() {
     try {
@@ -134,7 +133,7 @@ console.log("[TagsEditorClient] tags url=", url);
     } catch (e) {
       console.error(e);
       setSuggestions([]);
-      setStatus("Tag search failed (έλεγξε endpoint /songs/tags)");
+      setStatus("Tag search failed (έλεγξε /api/songs/tags)");
     }
   }
 
@@ -176,8 +175,8 @@ console.log("[TagsEditorClient] tags url=", url);
       setStatus("");
     } catch (e) {
       console.error(e);
-      setStatus("Tag create failed (έλεγξε POST /songs/tags)");
-      alert("Αποτυχία δημιουργίας tag. Έλεγξε POST /songs/tags.");
+      setStatus("Tag create failed (έλεγξε POST /api/songs/tags)");
+      alert("Αποτυχία δημιουργίας tag. Έλεγξε POST /api/songs/tags.");
     }
   }
 
@@ -248,8 +247,6 @@ console.log("[TagsEditorClient] tags url=", url);
         </button>
 
         <span style={{ opacity: 0.75, fontSize: 12 }}>{status}</span>
-
-        
       </div>
 
       {suggestions.length > 0 && (
