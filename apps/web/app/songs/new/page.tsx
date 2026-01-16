@@ -1,7 +1,10 @@
 // apps/web/app/songs/new/page.tsx
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
+
+import ActionBar from "@/app/components/ActionBar";
+import { LinkButton } from "@/app/components/buttons";
+
 import { fetchJson } from "@/lib/api";
 import {
   getCurrentUserFromApi,
@@ -40,7 +43,6 @@ export default async function NewSongPage() {
     redirect("/songs");
   }
 
-  // ✅ Server-side fetch (NO hardcoded domain)
   const [categories, rythms] = await Promise.all([
     fetchJson<CategoryOption[]>("/categories", { cache: "no-store" }).catch(
       () => [] as CategoryOption[],
@@ -56,11 +58,9 @@ export default async function NewSongPage() {
     firstLyrics: null,
     lyrics: null,
 
-    // legacy fallback strings (προαιρετικά στο type)
     composerName: null,
     lyricistName: null,
 
-    // ✅ στο edit το source-of-truth για UI είναι tags (όχι tagIds)
     tags: [],
 
     assets: [],
@@ -90,12 +90,15 @@ export default async function NewSongPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Νέο τραγούδι</h1>
-        <Link className="text-sm underline" href="/songs">
-          Επιστροφή
-        </Link>
-      </div>
+      <ActionBar
+        left={<h1 className="text-2xl font-semibold">Νέο τραγούδι</h1>}
+        right={
+          <LinkButton href="/songs" variant="secondary" action="back" title="Πίσω στη λίστα τραγουδιών">
+
+            Επιστροφή
+          </LinkButton>
+        }
+      />
 
       <SongEditForm
         song={blankSong}
@@ -103,10 +106,8 @@ export default async function NewSongPage() {
         categories={categories}
         rythms={rythms}
         createMode={true}
-        // ✅ αντί για currentUser prop
         isOwner={true}
         currentUserRoleLabel={roleLabel(currentUser?.role)}
-        // ✅ NEW ARCH RULE: client calls must be same-origin
         apiBase="/api/v1"
       />
     </main>

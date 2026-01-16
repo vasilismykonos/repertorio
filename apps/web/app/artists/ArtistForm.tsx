@@ -9,6 +9,11 @@ import React, {
   type FormEvent,
 } from "react";
 
+// Import the shared Button component so action buttons use the central
+// button architecture. This ensures consistent styling and behaviour across
+// the application.
+import { Button } from "@/app/components/buttons";
+
 /**
  * Pure form component for creating or editing an artist.
  *
@@ -67,6 +72,15 @@ export type ArtistFormProps = {
   ) => Promise<ArtistSaveResult>;
   onSaveDone?: (result: ArtistSaveResult) => void;
   onCancel: (artistId: number | null) => void;
+
+  /**
+   * When true, the default action buttons rendered at the bottom of the form
+   * are hidden. This allows callers to implement their own actions (e.g.
+   * buttons in a shared ActionBar) while still delegating save/cancel logic
+   * to this form via onSubmit/onCancel. Defaults to false for backwards
+   * compatibility.
+   */
+  hideActions?: boolean;
 };
 
 // Helpers to normalise Greek names by removing tonos and converting to upper-case.
@@ -98,6 +112,7 @@ export default function ArtistForm({
   onSubmit,
   onSaveDone,
   onCancel,
+  hideActions = false,
 }: ArtistFormProps) {
   // Keep internal id state so that newly created records can update the id.
   const [artistId, setArtistId] = useState<number | null>(artist?.id ?? null);
@@ -275,7 +290,8 @@ export default function ArtistForm({
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="form">
+      {/* Give the form a stable id so external buttons can trigger submission via form.requestSubmit() */}
+      <form onSubmit={handleSubmit} className="form" id="artist-form">
         {error && (
           <div className="alert alertError" role="alert">
             {error}
@@ -342,33 +358,36 @@ export default function ArtistForm({
               <label className="label">Φύλο (προαιρετικό)</label>
 
               <div className="segmented" role="group" aria-label="Φύλο">
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
                   className={`segBtn ${sexValue === "Άνδρας" ? "segBtnActive" : ""}`}
                   onClick={() => setSex(sexValue === "Άνδρας" ? "" : "Άνδρας")}
                   disabled={saving}
                 >
                   Άνδρας
-                </button>
+                </Button>
 
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
                   className={`segBtn ${sexValue === "Γυναίκα" ? "segBtnActive" : ""}`}
                   onClick={() => setSex(sexValue === "Γυναίκα" ? "" : "Γυναίκα")}
                   disabled={saving}
                 >
                   Γυναίκα
-                </button>
+                </Button>
 
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
                   className="segBtn segBtnClear"
                   onClick={() => setSex("")}
                   disabled={saving || !sexValue}
                   title="Καθαρισμός"
                 >
                   Καθαρισμός
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -528,18 +547,31 @@ export default function ArtistForm({
             />
           </div>
         </div>
-        <div className="actions">
-          <button type="submit" disabled={saving} className="btn btnPrimary">
-            {saving ? "Αποθήκευση..." : "Αποθήκευση"}
-          </button>
-          <button
-            type="button"
+        {/* Render default action buttons unless explicitly hidden by caller.  */}
+        <div className="actions" style={{ display: hideActions ? "none" : undefined }}>
+          {/*
+            Replace raw <button> elements with the shared Button component. Using
+            Button here aligns the form actions with the new button architecture
+            and central styling. The primary button triggers form submission
+            while the secondary button cancels the edit/create flow.
+          */}
+          <Button
+            type="submit"
+            variant="primary"
             disabled={saving}
-            className="btn btnGhost"
+            title="Αποθήκευση"
+          >
+            {saving ? "Αποθήκευση..." : "Αποθήκευση"}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={saving}
             onClick={handleCancel}
+            title="Άκυρο"
           >
             Άκυρο
-          </button>
+          </Button>
         </div>
       </form>
       <style jsx>{`
@@ -598,17 +630,22 @@ export default function ArtistForm({
         }
         .grid2 {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 14px;
         }
+
+        .field.full {
+          grid-column: 1 / -1;
+        }
+
+        /* σημαντικό για να μην ξεχειλίζουν τα παιδιά του grid */
         .field {
           display: flex;
           flex-direction: column;
           gap: 6px;
+          min-width: 0;
         }
-        .field.full {
-          grid-column: span 2;
-        }
+
         .label {
           font-size: 14px;
           font-weight: 600;
@@ -618,14 +655,14 @@ export default function ArtistForm({
         .textarea {
           padding: 8px 10px;
           border-radius: 6px;
-          border: 1px solid #444;
-          background: #222;
-          color: #fff;
+          border: 1px solid #ffffffff;
+          background: #ffffffff;
+          color: #000000ff;
           font-size: 14px;
         }
         .inputDisabled {
           background: #222;
-          color: #888;
+          color: #ffffffff;
           border-color: #333;
           cursor: not-allowed;
         }
@@ -677,7 +714,7 @@ export default function ArtistForm({
         }
         .dropZoneHint {
           font-size: 12px;
-          color: #777;
+          color: #ffffffff;
         }
         .imagePreviewWrap {
           width: 100%;
@@ -701,7 +738,7 @@ export default function ArtistForm({
           width: 100%;
           height: 100%;
           background: #222;
-          color: #666;
+          color: #ffffffff;
           font-size: 12px;
           padding: 10px;
         }
@@ -727,6 +764,16 @@ export default function ArtistForm({
           background: #222;
           color: #ddd;
         }
+        @media (max-width: 768px) {
+        .grid2 {
+          grid-template-columns: 1fr;
+        }
+
+        .segmented {
+          flex-wrap: wrap;
+        }
+      }
+
       `}</style>
     </>
   );

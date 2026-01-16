@@ -1,13 +1,31 @@
 // app/components/Header.tsx
 "use client";
 
-
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 
+// Wrapper: κρύβει εντελώς το header όταν έχουμε ?embed=1
 export default function Header() {
+  const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
+
+  if (isEmbed) {
+    // Σε embed mode (π.χ. /categories?embed=1 μέσα σε iframe)
+    // δεν αποδίδουμε καθόλου header, άρα δεν έχεις διπλό header.
+    return null;
+  }
+
+  return <HeaderInner searchParams={searchParams} />;
+}
+
+type HeaderInnerProps = {
+  // ReadonlyURLSearchParams στην πράξη, αλλά δεν μας απασχολεί ιδιαίτερα το ακριβές type
+  searchParams: ReturnType<typeof useSearchParams>;
+};
+
+function HeaderInner({ searchParams }: HeaderInnerProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // ---- NextAuth session ----
@@ -36,9 +54,6 @@ export default function Header() {
   const [isVoiceSupported, setIsVoiceSupported] = useState(false);
   const recognitionRef = useRef<any | null>(null);
   const recognitionTimeoutRef = useRef<number | null>(null);
-
-  // ---- search params από το URL ----
-  const searchParams = useSearchParams();
 
   // Ενημέρωση searchValue από το URL (ώστε να μην χάνεται μετά την αναζήτηση)
   useEffect(() => {
@@ -85,14 +100,14 @@ export default function Header() {
     window.addEventListener("storage", handleStorage as any);
     window.addEventListener(
       "rep_current_room_changed",
-      handleStorage as any
+      handleStorage as any,
     );
 
     return () => {
       window.removeEventListener("storage", handleStorage as any);
       window.removeEventListener(
         "rep_current_room_changed",
-        handleStorage as any
+        handleStorage as any,
       );
     };
   }, []);
@@ -125,7 +140,7 @@ export default function Header() {
         const match = data.find(
           (r) =>
             r.room &&
-            r.room.toLowerCase() === currentRoomName.toLowerCase()
+            r.room.toLowerCase() === currentRoomName.toLowerCase(),
         );
 
         if (match && typeof match.userCount === "number") {
@@ -256,7 +271,7 @@ export default function Header() {
   const closeSidebar = () => setIsSidebarOpen(false);
 
   const sidebarClass = `site-sidebar${isSidebarOpen ? " visible" : ""}`;
-  const overlayClass = `overlay${isSidebarOpen ? " visible" : ""}`;
+  const overlayClass = isSidebarOpen ? "visible" : "";
 
   // κοινό JSX για avatar (header + sidebar)
   const avatarNode = avatarUrl ? (
@@ -707,7 +722,7 @@ export default function Header() {
               </Link>
             </li>
 
-                        <li style={{ marginBottom: 10 }}>
+            <li style={{ marginBottom: 10 }}>
               <Link
                 href="/settings"
                 onClick={closeSidebar}
@@ -721,7 +736,6 @@ export default function Header() {
               </Link>
             </li>
 
-     
             <li style={{ marginBottom: 50 }}>
               <a
                 href="mailto:repertorio.net@gmail.com"

@@ -1,10 +1,12 @@
 // apps/web/app/artists/[id]/edit/page.tsx
-import Link from "next/link";
 import type { Metadata } from "next";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { fetchJson } from "@/lib/api";
-import ArtistEditForm, { type ArtistForEdit } from "./ArtistEditForm";
-import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
+import { type UserRole } from "@/lib/currentUser";
+import { requireUserRoleOrRedirect } from "@/lib/authz";
+import PageSuspense from "@/app/components/PageSuspense";
+import ArtistEditPageClient from "./ArtistEditPageClient";
+import { type ArtistForEdit } from "../../ArtistForm";
 
 type PageProps = {
   params: { id: string };
@@ -52,28 +54,17 @@ export async function generateMetadata(
 
 export default async function ArtistEditPage({ params }: PageProps) {
   const idNum = Number.parseInt(params.id, 10);
-  if (!Number.isFinite(idNum) || idNum <= 0) {
-    notFound();
-  }
+  if (!Number.isFinite(idNum) || idNum <= 0) notFound();
 
-  // Έλεγχος χρήστη (όπως κάνεις στα songs)
-  const currentUser = await getCurrentUserFromApi().catch(() => null);
-
-  if (!currentUser) {
-    // αν δεν είναι συνδεδεμένος, στείλτον στο login ή στο προφίλ του καλλιτέχνη
-    redirect(`/artists/${idNum}`);
-  }
-
+  // Require appropriate user role. If the user is not authorised, they
+  // will be redirected back to the artist profile page.
   const allowedRoles: UserRole[] = ["ADMIN", "EDITOR"];
-  if (!allowedRoles.includes(currentUser.role as UserRole)) {
-    // Δεν έχει δικαίωμα -> πίσω στο view
-    redirect(`/artists/${idNum}`);
-  }
+  await requireUserRoleOrRedirect(allowedRoles, `/artists/${idNum}`);
 
   let artistApi: ArtistDetailApi;
   try {
     artistApi = await fetchJson<ArtistDetailApi>(`/artists/${idNum}`);
-  } catch (err) {
+  } catch {
     notFound();
   }
 
@@ -99,20 +90,9 @@ export default async function ArtistEditPage({ params }: PageProps) {
         color: "#fff",
       }}
     >
-      <div style={{ marginBottom: 16 }}>
-        <Link
-          href={`/artists/${idNum}`}
-          style={{ color: "#ccc", textDecoration: "none", fontSize: 14 }}
-        >
-          ← Πίσω στο προφίλ καλλιτέχνη
-        </Link>
-      </div>
-
-      <h1 style={{ fontSize: 26, marginBottom: 16 }}>
-        Επεξεργασία καλλιτέχνη
-      </h1>
-
-      <ArtistEditForm artist={artistForEdit} />
+      <PageSuspense>
+        <ArtistEditPageClient idNum={idNum} artist={artistForEdit} />
+      </PageSuspense>
     </section>
   );
 }

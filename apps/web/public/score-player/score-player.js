@@ -461,10 +461,9 @@
 
       const ct = (res.headers.get("Content-Type") || "").toLowerCase();
       const isMxl =
-        state.fileUrl.toLowerCase().endsWith(".mxl") ||
-        ct.includes("application/vnd.recordare.musicxml") ||
         ct.includes("application/zip") ||
-        ct.includes("mxl");
+        ct.includes("application/x-zip-compressed");
+
 
       if (isMxl) {
         // MXL (zip) → διαβάζουμε binary και το κάνουμε binary string για την OSMD

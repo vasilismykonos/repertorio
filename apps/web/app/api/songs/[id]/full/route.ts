@@ -46,13 +46,36 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     );
   }
 
-  const headers = buildForwardHeaders(req, {
-    "content-type": "application/json",
-  });
+  // Same reason as POST /songs/full: API normalizer expects `json` string
+  const upstreamBody: Record<string, any> = {
+    json: JSON.stringify(bodyJson),
+  };
+
+  if (bodyJson.composerArtistIds !== undefined) {
+    upstreamBody.composerArtistIds = bodyJson.composerArtistIds;
+  }
+  if (bodyJson.lyricistArtistIds !== undefined) {
+    upstreamBody.lyricistArtistIds = bodyJson.lyricistArtistIds;
+  }
+
+  if (bodyJson.creditsJson !== undefined) {
+    upstreamBody.creditsJson =
+      typeof bodyJson.creditsJson === "string"
+        ? bodyJson.creditsJson
+        : JSON.stringify(bodyJson.creditsJson);
+  }
+  if (bodyJson.credits !== undefined) {
+    upstreamBody.credits =
+      typeof bodyJson.credits === "string"
+        ? bodyJson.credits
+        : JSON.stringify(bodyJson.credits);
+  }
+
+  const headers = buildForwardHeaders(req, { "content-type": "application/json" });
 
   return proxyJson(`${baseUrl}/songs/${songId}/full`, {
     method: "PATCH",
     headers,
-    body: JSON.stringify(bodyJson),
+    body: JSON.stringify(upstreamBody),
   });
 }

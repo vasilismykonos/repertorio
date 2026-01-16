@@ -1,6 +1,5 @@
 // apps/web/app/rooms/page.tsx
 
-import "@/public/rooms/repertorio-rooms.css";
 import RoomsClient from "./RoomsClient";
 import { getCurrentUserFromApi } from "@/lib/currentUser";
 
@@ -39,7 +38,6 @@ async function fetchInitialRooms(): Promise<Room[]> {
   try {
     const base = getRoomsBaseUrl();
     const res = await fetch(`${base}/get-rooms`, {
-      // Δεν θέλουμε cache, η λίστα rooms είναι «ζωντανή»
       cache: "no-store",
     });
 
@@ -50,16 +48,10 @@ async function fetchInitialRooms(): Promise<Room[]> {
 
     const data = await res.json();
 
-    // Ο rooms server συνήθως επιστρέφει απλό array:
-    // [
-    //   { room: string, userCount: number, hasPassword: boolean },
-    //   ...
-    // ]
     if (Array.isArray(data)) {
       return data as Room[];
     }
 
-    // Fallback αν κάποια στιγμή τυλίξεις την απάντηση σε { rooms: [...] }
     if (Array.isArray((data as any).rooms)) {
       return (data as any).rooms as Room[];
     }
@@ -81,27 +73,31 @@ export default async function RoomsPage() {
   const rooms = await fetchInitialRooms();
 
   // Στο νέο σύστημα το current room κρατιέται κυρίως μέσω WebSocket / localStorage
-  // (RoomsProvider). Αν στο μέλλον θες να το φέρνεις από DB, εδώ είναι το σημείο.
   const initialCurrentRoom: string | null = null;
 
   return (
-    <div
-      id="rooms-wrapper"
-      style={{
-        maxWidth: 850,
-        margin: "0 auto",
-        color: "#eee",
-        fontFamily: "'Segoe UI', sans-serif",
-      }}
-    >
-      <h3 style={{ marginBottom: 10 }}>🔄 Rooms</h3>
+    <>
+      {/* CSS από public/ πρέπει να φορτώνεται ως URL, όχι με import */}
+      <link rel="stylesheet" href="/rooms/repertorio-rooms.css" />
 
-      <RoomsClient
-        initialRooms={rooms}
-        isLoggedIn={isLoggedIn}
-        isAdmin={isAdmin}
-        initialCurrentRoom={initialCurrentRoom}
-      />
-    </div>
+      <div
+        id="rooms-wrapper"
+        style={{
+          maxWidth: 850,
+          margin: "0 auto",
+          color: "#eee",
+          fontFamily: "'Segoe UI', sans-serif",
+        }}
+      >
+        <h3 style={{ marginBottom: 10 }}>🔄 Rooms</h3>
+
+        <RoomsClient
+          initialRooms={rooms}
+          isLoggedIn={isLoggedIn}
+          isAdmin={isAdmin}
+          initialCurrentRoom={initialCurrentRoom}
+        />
+      </div>
+    </>
   );
 }

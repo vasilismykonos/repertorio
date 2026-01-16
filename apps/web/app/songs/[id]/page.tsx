@@ -1,12 +1,9 @@
-// app/songs/[id]/page.tsx
-import Link from "next/link";
+// apps/web/app/songs/[id]/page.tsx
+
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
 
-import SongChordsClient from "./SongChordsClient";
-import SongInfoToggle from "./SongInfoToggle";
-import ScorePlayerClient from "./score/ScorePlayerClient";
-import SongSendToRoomButton from "./SongSendToRoomButton";
+import SongPageClient from "./SongPageClient";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +26,7 @@ type SongVersion = {
   solistId?: number | null;
 };
 
-type SongDetail = {
+export type SongDetail = {
   id: number;
   title: string;
   firstLyrics: string | null;
@@ -54,10 +51,8 @@ type SongDetail = {
 
   createdByUserId?: number | null;
 
-  // ✅ tags
   tags: TagDto[];
 
-  // ✅ score
   hasScore: boolean;
   scoreFile: string | null;
 
@@ -65,9 +60,7 @@ type SongDetail = {
 };
 
 type SongPageProps = {
-  params: {
-    id: string;
-  };
+  params: { id: string };
 };
 
 // Βοηθητικό slug (σαν sanitize_title)
@@ -88,9 +81,6 @@ function getFirstWordsForYoutube(firstLyrics: string | null, lyrics: string | nu
   return words.join(" ");
 }
 
-/**
- * Καθαρίζει text τιμές: "" / "NULL" / "null" / "undefined" => null
- */
 function cleanText(v: any): string | null {
   if (v === null || v === undefined) return null;
   if (typeof v !== "string") return cleanText(String(v));
@@ -101,7 +91,6 @@ function cleanText(v: any): string | null {
   return s;
 }
 
-/** Πάρε το πρώτο “μη-άδειο” text από πολλά candidates */
 function pickText(...candidates: any[]): string | null {
   for (const c of candidates) {
     const x = cleanText(c);
@@ -110,16 +99,11 @@ function pickText(...candidates: any[]): string | null {
   return null;
 }
 
-/**
- * Normalisation ΔΙΣΚΟΓΡΑΦΙΑΣ – δέχεται τόσο camelCase όσο και snake_case,
- * και ΔΕΝ “κολλάει” σε κενά strings.
- */
 function normalizeVersions(raw: any): SongVersion[] {
   if (!raw || !Array.isArray(raw) || raw.length === 0) return [];
 
   return raw.map((v: any, idx: number) => {
     const id = v.id ?? v.versionId ?? v.version_id ?? idx + 1;
-
     const year = v.year ?? v.Year ?? v.releaseYear ?? v.release_year ?? null;
 
     const singerFront = pickText(
@@ -149,12 +133,7 @@ function normalizeVersions(raw: any): SongVersion[] {
       v.soloistName,
     );
 
-    const youtubeSearch = pickText(
-      v.youtubeSearch,
-      v.youtube_search,
-      v.youtubeQuery,
-      v.youtube_query,
-    );
+    const youtubeSearch = pickText(v.youtubeSearch, v.youtube_search, v.youtubeQuery, v.youtube_query);
 
     const singerFrontId = v.singerFrontId ?? v.singer_front_id ?? v.singerfront_id ?? null;
     const singerBackId = v.singerBackId ?? v.singer_back_id ?? v.singerback_id ?? null;
@@ -190,7 +169,7 @@ function normalizeTags(raw: any): TagDto[] {
   return Array.from(map.values());
 }
 
-// Schema.org MusicComposition (αντίστοιχο generate_song_schema)
+// Schema.org MusicComposition
 function renderSongSchema(song: SongDetail) {
   const schema: any = {
     "@context": "https://schema.org",
@@ -209,7 +188,6 @@ function renderSongSchema(song: SongDetail) {
   return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: json }} />;
 }
 
-// Δυναμικός τίτλος σελίδας (σαν το παλιό wp_title / meta)
 export async function generateMetadata({ params }: SongPageProps) {
   const songId = Number(params.id);
   if (!songId || Number.isNaN(songId)) {
@@ -218,7 +196,6 @@ export async function generateMetadata({ params }: SongPageProps) {
 
   let song: any = null;
   try {
-    // noIncrement=1 → ΔΕΝ αυξάνουμε views από το metadata fetch
     song = await fetchJson<any>(`/songs/${songId}?noIncrement=1`);
   } catch {
     // ignore
@@ -242,14 +219,11 @@ export async function generateMetadata({ params }: SongPageProps) {
   return {
     title: `${baseTitle} | Repertorio Next`,
     description: firstLyrics || lyrics || undefined,
-    alternates: {
-      canonical: `https://repertorio.net/songs/song/${songId}-${slugify(title)}/`,
-    },
+    alternates: { canonical: `https://repertorio.net/songs/song/${songId}-${slugify(title)}/` },
   };
 }
 
 const EDIT_ROLES: UserRole[] = ["ADMIN", "EDITOR", "AUTHOR"];
-
 function isPrivilegedRole(role: UserRole | null | undefined): boolean {
   if (!role) return false;
   return EDIT_ROLES.includes(role);
@@ -266,10 +240,8 @@ export default async function SongPage({ params }: SongPageProps) {
     );
   }
 
-  // ------- ΦΟΡΤΩΣΗ ΤΡΑΓΟΥΔΙΟΥ ΑΠΟ API --------
   let rawSong: any;
   try {
-    // Εδώ ΘΕΛΟΥΜΕ να αυξηθεί ο μετρητής views
     rawSong = await fetchJson<any>(`/songs/${songId}`);
   } catch {
     return (
@@ -302,7 +274,12 @@ export default async function SongPage({ params }: SongPageProps) {
     categoryTitle: rawSong.categoryTitle ?? rawSong.category_title ?? null,
     composerName: rawSong.composerName ?? rawSong.composer_name ?? null,
     lyricistName: rawSong.lyricistName ?? rawSong.lyricist_name ?? null,
-    rythmTitle: rawSong.rythmTitle ?? rawSong.rythm_title ?? rawSong.rhythmTitle ?? rawSong.rhythm_title ?? null,
+    rythmTitle:
+      rawSong.rythmTitle ??
+      rawSong.rythm_title ??
+      rawSong.rhythmTitle ??
+      rawSong.rhythm_title ??
+      null,
     basedOnSongId: rawSong.basedOnSongId ?? rawSong.based_on_song_id ?? null,
     basedOnSongTitle: rawSong.basedOnSongTitle ?? rawSong.based_on_song_title ?? null,
     views: typeof rawSong.views === "number" ? rawSong.views : Number(rawSong.views ?? 0) || 0,
@@ -312,11 +289,9 @@ export default async function SongPage({ params }: SongPageProps) {
     tags,
     hasScore,
     scoreFile,
-
     versions,
   };
 
-  // ------- ΦΟΡΡΤΩΣΗ ΤΡΕΧΟΝΤΟΣ ΧΡΗΣΤΗ ΓΙΑ ΔΙΚΑΙΩΜΑ ΕΠΕΞΕΡΓΑΣΙΑΣ --------
   let currentUser: any = null;
   try {
     currentUser = await getCurrentUserFromApi();
@@ -332,176 +307,39 @@ export default async function SongPage({ params }: SongPageProps) {
 
   const canEdit = Boolean(isPrivilegedRole(currentUser?.role) || isOwner);
 
-  // Λογική "Οργανικό" / "Χωρίς στίχους"
-  const isOrganic =
-    song.characteristics?.split(",").some((c) => c.trim() === "Οργανικό") ?? false;
-
+  const isOrganic = song.characteristics?.split(",").some((c) => c.trim() === "Οργανικό") ?? false;
   const finalLyrics =
-    isOrganic ? "(Οργανικό)" : !song.lyrics || song.lyrics.trim() === "" ? "(Χωρίς διαθέσιμους στίχους)" : song.lyrics;
+    isOrganic
+      ? "(Οργανικό)"
+      : !song.lyrics || song.lyrics.trim() === ""
+        ? "(Χωρίς διαθέσιμους στίχους)"
+        : song.lyrics;
 
   const firstWords = getFirstWordsForYoutube(song.firstLyrics, song.lyrics);
   const youtubeSearchQuery = `${song.title} ${firstWords}`.trim();
-  const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(youtubeSearchQuery)}`;
+  const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+    youtubeSearchQuery,
+  )}`;
 
-  // ✅ Score URL: προτεραιότητα στο scoreFile από API
   const scoreFileUrl =
     song.hasScore && song.scoreFile
-      ? `/scores/${song.scoreFile}`
-      : `/scores/${song.id}.mxl`; // fallback μόνο
+      ? `/api/scores/${encodeURIComponent(song.scoreFile)}`
+      : `/api/scores/${song.id}`;
 
   return (
-    <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto" }}>
-      {/* Κουμπιά πάνω δεξιά */}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
-        {canEdit && (
-          <Link
-            href={`/songs/${song.id}/edit`}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "1px solid #555",
-              background: "#222",
-              color: "#fff",
-              textDecoration: "none",
-              fontWeight: 600,
-            }}
-            title="Επεξεργασία τραγουδιού"
-          >
-            ✏️ Επεξεργασία
-          </Link>
-        )}
-
-        <SongSendToRoomButton songId={song.id} title={song.title} />
-
-        <a
-          href={`/songs/${song.id}/score`}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            padding: "6px 10px",
-            borderRadius: 6,
-            border: "1px solid #333",
-            background: "#111",
-            color: "#fff",
-            textDecoration: "none",
-            fontWeight: 600,
-          }}
-          title="Προβολή παρτιτούρας σε νέο παράθυρο"
-        >
-          📄 Παρτιτούρα
-        </a>
-
-        <a
-          href={youtubeUrl}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            padding: "6px 10px",
-            borderRadius: 6,
-            border: "1px solid #c00",
-            background: "#c00",
-            color: "#fff",
-            textDecoration: "none",
-            fontWeight: 600,
-          }}
-          title="Αναζήτηση στο YouTube"
-        >
-          ▶ YouTube
-        </a>
-      </div>
-
-      <header style={{ marginBottom: 16 }}>
-        <h1 style={{ fontSize: "1.8rem", fontWeight: 700, marginBottom: 8 }}>{song.title}</h1>
-
-        {/* ✅ Tags εμφάνιση */}
-        {song.tags.length > 0 && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-            {song.tags.map((t) => (
-              <span
-                key={t.id}
-                style={{
-                  border: "1px solid #444",
-                  borderRadius: 999,
-                  padding: "4px 10px",
-                  display: "inline-flex",
-                  gap: 6,
-                  alignItems: "center",
-                  background: "#0f0f0f",
-                }}
-                title={t.slug ? `slug: ${t.slug}` : undefined}
-              >
-                #{t.title}
-              </span>
-            ))}
-          </div>
-        )}
-      </header>
-
-      <div
-        style={{
-          height: 1,
-          background: "linear-gradient(to right, #444, transparent)",
-          marginBottom: 16,
-        }}
-      />
-
-      <SongInfoToggle
-        songTitle={song.title}
-        categoryTitle={song.categoryTitle}
-        composerName={song.composerName}
-        lyricistName={song.lyricistName}
-        rythmTitle={song.rythmTitle}
-        basedOnSongTitle={song.basedOnSongTitle}
-        basedOnSongId={song.basedOnSongId}
-        characteristics={song.characteristics}
-        views={song.views}
-        status={song.status}
-        versions={song.versions}
-      />
-
-      {song.chords && song.chords.trim() !== "" && (
-        <SongChordsClient chords={song.chords} originalKey={song.originalKey} />
-      )}
-
-      <section style={{ marginTop: 24, marginBottom: 32 }}>
-        <pre
-          style={{
-            whiteSpace: "pre-wrap",
-            backgroundColor: "#111",
-            padding: "16px",
-            borderRadius: 8,
-            border: "1px solid #333",
-            lineHeight: 1.6,
-            fontFamily: "inherit",
-            fontSize: "1rem",
-          }}
-        >
-          {finalLyrics}
-        </pre>
-      </section>
-
-      <section id="score-section" style={{ marginTop: 32 }}>
-        <h2 style={{ fontSize: "1.2rem", fontWeight: 600, marginBottom: 12 }}>Παρτιτούρα</h2>
-
-        {/* ✅ Αν δεν υπάρχει score, δεν “σκάμε” με broken player */}
-        {song.hasScore ? (
-          <ScorePlayerClient fileUrl={scoreFileUrl} title={song.title} />
-        ) : (
-          <div
-            style={{
-              border: "1px solid #333",
-              borderRadius: 8,
-              padding: 12,
-              background: "#111",
-              opacity: 0.9,
-            }}
-          >
-            Δεν υπάρχει παρτιτούρα για αυτό το τραγούδι.
-          </div>
-        )}
-      </section>
-
-      {renderSongSchema(song)}
-    </section>
+    <SongPageClient
+      song={song}
+      canEdit={canEdit}
+      finalLyrics={finalLyrics}
+      youtubeUrl={youtubeUrl}
+      scoreFileUrl={scoreFileUrl}
+      schemaNode={renderSongSchema(song)}
+      defaultPanelsOpen={{
+        info: true,
+        chords: Boolean(song.chords && song.chords.trim() !== ""),
+        scores: true,
+      }}
+    />
   );
+
 }

@@ -1,0 +1,119 @@
+/* Base */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  font-weight: 600;
+  border-radius: 8px;
+
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+  text-decoration: none;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.btn--disabled {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+}
+
+.btn--block { width: 100%; }
+
+/* Sizes */
+.btn--sm { height: 32px; padding: 0 12px; font-size: 13px; }
+.btn--md { height: 36px; padding: 0 14px; font-size: 14px; }
+.btn--lg { height: 40px; padding: 0 16px; font-size: 15px; }
+
+/* Variants */
+.btn--primary { background: #0070f3; color: #fff; border: none; }
+.btn--secondary { background: transparent; color: #fff; border: 1px solid #555; }
+.btn--danger { background: #b00020; color: #fff; border: 1px solid rgba(255,255,255,0.2); }
+.btn--ghost { background: transparent; color: #0070f3; border: none; }
+.btn--outline { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.25); }
+.btn--link { background: transparent; color: #0070f3; border: none; padding: 0; height: auto; }
+.btn--icon { background: transparent; border: none; padding: 0 8px; }
+
+/* ✅ ΜΟΝΟ save πράσινο (χωρίς να πειράζουμε το primary γενικά) */
+.btn[data-action="save"] {
+  background: #198754;
+  color: #fff;
+  border: none;
+}
+/* ✅ ΜΟΝΟ room μοβ */
+.btn[data-action="room"] {
+  background: #6f42c1; /* μοβ */
+  color: #fff;
+  border: none;
+}
+
+/* Content wrappers */
+.btn__icon {
+  display: inline-flex;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn__label { line-height: 1; }
+
+/* Global icon-only behavior for action buttons (if you want it globally) */
+.btn[data-action="save"] .btn__label,
+.btn[data-action="delete"] .btn__label,
+.btn[data-action="cancel"] .btn__label,
+.btn[data-action="back"] .btn__label,
+.btn[data-action="new"] .btn__label,
+.btn[data-action="apply"] .btn__label,
+.btn[data-action="search"] .btn__label,
+.btn[data-action="select"] .btn__label {
+  display: none;
+}
+
+/* ✅ IMPORTANT:
+   - ΔΕΝ βάζουμε το sort εδώ, γιατί δεν θέλουμε να κρύβεται το label του.
+   - Θέλουμε να φαίνεται "Ταξινόμηση: Α-Ω" */
+.btn[data-action="sort"] .btn__label {
+  display: inline;
+}
+
+/* Default compact styling for action buttons */
+.btn[data-action] {
+  gap: 0;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+/* ✅ Για sort όταν δείχνει label (data-show-label="true"),
+   επαναφέρουμε το κανονικό σχήμα/μέγεθος όπως τα md buttons */
+.btn[data-action="sort"][data-show-label="true"] {
+  gap: 8px;
+  padding-left: 14px;  /* ίδιο με .btn--md */
+  padding-right: 14px; /* ίδιο με .btn--md */
+}
+
+/* Per-instance overrides */
+.btn[data-icon-only="true"] .btn__label { display: none; }
+.btn[data-icon-only="true"] { gap: 0; padding-left: 10px; padding-right: 10px; }
+
+.btn[data-show-label="true"] {
+  gap: 8px;
+}
+.btn[data-show-label="true"] .btn__label {
+  display: inline;
+}
+
+/* Optional: a11y helper (if used elsewhere) */
+.btn__sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  border: 0;
+}

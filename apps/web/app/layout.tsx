@@ -1,6 +1,8 @@
 // app/layout.tsx
-import "./globals.css";
-import "/public/score-player/score-player.css";
+
+import "./styles/globals.css";
+import "./styles/buttons.css";
+import "./styles/score-player.css";
 import type { ReactNode } from "react";
 import { Suspense } from "react";             // 🔹 ΠΡΟΣΘΗΚΗ
 import type { Metadata } from "next";

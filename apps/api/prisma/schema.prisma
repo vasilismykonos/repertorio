@@ -60,6 +60,7 @@ model Category {
 model Rythm {
   id        Int      @id @default(autoincrement())
   title     String   @unique
+  slug      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   songs     Song[]
@@ -67,7 +68,7 @@ model Rythm {
 
 model Song {
   id               Int            @id @default(autoincrement())
-  legacySongId     Int            @unique
+  legacySongId     Int?           @unique
   slug             String         @unique
   title            String
   firstLyrics      String?

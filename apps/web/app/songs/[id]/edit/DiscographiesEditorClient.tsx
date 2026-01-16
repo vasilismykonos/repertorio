@@ -2,6 +2,8 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
+import { A } from "@/app/components/buttons";
+
 type ArtistOption = {
   id: number;
   title: string;
@@ -77,8 +79,12 @@ function toRow(v: Props["initialVersions"][number]): DiscographyRow {
   return {
     id: v.id,
     year: v.year != null ? String(v.year) : "",
-    singerFrontIds: uniqNums(Array.isArray(v.singerFrontIds) ? v.singerFrontIds : []),
-    singerBackIds: uniqNums(Array.isArray(v.singerBackIds) ? v.singerBackIds : []),
+    singerFrontIds: uniqNums(
+      Array.isArray(v.singerFrontIds) ? v.singerFrontIds : [],
+    ),
+    singerBackIds: uniqNums(
+      Array.isArray(v.singerBackIds) ? v.singerBackIds : [],
+    ),
     solistIds: uniqNums(Array.isArray(v.solistIds) ? v.solistIds : []),
   };
 }
@@ -119,8 +125,8 @@ async function fetchArtistsSearch(q: string, take = 20): Promise<ArtistOption[]>
       const arr: any[] = Array.isArray(data)
         ? data
         : Array.isArray(data?.items)
-        ? data.items
-        : [];
+          ? data.items
+          : [];
 
       const mapped = arr
         .map((a) => ({
@@ -153,7 +159,9 @@ async function fetchArtistsSearch(q: string, take = 20): Promise<ArtistOption[]>
  */
 async function fetchArtistById(id: number): Promise<ArtistOption | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/artists/${id}`, { cache: "no-store" });
+    const res = await fetch(`${API_BASE_URL}/artists/${id}`, {
+      cache: "no-store",
+    });
     if (!res.ok) return null;
     const a: any = await res.json().catch(() => null);
     if (!a) return null;
@@ -280,8 +288,15 @@ function CreateArtistModal(props: {
           gap: 12,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 10,
+          }}
+        >
           <strong>Νέος καλλιτέχνης</strong>
+
           <button
             type="button"
             onClick={onClose}
@@ -311,7 +326,9 @@ function CreateArtistModal(props: {
           </label>
 
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontSize: 13, opacity: 0.9 }}>Όνομα (προαιρετικό)</span>
+            <span style={{ fontSize: 13, opacity: 0.9 }}>
+              Όνομα (προαιρετικό)
+            </span>
             <input
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
@@ -321,29 +338,20 @@ function CreateArtistModal(props: {
           </label>
         </div>
 
-        {errorMsg ? <div style={{ color: "#ffb4b4", fontSize: 12 }}>{errorMsg}</div> : null}
+        {errorMsg ? (
+          <div style={{ color: "#ffb4b4", fontSize: 12 }}>{errorMsg}</div>
+        ) : null}
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            style={{
-              border: "1px solid #444",
-              background: "transparent",
-              borderRadius: 10,
-              padding: "8px 10px",
-              cursor: saving ? "default" : "pointer",
-              opacity: saving ? 0.7 : 1,
-            }}
-          >
-            Άκυρο
-          </button>
+          {A.cancel({
+            onClick: onClose,
+            disabled: saving,
+            label: "Άκυρο",
+            title: "Άκυρο",
+          })}
 
-          <button
-            type="button"
-            disabled={saving}
-            onClick={async () => {
+          {A.save({
+            onClick: async () => {
               try {
                 setSaving(true);
                 setErrorMsg(null);
@@ -355,24 +363,19 @@ function CreateArtistModal(props: {
 
                 onCreated(a);
               } catch (e: any) {
-                setErrorMsg(String(e?.message ?? "Σφάλμα δημιουργίας καλλιτέχνη"));
+                setErrorMsg(
+                  String(e?.message ?? "Σφάλμα δημιουργίας καλλιτέχνη"),
+                );
               } finally {
                 setSaving(false);
               }
-            }}
-            style={{
-              border: "1px solid #555",
-              background: "transparent",
-              borderRadius: 10,
-              padding: "8px 10px",
-              cursor: saving ? "wait" : "pointer",
-              opacity: saving ? 0.7 : 1,
-              fontWeight: 700,
-            }}
-            title="Δημιουργία"
-          >
-            Δημιουργία
-          </button>
+            },
+            disabled: saving,
+            loading: saving,
+            label: "Δημιουργία",
+            loadingLabel: "Δημιουργία...",
+            title: "Δημιουργία",
+          })}
         </div>
       </div>
     </div>
@@ -387,7 +390,12 @@ type PickerProps = {
   setLabelById: React.Dispatch<React.SetStateAction<Map<number, string>>>;
 };
 
-function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: PickerProps) {
+function ArtistIdPicker({
+  selectedIds,
+  onChange,
+  labelById,
+  setLabelById,
+}: PickerProps) {
   const [q, setQ] = useState("");
   const [options, setOptions] = useState<ArtistOption[]>([]);
   const [open, setOpen] = useState(false);
@@ -409,7 +417,7 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
       return;
     }
 
-    const t = setTimeout(async () => {
+    const t = window.setTimeout(async () => {
       const reqId = Date.now();
       lastReq.current = reqId;
       setLoading(true);
@@ -431,7 +439,7 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
       }
     }, 250);
 
-    return () => clearTimeout(t);
+    return () => window.clearTimeout(t);
   }, [q, setLabelById]);
 
   function addId(id: number) {
@@ -449,7 +457,8 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
     onChange((selectedIds ?? []).filter((x) => x !== id));
   }
 
-  const canOpenCreate = q.trim().length > 0 && options.length === 0 && !loading;
+  const canOpenCreate =
+    q.trim().length > 0 && options.length === 0 && !loading;
 
   return (
     <div>
@@ -507,37 +516,33 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
               <div style={{ opacity: 0.8 }}>Δεν βρέθηκαν αποτελέσματα.</div>
 
               {/* ✅ ΜΟΝΟ modal - ΟΧΙ direct create */}
-              <button
-                type="button"
+             <div
                 onPointerDown={(e) => e.preventDefault()} // prevent blur race
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  if (!canOpenCreate) return;
-                  setErrorMsg(null);
-                  setCreateSeed(cleanName(q));
-                  setCreateOpen(true);
-                  setOpen(false);
-                }}
-                disabled={!canOpenCreate}
-                style={{
-                  width: "100%",
-                  textAlign: "left",
-                  padding: "8px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #555",
-                  background: "transparent",
-                  cursor: canOpenCreate ? "pointer" : "default",
-                  fontSize: 13,
-                  opacity: canOpenCreate ? 1 : 0.7,
-                }}
+                style={{ width: "100%" }}
               >
-                <strong>+ Δημιουργία νέου καλλιτέχνη</strong>
-                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
+                {A.add({
+                  onClick: () => {
+                    if (!canOpenCreate) return;
+                    setErrorMsg(null);
+                    setCreateSeed(cleanName(q));
+                    setCreateOpen(true);
+                    setOpen(false);
+                  },
+                  disabled: !canOpenCreate,
+                  label: "Δημιουργία νέου καλλιτέχνη",
+                  title: "Δημιουργία νέου καλλιτέχνη",
+                  // Προαιρετικά: iconOnly/showLabel αν θες
+                })}
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6, paddingLeft: 4 }}>
                   Θα συμπληρώσεις Επώνυμο/Όνομα.
                 </div>
-              </button>
+              </div>
 
-              {errorMsg ? <div style={{ color: "#ffb4b4", fontSize: 12 }}>{errorMsg}</div> : null}
+
+              {errorMsg ? (
+                <div style={{ color: "#ffb4b4", fontSize: 12 }}>{errorMsg}</div>
+              ) : null}
             </div>
           ) : (
             options.map((a) => {
@@ -614,7 +619,11 @@ function ArtistIdPicker({ selectedIds, onChange, labelById, setLabelById }: Pick
   );
 }
 
-export default function DiscographiesEditorClient({ songTitle, initialVersions, hiddenInputId }: Props) {
+export default function DiscographiesEditorClient({
+  songTitle,
+  initialVersions,
+  hiddenInputId,
+}: Props) {
   const [rows, setRows] = useState<DiscographyRow[]>([]);
 
   // ✅ reflect props
@@ -623,7 +632,9 @@ export default function DiscographiesEditorClient({ songTitle, initialVersions, 
   }, [initialVersions]);
 
   // label map για να εμφανίζονται ονόματα στα chips
-  const [labelById, setLabelById] = useState<Map<number, string>>(() => new Map());
+  const [labelById, setLabelById] = useState<Map<number, string>>(
+    () => new Map(),
+  );
   // ✅ Responsive breakpoint: κάτω από 720px -> labels πάνω (1 στήλη)
   const [isNarrow, setIsNarrow] = useState(false);
 
@@ -704,7 +715,9 @@ export default function DiscographiesEditorClient({ songTitle, initialVersions, 
   }
 
   function updateRow(index: number, patch: Partial<DiscographyRow>) {
-    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+    setRows((prev) =>
+      prev.map((r, i) => (i === index ? { ...r, ...patch } : r)),
+    );
   }
 
   return (
@@ -739,23 +752,23 @@ export default function DiscographiesEditorClient({ songTitle, initialVersions, 
                   gap: 10,
                 }}
               >
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
                   <strong>Δισκογραφία</strong>
 
-                  <button
-                    type="button"
-                    onClick={() => removeRow(idx)}
-                    style={{
-                      marginLeft: "auto",
-                      border: "1px solid #555",
-                      borderRadius: 8,
-                      background: "transparent",
-                      cursor: "pointer",
-                      padding: "4px 10px",
-                    }}
-                  >
-                    Αφαίρεση
-                  </button>
+                  <div style={{ marginLeft: "auto" }}>
+                    {A.del({
+                      onClick: () => removeRow(idx),
+                      label: "Αφαίρεση",
+                      title: "Αφαίρεση",
+                    })}
+                  </div>
                 </div>
 
                 <div
@@ -763,10 +776,19 @@ export default function DiscographiesEditorClient({ songTitle, initialVersions, 
                     display: "grid",
                     gap: 8,
                     alignItems: "start",
-                    gridTemplateColumns: isNarrow ? "1fr" : "minmax(140px, 200px) minmax(0, 1fr)",
+                    gridTemplateColumns: isNarrow
+                      ? "1fr"
+                      : "minmax(140px, 200px) minmax(0, 1fr)",
                   }}
                 >
-                  <div style={{ opacity: 0.9, paddingTop: isNarrow ? 0 : 6 }}>Ερμηνευτές (Front)</div>
+                  <div
+                    style={{
+                      opacity: 0.9,
+                      paddingTop: isNarrow ? 0 : 6,
+                    }}
+                  >
+                    Ερμηνευτές (Front)
+                  </div>
                   <ArtistIdPicker
                     selectedIds={r.singerFrontIds}
                     onChange={(ids) => updateRow(idx, { singerFrontIds: ids })}
@@ -774,7 +796,14 @@ export default function DiscographiesEditorClient({ songTitle, initialVersions, 
                     setLabelById={setLabelById}
                   />
 
-                  <div style={{ opacity: 0.9, paddingTop: isNarrow ? 0 : 6 }}>Ερμηνευτές (Back)</div>
+                  <div
+                    style={{
+                      opacity: 0.9,
+                      paddingTop: isNarrow ? 0 : 6,
+                    }}
+                  >
+                    Ερμηνευτές (Back)
+                  </div>
                   <ArtistIdPicker
                     selectedIds={r.singerBackIds}
                     onChange={(ids) => updateRow(idx, { singerBackIds: ids })}
@@ -782,7 +811,14 @@ export default function DiscographiesEditorClient({ songTitle, initialVersions, 
                     setLabelById={setLabelById}
                   />
 
-                  <div style={{ opacity: 0.9, paddingTop: isNarrow ? 0 : 6 }}>Σολίστες</div>
+                  <div
+                    style={{
+                      opacity: 0.9,
+                      paddingTop: isNarrow ? 0 : 6,
+                    }}
+                  >
+                    Σολίστες
+                  </div>
                   <ArtistIdPicker
                     selectedIds={r.solistIds}
                     onChange={(ids) => updateRow(idx, { solistIds: ids })}
@@ -790,7 +826,14 @@ export default function DiscographiesEditorClient({ songTitle, initialVersions, 
                     setLabelById={setLabelById}
                   />
 
-                  <label style={{ color: "#fff", paddingTop: isNarrow ? 0 : 6 }}>Έτος</label>
+                  <label
+                    style={{
+                      color: "#fff",
+                      paddingTop: isNarrow ? 0 : 6,
+                    }}
+                  >
+                    Έτος
+                  </label>
                   <input
                     value={r.year}
                     onChange={(e) => {
@@ -815,10 +858,20 @@ export default function DiscographiesEditorClient({ songTitle, initialVersions, 
         </div>
       )}
 
-      <div style={{ marginTop: 12, borderTop: "1px solid #333", paddingTop: 12 }}>
-        <button type="button" onClick={addRow}>
-          Προσθήκη δισκογραφίας
-        </button>
+      <div
+        style={{
+          marginTop: 12,
+          borderTop: "1px solid #333",
+          paddingTop: 12,
+          display: "flex",
+          justifyContent: "flex-end",
+        }}
+      >
+        {A.add({
+          onClick: addRow,
+          label: "Προσθήκη δισκογραφίας",
+          title: "Προσθήκη δισκογραφίας",
+        })}
       </div>
     </div>
   );

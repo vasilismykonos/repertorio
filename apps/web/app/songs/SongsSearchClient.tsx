@@ -702,9 +702,11 @@ export default function SongsSearchClient({ searchParams }: Props) {
     async function loadStaticFilters() {
       try {
         const [catsRes, rythmsRes, tagsRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/categories`, { headers: { Accept: "application/json" } }),
-          fetch(`${API_BASE_URL}/rythms`, { headers: { Accept: "application/json" } }),
-          fetch(`${API_BASE_URL}/songs/tags?take=1000`, { headers: { Accept: "application/json" } }),
+          // Use Next.js API proxy routes rather than hitting the backend directly.  This
+          // avoids needing the public API base URL in client components.
+          fetch("/api/categories", { headers: { Accept: "application/json" } }),
+          fetch("/api/rythms", { headers: { Accept: "application/json" } }),
+          fetch("/api/songs/tags?take=1000", { headers: { Accept: "application/json" } }),
         ]);
 
         const catsJson = catsRes.ok

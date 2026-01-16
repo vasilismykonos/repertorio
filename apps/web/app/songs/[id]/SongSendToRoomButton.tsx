@@ -1,38 +1,32 @@
 "use client";
 
+import React from "react";
+import { A } from "../../components/buttons";
+
 type SongSendToRoomButtonProps = {
   songId: number;
   title: string;
 };
 
-export default function SongSendToRoomButton({
-  songId,
-  title,
-}: SongSendToRoomButtonProps) {
+export default function SongSendToRoomButton({ songId, title }: SongSendToRoomButtonProps) {
   const handleClick = () => {
-    if (typeof window === "undefined") {
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const anyWindow = window as any;
 
     if (typeof anyWindow.RepRoomsSendSong !== "function") {
-      console.warn(
-        "[SongSendToRoomButton] RepRoomsSendSong is not available on window"
-      );
+      console.warn("[SongSendToRoomButton] RepRoomsSendSong is not available on window");
       alert("Το σύστημα rooms δεν είναι διαθέσιμο αυτή τη στιγμή.");
       return;
     }
 
     const url = window.location.href;
 
-    // Αν υπάρχει global __repSelectedTonicity από τα κουμπιά συγχορδιών,
-    // τη χρησιμοποιούμε για να σταλεί στο room.
     const selectedTonicityRaw =
       (anyWindow.__repSelectedTonicity as string | null | undefined) ?? null;
+
     const selectedTonicity: string | null =
-      typeof selectedTonicityRaw === "string" &&
-      selectedTonicityRaw.trim() !== ""
+      typeof selectedTonicityRaw === "string" && selectedTonicityRaw.trim() !== ""
         ? selectedTonicityRaw
         : null;
 
@@ -50,22 +44,9 @@ export default function SongSendToRoomButton({
     }
   };
 
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      style={{
-        padding: "6px 10px",
-        borderRadius: 6,
-        border: "1px solid #2b6cb0",
-        background: "#2b6cb0",
-        color: "#fff",
-        textDecoration: "none",
-        fontWeight: 600,
-        cursor: "pointer",
-      }}
-    >
-      🔄 Room
-    </button>
-  );
+  return A.room({
+    onClick: handleClick,
+    title: "Αποστολή στο room",
+    label: "Room",
+  });
 }

@@ -82,8 +82,23 @@ function tryParseJsonObjectOrArray(value: string): unknown {
 export async function readBodyAsJson(
   req: NextRequest,
 ): Promise<Record<string, any>> {
+  const ct = (req.headers.get("content-type") || "").toLowerCase();
+
+  // If the client explicitly sent JSON, parse JSON directly.
+  // IMPORTANT: avoid calling req.formData() first, as it may consume the stream.
+  if (ct.includes("application/json")) {
+    const json = await req.json().catch(() => null);
+    if (!json || typeof json !== "object") {
+      throw new Error("Invalid request body");
+    }
+    return json as Record<string, any>;
+  }
+
+  // Otherwise, prefer multipart/form-data (or x-www-form-urlencoded).
+  // Use a clone so that we can still fall back to JSON if form parsing fails.
+  const cloned = req.clone();
   try {
-    const formData = await req.formData();
+    const formData = await cloned.formData();
     const out: Record<string, any> = {};
 
     formData.forEach((value, key) => {

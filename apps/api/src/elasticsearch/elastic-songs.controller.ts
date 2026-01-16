@@ -526,4 +526,55 @@ export class ElasticSongsController {
       throw new HttpException(e?.message ?? "Elasticsearch request failed", HttpStatus.BAD_GATEWAY);
     }
   }
+    @Get("artist-role-counts")
+  async artistRoleCounts(@Query("artistId") artistIdStr?: string) {
+    try {
+      const artistId = this.parseNumber(artistIdStr, 0, 1, 2_000_000);
+      if (!artistId) {
+        throw new Error("artistId is required");
+      }
+
+      const body = {
+        size: 0,
+        track_total_hits: false,
+        query: { match_all: {} },
+        aggs: {
+          roleCounts: {
+            filters: {
+              filters: {
+                composer: { term: { composerId: artistId } },
+                lyricist: { term: { lyricistId: artistId } },
+                singerFront: {
+                  nested: {
+                    path: "versionSingerPairs",
+                    query: { term: { "versionSingerPairs.frontId": artistId } },
+                  },
+                },
+                singerBack: {
+                  nested: {
+                    path: "versionSingerPairs",
+                    query: { term: { "versionSingerPairs.backId": artistId } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+
+      const json = await this.esSearch<any>(body);
+      const buckets = json?.aggregations?.roleCounts?.buckets ?? {};
+
+      return {
+        artistId,
+        composer: buckets?.composer?.doc_count ?? 0,
+        lyricist: buckets?.lyricist?.doc_count ?? 0,
+        singerFront: buckets?.singerFront?.doc_count ?? 0,
+        singerBack: buckets?.singerBack?.doc_count ?? 0,
+      };
+    } catch (e: any) {
+      throw new HttpException(e?.message ?? "Elasticsearch request failed", HttpStatus.BAD_GATEWAY);
+    }
+  }
+
 }

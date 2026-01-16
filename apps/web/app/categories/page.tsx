@@ -1,74 +1,65 @@
 // apps/web/app/categories/page.tsx
-import Link from "next/link";
 import { fetchJson } from "@/lib/api";
 
-import ActionBar from "@/app/components/ActionBar";
-import LinkButton from "@/app/components/LinkButton";
-
-type CategoryListItem = {
-  id: number;
-  title: string;
-  slug: string;
-  songsCount: number;
-};
+import CategoriesPageClient, {
+  type CategoryListItem,
+  type CategorySortKey,
+} from "./CategoriesPageClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function CategoriesPage() {
+type PageProps = {
+  searchParams?: { [key: string]: string | string[] | undefined };
+};
+
+function firstParam(v: string | string[] | undefined): string {
+  return Array.isArray(v) ? (v[0] ?? "") : (v ?? "");
+}
+
+function clampInt(n: number, min: number, max: number, fallback: number) {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function parseSort(v: string): CategorySortKey {
+  return v === "title_desc" ? "title_desc" : "title_asc";
+}
+
+export default async function CategoriesPage({ searchParams }: PageProps) {
+  const q = firstParam(searchParams?.q).trim();
+
+  const take = clampInt(
+    Number(firstParam(searchParams?.take) || "50"),
+    5,
+    200,
+    50,
+  );
+
+  const skip = clampInt(
+    Number(firstParam(searchParams?.skip) || "0"),
+    0,
+    1_000_000,
+    0,
+  );
+
+  const sort = parseSort(firstParam(searchParams?.sort).trim());
+
   let categories: CategoryListItem[] = [];
+  let loadError = false;
   try {
     categories = await fetchJson<CategoryListItem[]>("/categories");
   } catch {
-    // ignore fetch errors; categories will remain empty
+    loadError = true;
   }
 
   return (
-    <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto" }}>
-      {/* ✅ ΠΡΟΤΥΠΟ: Actions ΠΑΝΩ */}
-      <ActionBar
-        right={
-          <LinkButton
-            href="/categories/new"
-            variant="primary"
-            title="Νέα κατηγορία"
-          >
-            + Νέα κατηγορία
-          </LinkButton>
-        }
-      />
-
-      <h1 style={{ fontSize: 26, marginBottom: 16 }}>Κατηγορίες</h1>
-
-      {categories.length === 0 ? (
-        <p style={{ color: "#888" }}>Δεν υπάρχουν κατηγορίες.</p>
-      ) : (
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {categories.map((cat) => (
-            <li
-              key={cat.id}
-              style={{
-                padding: "8px 0",
-                borderBottom: "1px solid #333",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <span>
-                <Link
-                  href={`/categories/${cat.id}`}
-                  style={{ color: "#ccc", textDecoration: "none" }}
-                >
-                  {cat.title}
-                </Link>
-              </span>
-              <span style={{ color: "#888", fontSize: 14 }}>
-                {cat.songsCount} τραγούδι(α)
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    <CategoriesPageClient
+      q={q}
+      take={take}
+      skip={skip}
+      sort={sort}
+      categories={categories}
+      loadError={loadError}
+    />
   );
 }

@@ -261,3 +261,92 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
     headers: { "content-type": "text/html" },
   });
 }
+
+/**
+ * ✅ NEW: DELETE handler
+ * Fixes 405 Method Not Allowed for DELETE /api/songs/:id
+ *
+ * Προσοχή: επιστρέφει JSON (όχι redirect), γιατί το DeleteSongButton κάνει fetch()
+ */
+export async function DELETE(req: NextRequest, ctx: { params: { id: string } }) {
+  const idNum = Number(ctx.params.id);
+  if (!Number.isFinite(idNum) || idNum <= 0) {
+    return NextResponse.json({ message: "Μη έγκυρο ID τραγουδιού" }, { status: 400 });
+  }
+
+  const cookie = pickForwardHeader(req, "cookie");
+  const authorization = pickForwardHeader(req, "authorization");
+
+  const headers: Record<string, string> = {};
+  if (cookie) headers.cookie = cookie;
+  if (authorization) headers.authorization = authorization;
+
+  // Δεν μαντεύουμε: δοκιμάζουμε υποψήφιες διαδρομές που "κολλάνε" με την αρχιτεκτονική σου.
+  const candidates = [
+    `${API_BASE_URL}/songs/${idNum}/full`,  // ταιριάζει με PATCH /songs/:id/full
+    `${API_BASE_URL}/songs/${idNum}`,       // κλασικό REST
+    `${API_BASE_URL}/songs/full/${idNum}`,  // εναλλακτικό pattern (μερικές υλοποιήσεις το έχουν έτσι)
+  ];
+
+  const attempts: Array<{ url: string; status: number; statusText: string }> = [];
+
+  try {
+    for (const upstreamUrl of candidates) {
+      const res = await fetch(upstreamUrl, {
+        method: "DELETE",
+        headers,
+        cache: "no-store",
+      });
+
+      attempts.push({ url: upstreamUrl, status: res.status, statusText: res.statusText });
+
+      // Αν δεν είναι 404, σταματάμε και επιστρέφουμε ό,τι είπε το upstream.
+      if (res.status !== 404) {
+        const contentType = res.headers.get("content-type") || "";
+
+        if (!res.ok) {
+          if (contentType.includes("application/json")) {
+            const data = await res.json().catch(() => null);
+            return NextResponse.json(
+              data ?? { message: `Αποτυχία διαγραφής (${res.status})` },
+              { status: res.status },
+            );
+          }
+
+          const text = await res.text().catch(() => "");
+          return NextResponse.json(
+            { message: text || `Αποτυχία διαγραφής (${res.status})` },
+            { status: res.status },
+          );
+        }
+
+        if (contentType.includes("application/json")) {
+          const data = await res.json().catch(() => ({ ok: true }));
+          return NextResponse.json(data, { status: 200 });
+        }
+
+        // 204 ή text response
+        return NextResponse.json({ ok: true }, { status: 200 });
+      }
+    }
+
+    // Αν φτάσαμε εδώ, ΟΛΑ ήταν 404 -> upstream δεν έχει route σε καμία από τις διαδρομές.
+    console.error("DELETE song: upstream endpoints not found", { idNum, attempts });
+
+    return NextResponse.json(
+      {
+        message:
+          "Το API δεν βρέθηκε να υποστηρίζει DELETE για αυτό το τραγούδι. Δες τα attempted endpoints.",
+        attempts,
+      },
+      { status: 404 },
+    );
+  } catch (err: any) {
+    return NextResponse.json(
+      { message: err?.message || "Σφάλμα επικοινωνίας με API", attempts },
+      { status: 500 },
+    );
+  }
+}
+
+

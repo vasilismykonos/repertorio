@@ -1,6 +1,10 @@
-//apps/web/app/songs/page.tsx
+// apps/web/app/songs/page.tsx
 import type { Metadata } from "next";
 import SongsSearchClient from "./SongsSearchClient";
+
+import ActionBar from "@/app/components/ActionBar";
+import { LinkButton } from "@/app/components/buttons";
+import PageSuspense from "@/app/components/PageSuspense";
 
 export const dynamic = "force-dynamic";
 
@@ -51,5 +55,19 @@ type SongsPageProps = {
 };
 
 export default function SongsPage({ searchParams }: SongsPageProps) {
-  return <SongsSearchClient searchParams={searchParams || {}} />;
+  return (
+    <>
+      <ActionBar
+        left={<h1 style={{ margin: 0 }}>Τραγούδια</h1>}
+        right={
+          <LinkButton href="/songs/new" variant="primary" action="new" title="Νέο τραγούδι">
+            Νέο τραγούδι
+          </LinkButton>
+        }
+      />
+      <PageSuspense>
+        <SongsSearchClient searchParams={searchParams || {}} />
+      </PageSuspense>
+    </>
+  );
 }

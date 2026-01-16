@@ -1,5 +1,9 @@
 // apps/web/app/artists/page.tsx
 import Link from "next/link";
+
+import ActionBar from "@/app/components/ActionBar";
+import { Button, LinkButton } from "@/app/components/buttons";
+
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
 
@@ -26,6 +30,8 @@ type PageProps = {
   searchParams?: { [key: string]: string | string[] | undefined };
 };
 
+type ArtistSortKey = "title_asc" | "title_desc";
+
 const ALL_ROLES = [
   { key: "COMPOSER", label: "🎼 Συνθέτες" },
   { key: "LYRICIST", label: "✍️ Στιχουργοί" },
@@ -38,11 +44,25 @@ function normalizeQueryParam(value: string | string[] | undefined): string[] {
   return Array.isArray(value) ? value : [value];
 }
 
+function firstParam(v: string | string[] | undefined): string {
+  return Array.isArray(v) ? (v[0] ?? "") : (v ?? "");
+}
+
+function clampInt(n: number, min: number, max: number, fallback: number) {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function parseSort(v: string): ArtistSortKey {
+  return v === "title_desc" ? "title_desc" : "title_asc";
+}
+
 function buildRoleUrl(
   activeRoles: string[],
   toggleRole: string,
   q: string,
   take: number,
+  sort: ArtistSortKey,
 ) {
   const newRoles = activeRoles.includes(toggleRole)
     ? activeRoles.filter((r) => r !== toggleRole)
@@ -51,10 +71,10 @@ function buildRoleUrl(
   const params = new URLSearchParams();
   params.set("take", String(take));
   params.set("skip", "0");
+  params.set("sort", sort);
   if (q) params.set("q", q);
 
   newRoles.forEach((r) => params.append("role", r));
-
   return `/artists?${params.toString()}`;
 }
 
@@ -63,87 +83,73 @@ function buildPageUrl(
   take: number,
   newSkip: number,
   roles: string[],
+  sort: ArtistSortKey,
 ) {
   const params = new URLSearchParams();
   params.set("take", String(take));
   params.set("skip", String(newSkip));
+  params.set("sort", sort);
 
   if (q) params.set("q", q);
-
   roles.forEach((r) => params.append("role", r));
 
   return `/artists?${params.toString()}`;
 }
 
 export default async function ArtistsPage({ searchParams }: PageProps) {
-  const take = Number(searchParams?.take ?? "50");
-  const skip = Number(searchParams?.skip ?? "0");
+  const take = clampInt(Number(firstParam(searchParams?.take) || "50"), 5, 200, 50);
+  const skip = clampInt(Number(firstParam(searchParams?.skip) || "0"), 0, 1_000_000, 0);
 
   const qRaw = searchParams?.q || searchParams?.search_term || "";
   const q = (Array.isArray(qRaw) ? qRaw[0] : qRaw)?.trim() ?? "";
 
+  const sort = parseSort(firstParam(searchParams?.sort).trim());
   const activeRoles = normalizeQueryParam(searchParams?.role);
 
   const apiParams = new URLSearchParams();
   apiParams.set("take", String(take));
   apiParams.set("skip", String(skip));
   if (q) apiParams.set("q", q);
-
   activeRoles.forEach((r) => apiParams.append("role", r));
 
   const apiUrl = `/artists?${apiParams.toString()}`;
   const data = await fetchJson<ArtistsSearchResponse>(apiUrl);
-  const artists = data.items;
-  const total = data.total;
+
+  // Apply sorting on the returned page slice (safe without backend changes)
+  const artists = [...(data.items ?? [])].sort((a, b) => {
+    const cmp = (a.title ?? "").localeCompare(b.title ?? "", "el");
+    return sort === "title_desc" ? -cmp : cmp;
+  });
+
+  const total = data.total ?? 0;
 
   const hasPrev = skip > 0;
   const hasNext = skip + take < total;
 
-  // ✅ δικαίωμα δημιουργίας καλλιτέχνη
   const currentUser = await getCurrentUserFromApi().catch(() => null);
   const allowedRoles: UserRole[] = ["ADMIN", "EDITOR"];
   const canCreate = !!currentUser && allowedRoles.includes(currentUser.role as UserRole);
 
-  return (
-    <section
-      style={{
-        padding: "24px 16px",
-        maxWidth: 900,
-        margin: "0 auto",
-        color: "#fff",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 12,
-          marginBottom: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        <h1 style={{ fontSize: 28, margin: 0 }}>Καλλιτέχνες</h1>
+  // sort toggle button
+  const nextSort: ArtistSortKey = sort === "title_asc" ? "title_desc" : "title_asc";
+  const sortLabel = sort === "title_asc" ? "Α-Ω" : "Ω-Α";
+  const sortTitle =
+    sort === "title_asc"
+      ? "Ταξινόμηση φθίνουσα (Ω-Α)"
+      : "Ταξινόμηση αύξουσα (Α-Ω)";
 
-        {canCreate && (
-          <Link
-            href="/artists/new"
-            style={{
-              padding: "8px 14px",
-              borderRadius: 999,
-              border: "1px solid #2f2f2f",
-              backgroundColor: "#111",
-              color: "#fff",
-              textDecoration: "none",
-              fontWeight: 700,
-              fontSize: 14,
-              whiteSpace: "nowrap",
-            }}
-          >
-            + Νέος καλλιτέχνης
-          </Link>
-        )}
-      </div>
+  return (
+    <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto", color: "#fff" }}>
+      <ActionBar
+        left={<h1 style={{ fontSize: 28, margin: 0 }}>Καλλιτέχνες</h1>}
+        right={
+          canCreate ? (
+            <LinkButton href="/artists/new" action="new" variant="primary" title="Νέος καλλιτέχνης">
+              Νέος καλλιτέχνης
+            </LinkButton>
+          ) : null
+        }
+      />
 
       {/* Φόρμα αναζήτησης */}
       <form
@@ -157,6 +163,7 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
           alignItems: "center",
         }}
       >
+        {/* 1) ✅ Λευκό search input */}
         <input
           type="text"
           name="q"
@@ -166,11 +173,16 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
             flex: "1 1 240px",
             padding: "8px 12px",
             borderRadius: 20,
-            border: "1px solid #555",
-            backgroundColor: "#111",
-            color: "#fff",
+            border: "1px solid #ccc",
+            backgroundColor: "#fff",
+            color: "#000",
           }}
         />
+
+        {/* 3) ✅ Search button αμέσως μετά το search input */}
+        <Button type="submit" variant="primary" action="search" title="Αναζήτηση">
+          Αναζήτηση
+        </Button>
 
         <select
           name="take"
@@ -186,40 +198,42 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
           <option value="25">25 / σελίδα</option>
           <option value="50">50 / σελίδα</option>
           <option value="100">100 / σελίδα</option>
+          <option value="200">200 / σελίδα</option>
         </select>
 
-        <button
-          type="submit"
-          style={{
-            padding: "8px 16px",
-            borderRadius: 20,
-            border: "none",
-            backgroundColor: "#cc3333",
-            color: "#fff",
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
+        {/* 2) ✅ Ταξινόμηση δίπλα στο take */}
+        <LinkButton
+          href={buildPageUrl(q, take, 0, activeRoles, nextSort)}
+          variant="secondary"
+          title={sortTitle}
+          action="sort"
+          showLabel
+          iconOnly={false}
         >
-          Αναζήτηση
-        </button>
+          Ταξινόμηση: {sortLabel}
+        </LinkButton>
+
+        {/* κρατάμε roles */}
+        {activeRoles.map((r) => (
+          <input key={r} type="hidden" name="role" value={r} />
+        ))}
+
+        {/* κρατάμε sort */}
+        <input type="hidden" name="sort" value={sort} />
+
+        {/* σε νέα αναζήτηση πάμε στην αρχή */}
+        <input type="hidden" name="skip" value="0" />
       </form>
 
       {/* MULTI-SELECT ΡΟΛΩΝ */}
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 8,
-          marginBottom: 20,
-        }}
-      >
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
         {ALL_ROLES.map(({ key, label }) => {
           const isActive = activeRoles.includes(key);
 
           return (
             <Link
               key={key}
-              href={buildRoleUrl(activeRoles, key, q, take)}
+              href={buildRoleUrl(activeRoles, key, q, take, sort)}
               style={{
                 padding: "6px 14px",
                 borderRadius: 18,
@@ -254,8 +268,7 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
           {artists.map((artist) => {
             const displayName =
               artist.firstName || artist.lastName
-                ? `${artist.firstName ?? ""} ${artist.lastName ?? ""}`.trim() ||
-                  artist.title
+                ? `${artist.firstName ?? ""} ${artist.lastName ?? ""}`.trim() || artist.title
                 : artist.title;
 
             const years =
@@ -295,9 +308,7 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
                       style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     />
                   ) : (
-                    <span style={{ fontSize: 24 }}>
-                      {displayName.charAt(0).toUpperCase()}
-                    </span>
+                    <span style={{ fontSize: 24 }}>{displayName.charAt(0).toUpperCase()}</span>
                   )}
                 </div>
 
@@ -314,7 +325,7 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
                     {displayName}
                   </Link>
 
-                  {years && <div style={{ fontSize: 13, color: "#ccc" }}>{years}</div>}
+                  {years ? <div style={{ fontSize: 13, color: "#ccc" }}>{years}</div> : null}
                 </div>
               </li>
             );
@@ -323,47 +334,42 @@ export default async function ArtistsPage({ searchParams }: PageProps) {
       )}
 
       {/* Σελιδοποίηση */}
-      {total > take && (
+      {total > take ? (
         <div
           style={{
             marginTop: 24,
             display: "flex",
             justifyContent: "space-between",
+            gap: 8,
           }}
         >
           {hasPrev ? (
-            <Link
-              href={buildPageUrl(q, take, Math.max(0, skip - take), activeRoles)}
-              style={{
-                padding: "8px 16px",
-                borderRadius: 20,
-                backgroundColor: "#333",
-                color: "#fff",
-                textDecoration: "none",
-              }}
+            <LinkButton
+              href={buildPageUrl(q, take, Math.max(0, skip - take), activeRoles, sort)}
+              action="back"
+              variant="secondary"
+              title="Προηγούμενη σελίδα"
             >
-              ← Προηγούμενη
-            </Link>
+              Προηγούμενη
+            </LinkButton>
           ) : (
             <div />
           )}
 
-          {hasNext && (
-            <Link
-              href={buildPageUrl(q, take, skip + take, activeRoles)}
-              style={{
-                padding: "8px 16px",
-                borderRadius: 20,
-                backgroundColor: "#333",
-                color: "#fff",
-                textDecoration: "none",
-              }}
+          {hasNext ? (
+            <LinkButton
+              href={buildPageUrl(q, take, skip + take, activeRoles, sort)}
+              action="select"
+              variant="secondary"
+              title="Επόμενη σελίδα"
             >
-              Επόμενη →
-            </Link>
+              Επόμενη
+            </LinkButton>
+          ) : (
+            <div />
           )}
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

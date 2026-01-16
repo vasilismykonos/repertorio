@@ -3,6 +3,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
+import { A } from "@/app/components/buttons";
+
 export type CategoryOption = { id: number; title: string };
 export type RythmOption = { id: number; title: string };
 
@@ -14,9 +16,21 @@ type Props = {
   rythms: RythmOption[];
 };
 
-
 function sortByTitle<T extends { title: string }>(arr: T[]): T[] {
   return [...arr].sort((a, b) => a.title.localeCompare(b.title, "el"));
+}
+
+function readNumericQueryParam(param: string): number | null {
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const v = (sp.get(param) ?? "").trim();
+    if (!v) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.trunc(n);
+  } catch {
+    return null;
+  }
 }
 
 export default function CategoryRythmPickerClient({
@@ -25,7 +39,6 @@ export default function CategoryRythmPickerClient({
   categories,
   rythms,
 }: Props) {
-
   const [categoryId, setCategoryId] = useState(
     initialCategoryId != null ? String(initialCategoryId) : "",
   );
@@ -36,7 +49,8 @@ export default function CategoryRythmPickerClient({
   // ✅ derived από props (ώστε να ανανεώνεται μετά το redirect/refresh)
   const categoryOptions = useMemo(() => sortByTitle(categories), [categories]);
 
-  // Ρυθμοί: κρατάμε state γιατί κάνουμε inline create
+  // ✅ κρατάμε state (όπως πριν) αλλά πλέον δεν κάνουμε inline create.
+  // Απλά συγχρονίζουμε από props όταν ο server φέρει νέα λίστα.
   const [rythmOptions, setRythmOptions] = useState<RythmOption[]>(() =>
     sortByTitle(rythms),
   );
@@ -48,7 +62,7 @@ export default function CategoryRythmPickerClient({
     setCategoryId((prev) => (prev === desired ? prev : desired));
   }, [initialCategoryId]);
 
-  // αντίστοιχα για rythm (αν ποτέ το χρησιμοποιήσεις στο ίδιο pattern)
+  // ✅ αντίστοιχα για rythm: από props
   useEffect(() => {
     const desired = initialRythmId != null ? String(initialRythmId) : "";
     setRythmId((prev) => (prev === desired ? prev : desired));
@@ -59,32 +73,33 @@ export default function CategoryRythmPickerClient({
     setRythmOptions(sortByTitle(rythms));
   }, [rythms]);
 
+  // ✅ Επιπλέον: αν ο caller επιστρέψει με query string (?categoryId=... / ?rythmId=...),
+  // διαβάζουμε μία φορά και “κουμπώνουμε” την επιλογή, όπως ακριβώς περιγράφεις.
+  // Αυτό καλύπτει 100% το ίδιο flow με το category.
+  useEffect(() => {
+    const qCategoryId = readNumericQueryParam("categoryId");
+    if (qCategoryId != null) {
+      const desired = String(qCategoryId);
+      setCategoryId((prev) => (prev === desired ? prev : desired));
+    }
+
+    const qRythmId = readNumericQueryParam("rythmId");
+    if (qRythmId != null) {
+      const desired = String(qRythmId);
+      setRythmId((prev) => (prev === desired ? prev : desired));
+    }
+  }, []);
+
   function goCreateCategory() {
     const returnTo = window.location.pathname + window.location.search;
     const url = `/categories/new?returnTo=${encodeURIComponent(returnTo)}`;
     window.location.assign(url);
   }
 
-  async function createRythmInline() {
-    const raw = window.prompt("Νέος ρυθμός (τίτλος):", "");
-    const title = (raw ?? "").replace(/\s+/g, " ").trim();
-    if (!title) return;
-
-    const res = await fetch("/api/rythms", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title }),
-    });
-
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      alert(`Αποτυχία δημιουργίας ρυθμού.\n${txt}`);
-      return;
-    }
-
-    const created = (await res.json()) as { id: number; title: string };
-    setRythmOptions((prev) => sortByTitle([...prev, created]));
-    setRythmId(String(created.id));
+  function goCreateRythm() {
+    const returnTo = window.location.pathname + window.location.search;
+    const url = `/rythms/new?returnTo=${encodeURIComponent(returnTo)}`;
+    window.location.assign(url);
   }
 
   return (
@@ -109,14 +124,12 @@ export default function CategoryRythmPickerClient({
             ))}
           </select>
 
-          <button
-            type="button"
-            onClick={goCreateCategory}
-            className="song-edit-submit"
-            title="Δημιουργία νέας κατηγορίας"
-          >
-            + Νέα
-          </button>
+          {A.add({
+            onClick: goCreateCategory,
+            label: "Νέα",
+            title: "Δημιουργία νέας κατηγορίας",
+            action: "new",
+          })}
         </div>
       </div>
 
@@ -140,14 +153,12 @@ export default function CategoryRythmPickerClient({
             ))}
           </select>
 
-          <button
-            type="button"
-            onClick={createRythmInline}
-            className="song-edit-submit"
-            title="Προσθήκη νέου ρυθμού"
-          >
-            + Νέος
-          </button>
+          {A.add({
+            onClick: goCreateRythm,
+            label: "Νέος",
+            title: "Δημιουργία νέου ρυθμού",
+            action: "new",
+          })}
         </div>
       </div>
     </div>

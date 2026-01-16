@@ -4,17 +4,21 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Optional,
 } from "@nestjs/common";
 
+
 import { PrismaService } from "../prisma/prisma.service";
 import {
+  Prisma,
   AssetKind,
   AssetType,
   SongCreditRole,
   SongStatus,
   VersionArtistRole,
 } from "@prisma/client";
+
 
 // ✅ NEW
 import { ElasticsearchSongsSyncService } from "../elasticsearch/elasticsearch-songs-sync.service";
@@ -56,7 +60,7 @@ type SongVersionDto = {
 
 type SongDetailDto = {
   id: number;
-  legacySongId: number;
+  legacySongId: number | null;
   scoreFile: string | null;
   hasScore: boolean;
 
@@ -265,6 +269,41 @@ type UpdateSongBody = {
     solistIds?: number[] | string | null;
   }> | null;
 };
+function slugifySongTitle(input: string): string {
+  const trimmed = input.replace(/\s+/g, " ").trim();
+  if (!trimmed) return "song";
+
+  // remove tonos/diacritics
+  const noMarks = trimmed.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  // keep greek+latin+digits+space+dash
+  const slug = noMarks
+    .toLocaleLowerCase("el-GR")
+    .replace(/[^a-z0-9\u0370-\u03ff\u1f00-\u1fff\s-]/gi, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return slug || "song";
+}
+
+async function ensureUniqueSongSlugTx(tx: any, base: string): Promise<string> {
+  let candidate = base;
+  let i = 2;
+
+  // If slug is UNIQUE, this prevents collisions.
+  // If it is not UNIQUE, this loop still works harmlessly.
+  while (
+    await tx.song.findFirst({
+      where: { slug: candidate },
+      select: { id: true },
+    })
+  ) {
+    candidate = `${base}-${i++}`;
+  }
+
+  return candidate;
+}
 
 @Injectable()
 export class SongsService {
@@ -918,6 +957,94 @@ const creditsDto = {
 
     return this.findOne(id, true);
   }
+    /**
+   * ✅ NEW: Διαγραφή τραγουδιού (NEW architecture)
+   *
+   * - Καθαρίζει ρητά relations που στο schema σου ΔΕΝ είναι σίγουρο ότι κάνουν cascade:
+   *   - SongVersionArtist -> SongVersion
+   *   - Credits (SongCredit) αν υπάρχουν
+   *   - ListItem.songId -> null (για να μη μπλοκάρει FK)
+   *
+   * - SongTag / SongAsset έχουν onDelete: Cascade στο schema που έστειλες, άρα δεν απαιτείται explicit delete.
+   */
+  async deleteSong(id: number) {
+    // 1) Βεβαιώσου ότι υπάρχει
+    const existing = await this.prisma.song.findUnique({
+      where: { id },
+      select: { id: true, title: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException(`Song with id=${id} not found`);
+    }
+
+    try {
+      const deleted = await this.prisma.$transaction(async (tx) => {
+        // (A) ListItem.songId είναι optional στο schema σου -> αποσύνδεση
+        await tx.listItem.updateMany({
+          where: { songId: id },
+          data: { songId: null },
+        });
+
+        // (B) Versions: πρώτα artists, μετά versions
+        const versions = await tx.songVersion.findMany({
+          where: { songId: id },
+          select: { id: true },
+        });
+        const versionIds = versions.map((v) => v.id);
+
+        if (versionIds.length > 0) {
+          await tx.songVersionArtist.deleteMany({
+            where: { versionId: { in: versionIds } },
+          });
+
+          await tx.songVersion.deleteMany({
+            where: { id: { in: versionIds } },
+          });
+        }
+
+        // (C) Credits: το service σου χρησιμοποιεί song.credits,
+        // άρα υπάρχει relation "credits" στο Song.
+        // Διαγράφουμε ρητά για να μην κολλήσουμε σε FK.
+        // Αν το model λέγεται αλλιώς στο Prisma, θα το δούμε από TS error και θα το προσαρμόσεις.
+        await tx.songCredit.deleteMany({
+          where: { songId: id },
+        });
+
+        // (D) Τελική διαγραφή Song
+        const song = await tx.song.delete({
+          where: { id },
+          select: { id: true, title: true },
+        });
+
+        return song;
+      });
+
+      // ✅ ES sync: στο delete θέλουμε να φύγει από ES.
+      // Δεν υποθέτουμε method name στο typed service -> χρησιμοποιούμε any-safe optional call.
+      try {
+        await (this.esSync as any)?.deleteSong?.(id);
+      } catch (e) {
+        console.error("[SongsService] ES delete failed", e);
+      }
+
+      return deleted;
+    } catch (err: any) {
+      // Αν κάτι άλλο κρατάει FK, γύρνα 409 με καθαρό μήνυμα
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
+        throw new ConflictException(
+          "Δεν μπορεί να διαγραφεί το τραγούδι επειδή υπάρχουν συσχετισμένα δεδομένα που το αναφέρουν (FK constraint).",
+        );
+      }
+
+      // Αν στο μεταξύ διαγράφηκε
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+        throw new NotFoundException(`Song with id=${id} not found`);
+      }
+
+      throw err;
+    }
+  }
 
   /**
    * Δημιουργεί ένα νέο τραγούδι. Χρησιμοποιεί τα ίδια πεδία με
@@ -984,7 +1111,14 @@ const creditsDto = {
     // Δημιουργούμε το τραγούδι και τις σχέσεις σε ένα transaction
     const songId = await this.prisma.$transaction(async (tx) => {
       // 1) Δημιουργία του Song
-      const createdSong = await tx.song.create({ data, select: { id: true } });
+      const baseSlug = slugifySongTitle(data.title);
+      const slug = await ensureUniqueSongSlugTx(tx, baseSlug);
+
+      const createdSong = await tx.song.create({
+        data: { ...data, slug },
+        select: { id: true },
+      });
+
       const songId = createdSong.id;
 
       // 2) Tags: δημιουργούνται μέσω SongTag
@@ -1180,7 +1314,15 @@ const creditsDto = {
     });
 
     // Συγχρονίζουμε το νέο τραγούδι στο Elasticsearch
+    try {
     await this.esSync?.upsertSong(songId);
+    } catch (e) {
+      // ΜΗΝ ρίξεις το request — το song δημιουργήθηκε.
+      // Κάνε μόνο log.
+      // (αν έχεις logger: this.logger.error(...))
+      console.error("[SongsService] ES upsert failed", e);
+    }
+
     // Επιστρέφουμε το νέο τραγούδι χωρίς να αυξήσουμε views
     return this.findOne(songId, true);
 

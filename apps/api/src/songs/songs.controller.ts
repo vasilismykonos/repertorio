@@ -3,6 +3,7 @@
 import {
   Body,
   Controller,
+  Delete,    
   Get,
   GoneException,
   Param,
@@ -291,6 +292,10 @@ export class SongsController {
     }
 
     return this.songsService.findOne(id, true);
+  }
+  @Delete(":id")
+  async deleteSong(@Param("id", ParseIntPipe) id: number) {
+    return this.songsService.deleteSong(id);
   }
 
   /**

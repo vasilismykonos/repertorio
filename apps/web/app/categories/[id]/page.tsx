@@ -1,9 +1,10 @@
 // apps/web/app/categories/[id]/page.tsx
-import ActionBar from "@/app/components/ActionBar";
-import LinkButton from "@/app/components/LinkButton";
 import { notFound } from "next/navigation";
+
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
+
+import CategoryViewPageClient from "./CategoryViewPageClient";
 
 type PageProps = {
   params: { id: string };
@@ -12,7 +13,7 @@ type PageProps = {
 type CategoryDetailApi = {
   id: number;
   title: string;
-  slug: string | null;
+  slug: string | null;     // ✅ required by CategoryViewPageClient
   songsCount: number;
 };
 
@@ -31,33 +32,14 @@ export default async function CategoryViewPage({ params }: PageProps) {
 
   const currentUser = await getCurrentUserFromApi().catch(() => null);
   const allowedRoles: UserRole[] = ["ADMIN", "EDITOR"];
-  const canEdit = !!currentUser && allowedRoles.includes(currentUser.role as UserRole);
+  const canEdit =
+    !!currentUser && allowedRoles.includes(currentUser.role as UserRole);
 
   return (
-    <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto" }}>
-      <ActionBar
-        right={
-          canEdit ? (
-            <LinkButton
-              href={`/categories/${idNum}/edit`}
-              variant="secondary"
-              title="Επεξεργασία κατηγορίας"
-            >
-              Επεξεργασία
-            </LinkButton>
-          ) : null
-        }
-      />
-
-      <h1 style={{ fontSize: 28, marginBottom: 16 }}>{category.title}</h1>
-
-      <p style={{ marginBottom: 8 }}>
-        <strong>Slug:</strong> {category.slug || "(auto)"}
-      </p>
-
-      <p style={{ marginBottom: 8 }}>
-        <strong>Τραγούδια:</strong> {category.songsCount}
-      </p>
-    </section>
+    <CategoryViewPageClient
+      idNum={idNum}
+      category={category}
+      canEdit={canEdit}
+    />
   );
 }

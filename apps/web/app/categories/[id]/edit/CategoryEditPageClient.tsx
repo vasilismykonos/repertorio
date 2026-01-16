@@ -1,15 +1,12 @@
 "use client";
 
-import React, { useCallback, useState } from "react";
+import React from "react";
 
 import ActionBar from "@/app/components/ActionBar";
-import LinkButton from "@/app/components/LinkButton";
-import Button from "@/app/components/Button";
+import { A } from "@/app/components/buttons";
 
-import CategoryEditForm, {
-  type CategoryForEdit,
-  type CategoryEditActionsCtx,
-} from "./CategoryEditForm";
+import CategoryForm, { type CategoryForEdit } from "../../CategoryForm";
+import { useDictionaryEditor } from "../../../hooks/useDictionaryEditor";
 
 type Props = {
   idNum: number;
@@ -17,65 +14,70 @@ type Props = {
 };
 
 export default function CategoryEditPageClient({ idNum, category }: Props) {
-  const [actions, setActions] = useState<CategoryEditActionsCtx | null>(null);
+  const { value, setValue, error, actionsCtx } = useDictionaryEditor({
+    id: idNum,
+    initialValue: {
+      title: category.title ?? "",
+      slug: category.slug ?? "",
+    },
+    basePath: "/categories",
+    apiBasePath: "/api/categories",
+    returnIdParam: "categoryId",
+  });
 
-  const onActionsChange = useCallback((ctx: CategoryEditActionsCtx) => {
-    setActions(ctx);
-  }, []);
-
-  const busy = actions?.isBusy ?? false;
+  const busy = actionsCtx.isBusy;
 
   return (
     <>
       <ActionBar
         left={
-          <LinkButton
-            href={`/categories/${idNum}`}
-            variant="secondary"
-            title="Πίσω στην κατηγορία"
-            style={{ padding: "6px 12px", fontSize: 14 }}
-          >
-            ← Πίσω
-          </LinkButton>
+          A.backLink({
+            href: `/categories/${idNum}`,
+            title: "Πίσω στην κατηγορία",
+            disabled: busy,
+          })
         }
         right={
           <>
-            <Button
-              type="button"
-              variant="primary"
-              disabled={!actions || busy}
-              onClick={() => actions?.onSaveClick()}
-              title="Αποθήκευση"
-            >
-              {actions?.saving ? "Αποθήκευση..." : "Αποθήκευση"}
-            </Button>
+            {A.save({
+              disabled: busy,
+              loading: actionsCtx.saving,
+              onClick: actionsCtx.onSaveClick,
+              title: "Αποθήκευση",
+            })}
 
-            <Button
-              type="button"
-              variant="danger"
-              disabled={!actions || busy}
-              onClick={() => actions?.onDeleteClick()}
-              title="Διαγραφή κατηγορίας"
-            >
-              {actions?.isDeleting ? "Διαγραφή..." : "Διαγραφή"}
-            </Button>
+           
 
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={!actions || busy}
-              onClick={() => actions?.onCancelClick()}
-              title="Άκυρο"
-            >
-              Άκυρο
-            </Button>
+            {A.cancel({
+              disabled: busy,
+              onClick: actionsCtx.onCancelClick,
+              title: "Άκυρο",
+            })}
+             {A.del({
+              disabled: busy,
+              loading: actionsCtx.isDeleting,
+              onClick: actionsCtx.onDeleteClick,
+              title: "Διαγραφή κατηγορίας",
+            })}
           </>
         }
       />
 
       <h1 style={{ fontSize: 26, marginBottom: 16 }}>Επεξεργασία κατηγορίας</h1>
 
-      <CategoryEditForm category={category} onActionsChange={onActionsChange} />
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          actionsCtx.onSaveClick();
+        }}
+      >
+        <CategoryForm
+          value={value}
+          onChange={setValue}
+          error={error ?? undefined}
+          disabled={busy}
+        />
+      </form>
     </>
   );
 }

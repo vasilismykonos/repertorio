@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { slugify } from "../utils/slugify";
 
 /**
  * Service providing CRUD and search operations for song categories.
@@ -17,25 +18,6 @@ import { PrismaService } from "../prisma/prisma.service";
 @Injectable()
 export class CategoriesService {
   constructor(private readonly prisma: PrismaService) {}
-
-  /**
-   * Normalises and slugifies a title or slug.  Accented Greek characters
-   * are converted to their unaccented forms and non‑alphanumeric characters
-   * are replaced with hyphens.  Multiple hyphens are collapsed and leading
-   * or trailing hyphens are removed.
-   */
-  private slugify(input: string): string {
-    return input
-      .toString()
-      .trim()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // remove diacritics
-      // allow greek letters and latin letters/numbers; replace everything else with '-'
-      .replace(/[^a-z0-9\u0370-\u03ff]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .replace(/-{2,}/g, "-");
-  }
 
   /**
    * Transforms a category returned from Prisma into a DTO with `songsCount`.
@@ -99,9 +81,9 @@ export class CategoriesService {
     // Normalise slug: if provided use it, otherwise derive from title.
     let slug = String(input.slug ?? "").trim();
     if (!slug) {
-      slug = this.slugify(rawTitle);
+      slug = slugify(rawTitle);
     } else {
-      slug = this.slugify(slug);
+      slug = slugify(slug);
     }
     const category = await this.prisma.category.create({
       data: { title: rawTitle, slug },
@@ -131,9 +113,9 @@ export class CategoriesService {
       throw new BadRequestException("Title is required");
     }
     if (!slug) {
-      slug = this.slugify(title);
+      slug = slugify(title);
     } else {
-      slug = this.slugify(slug);
+      slug = slugify(slug);
     }
     const updated = await this.prisma.category.update({
       where: { id },

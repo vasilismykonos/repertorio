@@ -4,8 +4,10 @@
 import { useMemo, useState } from "react";
 import ElasticsearchTab from "./tabs/ElasticsearchTab";
 import TagsTab from "./tabs/TagsTab";
+import CategoriesTab from "./tabs/CategoriesTab";
+import RythmsTab from "./tabs/RythmsTab";
 
-type TabKey = "general" | "elasticsearch" | "tags";
+type TabKey = "general" | "elasticsearch" | "tags" | "categories" | "rythms";
 
 export default function SettingsClient() {
   const [active, setActive] = useState<TabKey>("elasticsearch");
@@ -15,6 +17,8 @@ export default function SettingsClient() {
       { key: "general" as const, label: "Γενικά" },
       { key: "elasticsearch" as const, label: "Elasticsearch" },
       { key: "tags" as const, label: "Tags" },
+      { key: "categories" as const, label: "Κατηγορίες" },
+      { key: "rythms" as const, label: "Ρυθμοί" },
     ],
     [],
   );
@@ -56,9 +60,9 @@ export default function SettingsClient() {
       {active === "general" && (
         <div
           style={{
-            border: "1px solid #eee",
+            padding: 16,
             borderRadius: 12,
-            padding: 14,
+            border: "1px solid #ddd",
             background: "#fff",
           }}
         >
@@ -71,6 +75,8 @@ export default function SettingsClient() {
 
       {active === "elasticsearch" && <ElasticsearchTab />}
       {active === "tags" && <TagsTab />}
+      {active === "categories" && <CategoriesTab />}
+      {active === "rythms" && <RythmsTab />}
     </div>
   );
 }

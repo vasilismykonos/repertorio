@@ -1,3 +1,4 @@
+// apps/web/app/api/scores/[id]/route.ts
 import { NextRequest } from "next/server";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -23,19 +24,15 @@ async function findMainXmlEntry(zip: any): Promise<string | null> {
   const entries = await zip.entries();
   const names = Object.keys(entries);
 
-  // 1) Standard container
   if (entries["META-INF/container.xml"]) {
     const buf = await zip.entryData("META-INF/container.xml");
     const containerXml = buf.toString("utf8");
-    const match = containerXml.match(
-      /<rootfile[^>]*full-path="([^"]+)"/i
-    );
+    const match = containerXml.match(/<rootfile[^>]*full-path="([^"]+)"/i);
     if (match && match[1] && entries[match[1]]) {
       return match[1];
     }
   }
 
-  // 2) Πρώτο .xml που δεν είναι container
   for (const name of names) {
     const lower = name.toLowerCase();
     if (
@@ -50,30 +47,22 @@ async function findMainXmlEntry(zip: any): Promise<string | null> {
   return null;
 }
 
-/**
- * Πολύ ελαφρύ "fixer" ώστε τα XML από διάφορα εργαλεία (Audiveris κ.λπ.)
- * να είναι λίγο πιο φιλικά προς τον OSMD – αντίστοιχη λογική με το παλιό PHP.
- */
 function fixXmlLikePhp(xml: string): string {
   let fixed = xml;
 
-  // Αν δεν έχει xml header, πρόσθεσε ένα UTF-8 header.
   if (!fixed.trim().startsWith("<?xml")) {
     fixed = `<?xml version="1.0" encoding="UTF-8"?>\n` + fixed;
   }
 
-  // Ενοποιημένα line endings
   fixed = fixed.replace(/\r\n/g, "\n");
 
-  // Αν κάποιο εργαλείο έγραψε UTF-16 στο header, γύρνα το σε UTF-8
   fixed = fixed.replace(
     /<\?xml([^>]*encoding=["'])(utf-16|UTF-16)(["'][^>]*)\?>/,
-    (_m, before, _enc, after) => `<?xml${before}UTF-8${after}?>`
+    (_m, before, _enc, after) => `<?xml${before}UTF-8${after}?>`,
   );
 
-  // Πολύ απλό sanitizing σε μη μουσικά entities που ενοχλούν
   fixed = fixed.replace(/&nbsp;/g, " ");
-
+  
   return fixed;
 }
 
@@ -82,9 +71,7 @@ async function readXmlFromMxl(mxlPath: string): Promise<string> {
 
   try {
     const xmlName = await findMainXmlEntry(zip);
-    if (!xmlName) {
-      throw new Error(`Δεν βρέθηκε XML entry στο MXL ${mxlPath}`);
-    }
+    if (!xmlName) throw new Error(`Δεν βρέθηκε XML entry στο MXL ${mxlPath}`);
 
     const buf = await zip.entryData(xmlName);
     return buf.toString("utf8");
@@ -94,46 +81,83 @@ async function readXmlFromMxl(mxlPath: string): Promise<string> {
 }
 
 /**
- * Επιστρέφει το path του score (σε public/scores) και αν είναι plain XML ή MXL.
+ * Επιτρέπει είτε:
+ * - "123" (id)
+ * - "123.mxl" / "123.xml" / "123.musicxml"
+ * - "some-file.mxl" (αν το API δίνει πραγματικό filename)
+ *
+ * Ασφάλεια:
+ * - κάνει basename => κόβει path traversal
+ * - δέχεται μόνο [A-Za-z0-9._-]
  */
-async function resolveScoreFile(id: string): Promise<
+function sanitizeIdOrFilename(input: string): string | null {
+  const base = path.basename(String(input || "").trim());
+  if (!base) return null;
+
+  // allowlist characters (no spaces, no weird chars)
+  if (!/^[A-Za-z0-9._-]+$/.test(base)) return null;
+
+  return base;
+}
+
+/**
+ * Resolve score file:
+ * - Αν δώσεις filename με extension, το ψάχνει πρώτα αυτούσιο.
+ * - Αλλιώς, θεωρεί το "id" και δοκιμάζει: .mxl, .musicxml, .xml
+ */
+async function resolveScoreFile(nameOrId: string): Promise<
   | { kind: "xml"; path: string }
   | { kind: "mxl"; path: string }
   | null
 > {
-  const scoresDir = path.join(process.cwd(), "public", "scores");
+  const scoresDir =
+    process.env.SCORES_DIR?.trim() ||
+    path.join(process.cwd(), "public", "scores");
 
-  const mxlPath = path.join(scoresDir, `${id}.mxl`);
-  if (await fileExists(mxlPath)) {
-    return { kind: "mxl", path: mxlPath };
+  // 1) Αν έρχεται ως filename με extension, δοκίμασέ το αυτούσιο
+  const directPath = path.join(scoresDir, nameOrId);
+  if (await fileExists(directPath)) {
+    const lower = nameOrId.toLowerCase();
+    if (lower.endsWith(".mxl")) return { kind: "mxl", path: directPath };
+    if (lower.endsWith(".musicxml") || lower.endsWith(".xml")) return { kind: "xml", path: directPath };
+    // Αν είναι άγνωστη κατάληξη αλλά υπάρχει, δεν το σερβίρουμε ως score
+    return null;
   }
 
-  const musicXmlPath = path.join(scoresDir, `${id}.musicxml`);
-  if (await fileExists(musicXmlPath)) {
-    return { kind: "xml", path: musicXmlPath };
-  }
+  // 2) Αν δεν υπάρχει αυτούσιο, το θεωρούμε "id" χωρίς extension
+  const idNoExt = nameOrId.replace(/\.(mxl|musicxml|xml)$/i, "");
 
-  const xmlPath = path.join(scoresDir, `${id}.xml`);
-  if (await fileExists(xmlPath)) {
-    return { kind: "xml", path: xmlPath };
-  }
+  const mxlPath = path.join(scoresDir, `${idNoExt}.mxl`);
+  if (await fileExists(mxlPath)) return { kind: "mxl", path: mxlPath };
+
+  const musicXmlPath = path.join(scoresDir, `${idNoExt}.musicxml`);
+  if (await fileExists(musicXmlPath)) return { kind: "xml", path: musicXmlPath };
+
+  const xmlPath = path.join(scoresDir, `${idNoExt}.xml`);
+  if (await fileExists(xmlPath)) return { kind: "xml", path: xmlPath };
 
   return null;
 }
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
-  const id = params.id;
+  const raw = params.id;
+  const safe = sanitizeIdOrFilename(raw);
 
-  if (!id || !/^\d+$/.test(id)) {
-    return new Response("Invalid score id", { status: 400 });
+  if (!safe) {
+    return new Response("Invalid score id/filename", { status: 400 });
   }
 
   try {
-    const resolved = await resolveScoreFile(id);
+    const resolved = await resolveScoreFile(safe);
+
     if (!resolved) {
+      const dir =
+        process.env.SCORES_DIR?.trim() ||
+        path.join(process.cwd(), "public", "scores");
+      console.warn(`[api/scores] not found id=${safe} in dir=${dir}`);
       return new Response("Score not found", { status: 404 });
     }
 
@@ -151,8 +175,7 @@ export async function GET(
     return new Response(fixedXml, {
       status: 200,
       headers: {
-        "Content-Type":
-          "application/vnd.recordare.musicxml+xml; charset=utf-8",
+        "Content-Type": "application/vnd.recordare.musicxml+xml; charset=utf-8",
         "Cache-Control": "no-store",
       },
     });

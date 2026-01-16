@@ -1,6 +1,13 @@
 // apps/web/app/songs/[id]/edit/SongEditForm.tsx
-import Link from "next/link";
+"use client";
 
+import Link from "next/link";
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+
+import ActionBar from "@/app/components/ActionBar";
+import { A } from "@/app/components/buttons";
+import DeleteSongButton from "./DeleteSongButton";
 import TagsEditorClient, { type TagDto } from "./TagsEditorClient";
 import DiscographiesEditorClient from "./DiscographiesEditorClient";
 import SongCreditsEditorClient from "./SongCreditsEditorClient";
@@ -40,7 +47,6 @@ export type SongForEdit = {
   firstLyrics: string | null;
   lyrics: string | null;
 
-  // ✅ legacy strings (fallback)
   composerName?: string | null;
   lyricistName?: string | null;
 
@@ -73,11 +79,9 @@ export type SongCreditsDto = {
 export type CategoryOption = { id: number; title: string };
 export type RythmOption = { id: number; title: string };
 
-// ✅ split legacy names -> string[]
 function splitNames(v: string | null | undefined): string[] {
   const s = (v ?? "").toString().trim();
   if (!s) return [];
-  // split μόνο σε κόμμα ή slash (χωρίς “μαγικά”)
   return s
     .split(/[,/]/g)
     .map((x) => x.trim().replace(/\s+/g, " "))
@@ -103,13 +107,9 @@ type Props = {
   isOwner: boolean;
   currentUserRoleLabel: string;
 
-  /**
-   * ⚠️ Παραμένει προς το παρόν γιατί το TagsEditorClient χρησιμοποιεί
-   * απευθείας apiBaseUrl. Δεν το πειράζουμε σε αυτή τη φάση.
-   */
   apiBase: string;
 
-  createMode?: boolean; // ✅ NEW
+  createMode?: boolean;
 };
 
 export default function SongEditForm({
@@ -120,13 +120,14 @@ export default function SongEditForm({
   createMode,
   isOwner,
   currentUserRoleLabel,
-  apiBase,
 }: Props) {
   const isCreate = !!createMode;
   const statusValue = song.status ?? "PENDING_APPROVAL";
-  const scoreUrl = song.hasScore && song.scoreFile ? `/scores/${song.scoreFile}` : null;
+  const scoreUrl =
+    song.hasScore && song.scoreFile ? `/api/scores/${song.scoreFile}` : null;
 
   const firstLyricsDerived = deriveFirstLyricsFromLyrics(song.lyrics);
+
   const initialTagIds = song.tags.map((t) => t.id);
   const initialAssets = song.assets;
   const initialVersions = (song.versions ?? []).map((v) => ({
@@ -136,20 +137,152 @@ export default function SongEditForm({
     solistIds: v.solistIds ?? [],
   }));
 
-
   const initialComposerArtistIds = credits.composerArtistIds;
   const initialLyricistArtistIds = credits.lyricistArtistIds;
 
-  // ✅ fallback names από legacy song fields
   const initialComposerNames = splitNames(song.composerName ?? null);
   const initialLyricistNames = splitNames(song.lyricistName ?? null);
 
-  const formAction = isCreate ? "/api/songs" : `/api/songs/${song.id}`;
- 
+  const [isBusy, setIsBusy] = useState(false);
+  const router = useRouter();
+
+  function handleCancel() {
+    if (isCreate) router.push("/songs");
+    else router.push(`/songs/${song.id}`);
+  }
+
+  function requestSaveSubmit() {
+    const form = document.getElementById("song-edit-form") as
+      | HTMLFormElement
+      | null;
+    form?.requestSubmit();
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (isBusy) return;
+    setIsBusy(true);
+
+    try {
+      const formData = new FormData(e.currentTarget);
+
+      const title = formData.get("title")?.toString() || "";
+      const lyrics = (formData.get("lyrics") as string | null) ?? null;
+      const chords = (formData.get("chords") as string | null) ?? null;
+
+      const categoryRaw = formData.get("categoryId")?.toString() || "";
+      const rythmRaw = formData.get("rythmId")?.toString() || "";
+      const categoryId = categoryRaw ? Number(categoryRaw) : null;
+      const rythmId = rythmRaw ? Number(rythmRaw) : null;
+
+      const tagIdsJson = formData.get("tagIdsJson")?.toString() || "[]";
+      const assetsJson = formData.get("assetsJson")?.toString() || "[]";
+      const versionsJson = formData.get("versionsJson")?.toString() || "[]";
+      const creditsJson = formData.get("creditsJson")?.toString() || "{}";
+
+      let tagIds: number[] = [];
+      let assets: any[] | null = null;
+      let versions: any[] | null = null;
+      let composerArtistIds: number[] = [];
+      let lyricistArtistIds: number[] = [];
+
+      try {
+        tagIds = JSON.parse(tagIdsJson);
+      } catch {
+        tagIds = [];
+      }
+      try {
+        assets = JSON.parse(assetsJson);
+      } catch {
+        assets = null;
+      }
+      try {
+        versions = JSON.parse(versionsJson);
+      } catch {
+        versions = null;
+      }
+      try {
+        const creditsObj = JSON.parse(creditsJson);
+        if (Array.isArray(creditsObj?.composerArtistIds)) {
+          composerArtistIds = creditsObj.composerArtistIds
+            .map((x: any) => Number(x))
+            .filter((n: any) => Number.isFinite(n) && n > 0);
+        }
+        if (Array.isArray(creditsObj?.lyricistArtistIds)) {
+          lyricistArtistIds = creditsObj.lyricistArtistIds
+            .map((x: any) => Number(x))
+            .filter((n: any) => Number.isFinite(n) && n > 0);
+        }
+      } catch {
+        composerArtistIds = [];
+        lyricistArtistIds = [];
+      }
+
+      const firstLyrics = deriveFirstLyricsFromLyrics(lyrics);
+
+      const body: any = {
+        title: title || undefined,
+        firstLyrics: firstLyrics ?? undefined,
+        lyrics,
+        characteristics: song.characteristics ?? null,
+        originalKey: song.originalKey ?? null,
+        chords,
+        status: statusValue ?? undefined,
+        categoryId,
+        rythmId,
+        tagIds,
+        assets,
+        versions,
+        composerArtistIds,
+        lyricistArtistIds,
+      };
+
+      const endpoint = isCreate
+        ? "/api/songs/full"
+        : `/api/songs/${song.id}/full`;
+      const method = isCreate ? "POST" : "PATCH";
+
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        alert(
+          `Αποτυχία αποθήκευσης τραγουδιού: HTTP ${res.status}${
+            text ? "\n" + text : ""
+          }`,
+        );
+        return;
+      }
+
+      if (isCreate) {
+        let created: any = null;
+        try {
+          created = await res.json();
+        } catch {
+          created = null;
+        }
+        const newId = created?.id;
+        router.push(newId ? `/songs/${newId}/edit` : "/songs");
+      } else {
+        router.push(`/songs/${song.id}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Αποτυχία αποθήκευσης τραγουδιού.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  const backHref = isCreate ? "/songs" : `/songs/${song.id}`;
 
   return (
     <main className="song-edit-page">
-      {/* ✅ ΣΤΥΛ: άσπρο φόντο + μαύρα γράμματα για Τίτλο/Στίχους/Συγχορδίες */}
       <style>{`
         .song-edit-input-light {
           background: #fff !important;
@@ -169,7 +302,10 @@ export default function SongEditForm({
               Τραγούδια
             </Link>
             <span className="song-edit-breadcrumb-separator">/</span>
-            <Link href={`/songs/${song.id}`} className="song-edit-breadcrumb-link">
+            <Link
+              href={`/songs/${song.id}`}
+              className="song-edit-breadcrumb-link"
+            >
               #{song.id}
             </Link>
             <span className="song-edit-breadcrumb-separator">/</span>
@@ -179,7 +315,9 @@ export default function SongEditForm({
           </p>
 
           <h1 className="song-edit-title">
-            {isCreate ? "Δημιουργία νέου τραγουδιού" : `Επεξεργασία τραγουδιού ${song.title}`}
+            {isCreate
+              ? "Δημιουργία νέου τραγουδιού"
+              : `Επεξεργασία τραγουδιού ${song.title}`}
           </h1>
 
           <div className="song-edit-meta" style={{ marginTop: 10 }}>
@@ -192,7 +330,8 @@ export default function SongEditForm({
                   background: "#111",
                 }}
               >
-                Δικαιώματα: <strong>{isOwner ? "Owner" : currentUserRoleLabel}</strong>
+                Δικαιώματα:{" "}
+                <strong>{isOwner ? "Owner" : currentUserRoleLabel}</strong>
               </span>
 
               <span
@@ -223,7 +362,37 @@ export default function SongEditForm({
           </div>
         </header>
 
-        <form method="POST" action={formAction} className="song-edit-form">
+        <ActionBar
+          left={
+            <>
+              {A.backLink({
+                href: backHref,
+                label: "Πίσω",
+              })}
+            </>
+          }
+          right={
+            <>
+              {A.save({
+                onClick: requestSaveSubmit,
+                disabled: isBusy,
+                loading: isBusy,
+                label: isCreate ? "Δημιουργία" : "Αποθήκευση αλλαγών",
+                loadingLabel: isCreate ? "Δημιουργία..." : "Αποθήκευση...",
+              })}
+              {A.cancel({
+                onClick: handleCancel,
+                disabled: isBusy,
+              })}
+
+              {!isCreate && (
+                <DeleteSongButton songId={song.id} songTitle={song.title} />
+              )}
+            </>
+          }
+        />
+
+        <form id="song-edit-form" onSubmit={handleSubmit} className="song-edit-form">
           <input
             type="hidden"
             id="tagIdsJson"
@@ -243,12 +412,20 @@ export default function SongEditForm({
             defaultValue={JSON.stringify(initialVersions)}
           />
 
-          {/* ΣΗΜΕΙΩΣΗ: κρατάμε τους υπολογισμούς για parity, παρότι δεν φαίνονται εδώ */}
-          {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
-          <input type="hidden" name="__firstLyricsDerived" value={firstLyricsDerived} readOnly />
-          {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
-          <input type="hidden" name="__statusValue" value={statusValue} readOnly />
+          <input
+            type="hidden"
+            name="__firstLyricsDerived"
+            value={firstLyricsDerived}
+            readOnly
+          />
+          <input
+            type="hidden"
+            name="__statusValue"
+            value={statusValue}
+            readOnly
+          />
 
+          {/* 1) Βασικές πληροφορίες */}
           <div className="song-edit-section">
             <h2 className="song-edit-section-title">Βασικές πληροφορίες</h2>
 
@@ -287,21 +464,17 @@ export default function SongEditForm({
             </div>
           </div>
 
-          <div className="song-edit-section">
-            <h2 className="song-edit-section-title">Tags</h2>
+          {/* ✅ Ζητούμενο: Κατηγορία/Ρυθμός κάτω από συγχορδίες */}
+          <CategoryRythmPickerClient
+            initialCategoryId={song.categoryId}
+            initialRythmId={song.rythmId}
+            categories={categories}
+            rythms={rythms}
+          />
 
-            <TagsEditorClient
-              initialTags={song.tags}
-              hiddenInputId="tagIdsJson"
-              take={25}
-            />
-
-          </div>
-
-          {/* ✅ Credits ΠΑΝΩ από Discographies */}
+          {/* 2) Συντελεστές */}
           <div className="song-edit-section">
             <h2 className="song-edit-section-title">Συντελεστές</h2>
-
             <SongCreditsEditorClient
               initialComposerArtistIds={initialComposerArtistIds}
               initialLyricistArtistIds={initialLyricistArtistIds}
@@ -311,36 +484,25 @@ export default function SongEditForm({
             />
           </div>
 
+          {/* ✅ Ζητούμενο: Tags κάτω από τους Συντελεστές */}
+          <div className="song-edit-section">
+            <h2 className="song-edit-section-title">Tags</h2>
+            <TagsEditorClient
+              initialTags={song.tags}
+              hiddenInputId="tagIdsJson"
+              take={25}
+            />
+          </div>
+
+          {/* 3) Δισκογραφίες */}
           <div className="song-edit-section">
             <h2 className="song-edit-section-title">Δισκογραφίες</h2>
-
             <DiscographiesEditorClient
               songTitle={song.title}
               initialVersions={initialVersions}
               hiddenInputId="versionsJson"
             />
-
-
-
           </div>
-
-          {/* ✅ Κατηγορία / Ρυθμός (με inline δημιουργία μέσω BFF /api/*) */}
-          <CategoryRythmPickerClient
-            initialCategoryId={song.categoryId}
-            initialRythmId={song.rythmId}
-            categories={categories}
-            rythms={rythms}
-          />
-
-          <footer className="song-edit-actions">
-            <button type="submit" className="song-edit-submit">
-              {isCreate ? "Δημιουργία τραγουδιού" : "Αποθήκευση αλλαγών"}
-            </button>
-
-            <Link href={isCreate ? "/songs" : `/songs/${song.id}`} className="song-edit-cancel">
-              Άκυρο
-            </Link>
-          </footer>
         </form>
       </section>
     </main>
