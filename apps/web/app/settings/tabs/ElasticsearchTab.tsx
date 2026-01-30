@@ -27,7 +27,7 @@ type PreviewItem = {
   // legacy
   characteristics?: string | null;
 
-  // ✅ tags από ES
+  // tags από ES
   tagIds?: number[] | null;
   tagTitles?: string[] | null;
   tagSlugs?: string[] | null;
@@ -40,16 +40,18 @@ type PreviewItem = {
   categoryTitle?: string | null;
   rythmTitle?: string | null;
 
-  // ✅ NEW: ids + names
   composerId?: number | null;
   composerName?: string | null;
   lyricistId?: number | null;
   lyricistName?: string | null;
 
+  // ✅ NEW: createdBy
+  createdById?: number | null;
+  createdByName?: string | null;
+
   singerFrontNames?: string[] | null;
   singerBackNames?: string[] | null;
 
-  // ✅ ΝΕΟ: discography-aware
   discographies?: Array<{
     versionId: number | null;
     year: number | null;
@@ -76,6 +78,45 @@ type PreviewResponse = {
   items: PreviewItem[];
 };
 
+const TABLE_HEADERS = [
+  "id",
+  "legacySongId",
+  "title",
+  "firstLyrics",
+  "tagTitles",
+  "originalKey",
+  "categoryId",
+  "categoryTitle",
+  "rythmId",
+  "rythmTitle",
+
+  "composerId",
+  "composerName",
+  "lyricistId",
+  "lyricistName",
+
+  // ✅ NEW
+  "createdById",
+  "createdByName",
+
+  "singerFrontNames",
+  "singerBackNames",
+
+  "discographies",
+
+  "minYear",
+  "maxYear",
+  "yearText",
+  "views",
+  "status",
+  "scoreFile",
+  "hasChords",
+  "hasScore",
+  "hasLyrics",
+] as const;
+
+type TableHeader = (typeof TABLE_HEADERS)[number];
+
 function pct(done: number, total: number) {
   if (!total || total <= 0) return 0;
   const v = Math.floor((done / total) * 100);
@@ -92,8 +133,6 @@ function safeJsonParse<T>(text: string): T | null {
 
 function formatDiscographies(d?: PreviewItem["discographies"]) {
   if (!d?.length) return "–";
-  // compact: vId: [front] / [back]
-  // π.χ. "v12: Ζ,Ρ / Τ | v9: Α / Β,Γ"
   return d
     .map((x) => {
       const v = x.versionId ?? "–";
@@ -106,11 +145,13 @@ function formatDiscographies(d?: PreviewItem["discographies"]) {
 
 export default function ElasticsearchTab() {
   /**
-   * ✅ NEW ARCH RULE (categories template):
-   * Client-side calls MUST stay same-origin to avoid CORS / wrong domain.
-   * Nginx proxies /api/v1 -> API server.
+   * Client-side calls same-origin: Nginx proxies /api/v1 -> API
    */
   const apiBase = "/api/v1";
+
+  // ✅ Prevent hydration mismatch by rendering only after mount
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const [status, setStatus] = useState<ReindexStatus | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
@@ -120,7 +161,6 @@ export default function ElasticsearchTab() {
   const [starting, setStarting] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
-
   const [recreate, setRecreate] = useState<boolean>(true);
 
   const pollRef = useRef<number | null>(null);
@@ -223,11 +263,14 @@ export default function ElasticsearchTab() {
   }, [apiBase, fetchStatus, recreate]);
 
   useEffect(() => {
+    if (!mounted) return;
     void fetchStatus();
     void fetchPreview();
-  }, [fetchStatus, fetchPreview]);
+  }, [mounted, fetchStatus, fetchPreview]);
 
   useEffect(() => {
+    if (!mounted) return;
+
     const running = !!status?.running;
 
     if (!running) {
@@ -262,43 +305,25 @@ export default function ElasticsearchTab() {
       }
       pollingBusyRef.current = false;
     };
-  }, [status?.running, fetchStatus, fetchPreview]);
+  }, [mounted, status?.running, fetchStatus, fetchPreview]);
 
-  const tableHeaders = useMemo(() => {
-    return [
-      "id",
-      "legacySongId",
-      "title",
-      "firstLyrics",
-      "tagTitles",
-      "originalKey",
-      "categoryId",
-      "categoryTitle",
-      "rythmId",
-      "rythmTitle",
-
-      "composerId",
-      "composerName",
-      "lyricistId",
-      "lyricistName",
-
-      "singerFrontNames",
-      "singerBackNames",
-
-      // ✅ νέο debug column
-      "discographies",
-
-      "minYear",
-      "maxYear",
-      "yearText",
-      "views",
-      "status",
-      "scoreFile",
-      "hasChords",
-      "hasScore",
-      "hasLyrics",
-    ] as const;
-  }, []);
+  if (!mounted) {
+    // Δεν κάνουμε SSR markup για να αποφύγουμε hydration mismatch σε dev/HMR.
+    return (
+      <div
+        style={{
+          border: "1px solid #333",
+          borderRadius: 12,
+          padding: 14,
+          background: "#0b0b0b",
+          color: "#fff",
+        }}
+      >
+        <h2 style={{ marginTop: 0 }}>Elasticsearch</h2>
+        <div style={{ color: "#aaa", fontSize: 13 }}>Φόρτωση…</div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -450,14 +475,14 @@ export default function ElasticsearchTab() {
           style={{
             width: "100%",
             borderCollapse: "collapse",
-            minWidth: 2100,
+            minWidth: 2250,
             fontSize: 13,
             background: "#0f0f0f",
           }}
         >
           <thead>
             <tr>
-              {tableHeaders.map((h) => (
+              {TABLE_HEADERS.map((h) => (
                 <th
                   key={h}
                   style={{
@@ -496,6 +521,9 @@ export default function ElasticsearchTab() {
                 row.lyricistId ?? "–",
                 row.lyricistName ?? "–",
 
+                row.createdById ?? "–",
+                row.createdByName ?? "–",
+
                 row.singerFrontNames?.length ? row.singerFrontNames.join(", ") : "–",
                 row.singerBackNames?.length ? row.singerBackNames.join(", ") : "–",
 
@@ -515,8 +543,8 @@ export default function ElasticsearchTab() {
               return (
                 <tr key={idx}>
                   {cells.map((cell, i) => {
-                    const col = tableHeaders[i];
-                    const ellipsisCols = new Set(["firstLyrics", "tagTitles", "discographies"]);
+                    const col = TABLE_HEADERS[i] as TableHeader;
+                    const ellipsisCols = new Set<TableHeader>(["firstLyrics", "tagTitles", "discographies"]);
                     const isEllipsis = ellipsisCols.has(col);
 
                     return (
@@ -543,7 +571,7 @@ export default function ElasticsearchTab() {
 
             {!preview?.items?.length && (
               <tr>
-                <td colSpan={tableHeaders.length} style={{ padding: 10, color: "#aaa" }}>
+                <td colSpan={TABLE_HEADERS.length} style={{ padding: 10, color: "#aaa" }}>
                   Δεν υπάρχουν εγγραφές (ή απέτυχε το preview).
                 </td>
               </tr>

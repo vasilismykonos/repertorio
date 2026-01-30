@@ -41,9 +41,6 @@ export class ElasticsearchSongsSyncService {
     return { res, text, json };
   }
 
-  /**
-   * ✅ Ασφαλές normalize: καλύπτει όλα τα πιθανά πεδία που έχουμε δει.
-   */
   private normalizeName(artist: any): string | null {
     const title = String(artist?.title ?? "").trim();
     if (title) return title;
@@ -81,9 +78,6 @@ export class ElasticsearchSongsSyncService {
     return firstLine ?? null;
   }
 
-  /**
-   * ✅ NEW: επιστρέφει ΚΑΙ ids (composerId/lyricistId) εκτός από names
-   */
   private computeCredits(credits: any[]) {
     let composerName: string | null = null;
     let lyricistName: string | null = null;
@@ -113,11 +107,6 @@ export class ElasticsearchSongsSyncService {
     return { composerName, lyricistName, composerId, lyricistId };
   }
 
-  /**
-   * ✅ Discography-aware singers:
-   * - singerFrontNames/singerBackNames: union across versions
-   * - discographies[]: nested objects per version
-   */
   private computeDiscographySingersFromVersions(versions: any[]) {
     const allFront: string[] = [];
     const allBack: string[] = [];
@@ -232,6 +221,9 @@ export class ElasticsearchSongsSyncService {
         credits: { include: { artist: true } },
         versions: { include: { artists: { include: { artist: true } } } },
 
+        // ✅ NEW: createdBy
+        createdBy: { select: { id: true, displayName: true } },
+
         SongTag: {
           include: { Tag: { select: { id: true, title: true, slug: true } } },
           orderBy: [{ tagId: "asc" }],
@@ -256,11 +248,16 @@ export class ElasticsearchSongsSyncService {
 
     const { composerName, lyricistName, composerId, lyricistId } = this.computeCredits(s.credits);
 
-    // ✅ NEW: discography-aware singers + union
     const { singerFrontNames, singerBackNames, discographies } =
       this.computeDiscographySingersFromVersions(s.versions);
 
     const { years, minYear, maxYear, yearText, versionSingerPairs } = this.computeVersionMeta(s.versions);
+
+    const createdById =
+      typeof (s as any).createdByUserId === "number" ? (s as any).createdByUserId : null;
+
+    const createdByNameRaw = String((s as any)?.createdBy?.displayName ?? "").trim();
+    const createdByName = createdByNameRaw ? createdByNameRaw : null;
 
     return {
       id: s.id,
@@ -272,7 +269,6 @@ export class ElasticsearchSongsSyncService {
 
       characteristics: (s as any).characteristics ?? null,
 
-      // ✅ Tags
       tagIds: Array.isArray((s as any).SongTag)
         ? (s as any).SongTag.map((st: any) => Number(st?.tagId)).filter((n: any) => Number.isFinite(n) && n > 0)
         : [],
@@ -293,6 +289,10 @@ export class ElasticsearchSongsSyncService {
       lyricistId: lyricistId ?? null,
       composerName,
       lyricistName,
+
+      // ✅ NEW: createdBy
+      createdById,
+      createdByName,
 
       singerFrontNames,
       singerBackNames,
@@ -320,7 +320,6 @@ export class ElasticsearchSongsSyncService {
 
     const doc = await this.buildEsDoc(songId);
 
-    // ✅ Αν δεν υπάρχει πλέον => delete από ES (όπως πριν)
     if (!doc) {
       await this.deleteSong(songId);
       return;
@@ -350,7 +349,6 @@ export class ElasticsearchSongsSyncService {
       { method: "DELETE" },
     );
 
-    // 404 = OK
     if (res.ok || res.status === 404) return;
 
     const msg = `ES delete failed songId=${songId} HTTP ${res.status}: ${text}`;

@@ -31,6 +31,8 @@ type SongInfoToggleProps = {
   views?: number | null;
   status?: string | null;
   versions?: SongVersion[] | null;
+  createdByUserId?: number | null;
+  createdByDisplayName?: string | null;
 };
 
 function YouTubeButton({
@@ -147,6 +149,24 @@ export default function SongInfoToggle(props: SongInfoToggleProps) {
         <div style={{ marginTop: 6, opacity: 0.8 }}>
           Κατάσταση: <strong>{props.status || "Καταχωρήθηκε"}</strong>
         </div>
+              {props.createdByUserId != null &&  (
+        <div style={{ marginTop: 6, opacity: 0.85 }}>
+          Δημιουργός:{" "}
+          <a
+            href={`/users/${props.createdByUserId}`}
+            style={{
+              color: "#ddd",
+              textDecoration: "underline",
+              fontWeight: 600,
+            }}
+          >
+            {props.createdByDisplayName?.trim()
+              ? props.createdByDisplayName.trim()
+              : `Χρήστης #${props.createdByUserId}`}
+
+          </a>
+        </div>
+      )}
 
         {props.versions && props.versions.length > 0 && (
           <div style={{ marginTop: 12 }}>

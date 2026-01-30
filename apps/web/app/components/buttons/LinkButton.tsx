@@ -14,6 +14,7 @@ import {
   CircleDot,
   Pencil,
   ArrowUpDown,
+  Settings,
 } from "lucide-react";
 
 export type LinkButtonVariant =
@@ -38,7 +39,8 @@ export type LinkButtonAction =
   | "apply"
   | "search"
   | "select"
-  | "sort";
+  | "sort"
+  | "settings"; 
 
 type Props = Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
   href: string;
@@ -100,6 +102,8 @@ function actionToIcon(action: LinkButtonAction | undefined): LucideIcon | null {
       return CircleDot;
     case "sort":
       return ArrowUpDown;
+    case "settings":
+      return Settings;
     default:
       return null;
   }

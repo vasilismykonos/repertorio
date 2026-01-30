@@ -13,8 +13,13 @@ import {
   CircleDot,
   Pencil,
   ArrowUpDown,
-  Recycle, 
+  Recycle,
+  Settings,
+  RefreshCw,
+  LogIn,
+  LogOut,
 } from "lucide-react";
+
 
 export type ButtonVariant =
   | "primary"
@@ -39,7 +44,12 @@ export type ButtonAction =
   | "search"
   | "select"
   | "sort"
-  | "room"; 
+  | "room"
+  | "settings"
+  | "refresh"
+  | "login"
+  | "logout";
+
 
 type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
@@ -109,6 +119,15 @@ function actionToIcon(action: ButtonAction | undefined): LucideIcon | null {
       return ArrowUpDown;
     case "room":
       return Recycle;
+    case "settings": 
+      return Settings;
+    case "refresh":
+      return RefreshCw;
+    case "login":
+      return LogIn;
+    case "logout":
+      return LogOut;
+
     default:
       return null;
   }

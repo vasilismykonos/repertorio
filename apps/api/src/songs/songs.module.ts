@@ -18,8 +18,23 @@ import { ElasticsearchSongsSyncService } from "../elasticsearch/elasticsearch-so
 // ✅ needed by SongsController
 import { SongCreditsService } from "./song-credits.service";
 
+// ✅ NEW
+// apps/api/src/songs/songs.module.ts
+import { SongSingerTunesController } from "./song-singer-tunes.controller";
+import { SongSingerTunesService } from "./song-singer-tunes.service";
+
+import { SongSingerTuneAccessService } from "./SongSingerTuneAccess.service";
+import { SongSingerTuneAccessController } from "./SongSingerTuneAccess.controller";
+
+
 @Module({
-  controllers: [SongTagsController, SongsSearchController, SongsController],
+  controllers: [
+    SongTagsController,
+    SongsSearchController,
+    SongsController,
+    SongSingerTunesController,
+    SongSingerTuneAccessController,
+  ],
   providers: [
     PrismaService,
     SongsService,
@@ -27,6 +42,9 @@ import { SongCreditsService } from "./song-credits.service";
     SongTagsService,
     SongCreditsService,
     ElasticsearchSongsSyncService,
+    SongSingerTunesService, 
+    SongSingerTuneAccessService,
   ],
 })
 export class SongsModule {}
+

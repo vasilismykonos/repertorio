@@ -1,9 +1,11 @@
-// app/users/page.tsx
+// apps/web/app/users/page.tsx
 import type { Metadata } from "next";
 import Link from "next/link";
+
+import ActionBar from "@/app/components/ActionBar";
+import { Button, LinkButton } from "@/app/components/buttons";
+
 import { fetchJson } from "@/lib/api";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
 
 export const metadata: Metadata = {
@@ -36,112 +38,71 @@ type UsersPageSearchParams = {
   search?: string;
   page?: string;
   pageSize?: string;
+  // κρατάμε συμβατότητα με το υπάρχον contract
   orderby?: string;
   order?: string;
 };
 
-function normalizeOrderby(orderby: string | undefined): string {
-  const allowed = [
-    "id",
-    "displayName",
-    "username",
-    "email",
-    "role",
-    "createdAt",
-    "createdSongsCount",
-    "createdVersionsCount",
-  ];
+type UsersSortKey = "name_asc" | "name_desc";
 
-  if (!orderby || !allowed.includes(orderby)) {
-    return "displayName";
-  }
-
-  return orderby;
+function firstParam(v: string | string[] | undefined): string {
+  return Array.isArray(v) ? (v[0] ?? "") : (v ?? "");
 }
 
-function normalizeOrder(order: string | undefined): "asc" | "desc" {
-  if (order === "desc") return "desc";
-  return "asc";
+function clampInt(n: number, min: number, max: number, fallback: number) {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }
 
-function buildSortHref(
-  field: string,
-  params: {
-    search: string;
-    pageSize: number;
-    currentOrderBy: string;
-    currentOrder: string;
-  },
-): string {
-  const { search, pageSize, currentOrderBy, currentOrder } = params;
-  const qs = new URLSearchParams();
-
-  if (search) {
-    qs.set("search", search);
-  }
-
-  qs.set("page", "1");
-  qs.set("pageSize", String(pageSize));
-  qs.set("orderby", field);
-
-  const nextOrder =
-    currentOrderBy === field && currentOrder === "asc" ? "desc" : "asc";
-  qs.set("order", nextOrder);
-
-  return `/users?${qs.toString()}`;
+function parseSortFromParams(orderby: string, order: string): UsersSortKey {
+  // Στο UI κάνουμε ένα απλό "Α-Ω / Ω-Α" πάνω στο displayName.
+  // Αν ο χρήστης έχει άλλα params, τα αγνοούμε για το UI toggle.
+  if (orderby === "displayName" && order === "desc") return "name_desc";
+  return "name_asc";
 }
 
-function buildPageHref(
-  page: number,
-  params: {
-    search: string;
-    pageSize: number;
-    orderby: string;
-    order: string;
-  },
-): string {
-  const { search, pageSize, orderby, order } = params;
+function buildUsersUrl(params: {
+  search: string;
+  page: number;
+  pageSize: number;
+  sortKey: UsersSortKey;
+}): string {
+  const { search, page, pageSize, sortKey } = params;
   const qs = new URLSearchParams();
 
   qs.set("page", String(page));
   qs.set("pageSize", String(pageSize));
+  if (search) qs.set("search", search);
 
-  if (search) {
-    qs.set("search", search);
-  }
-  qs.set("orderby", orderby);
-  qs.set("order", order);
+  // κρατάμε API contract: sort/order
+  qs.set("sort", "displayName");
+  qs.set("order", sortKey === "name_desc" ? "desc" : "asc");
 
   return `/users?${qs.toString()}`;
 }
 
-function formatDate(dateString: string): string {
-  const d = new Date(dateString);
-  if (Number.isNaN(d.getTime())) return "—";
+function buildPageHref(params: {
+  search: string;
+  page: number;
+  pageSize: number;
+  sortKey: UsersSortKey;
+}): string {
+  const { search, page, pageSize, sortKey } = params;
+  const qs = new URLSearchParams();
 
-  const day = String(d.getDate()).padStart(2, "0");
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const year = d.getFullYear();
+  qs.set("page", String(page));
+  qs.set("pageSize", String(pageSize));
+  if (search) qs.set("search", search);
 
-  return `${day}/${month}/${year}`;
+  // για να έχεις stable URLs στο UI (και να επιβιώνει refresh)
+  qs.set("orderby", "displayName");
+  qs.set("order", sortKey === "name_desc" ? "desc" : "asc");
+
+  return `/users?${qs.toString()}`;
 }
 
-function formatRoleLabel(role: UserRole): string {
-  switch (role) {
-    case "ADMIN":
-      return "Διαχειριστής";
-    case "EDITOR":
-      return "Συντάκτης";
-    case "AUTHOR":
-      return "Συγγραφέας";
-    case "CONTRIBUTOR":
-      return "Συνεργάτης";
-    case "SUBSCRIBER":
-      return "Συνδρομητής";
-    case "USER":
-    default:
-      return "Χρήστης";
-  }
+function deriveDisplayName(u: UserListItem): string {
+  return u.displayName ?? u.username ?? u.email ?? `User #${u.id}`;
 }
 
 export default async function UsersPage({
@@ -149,448 +110,275 @@ export default async function UsersPage({
 }: {
   searchParams?: UsersPageSearchParams;
 }) {
-  // Session από NextAuth (Google image για logged-in user)
-  const session = await getServerSession(authOptions);
-  const sessionEmail =
-    session?.user?.email ? session.user.email.toLowerCase() : null;
-  const sessionImage =
-    (session?.user as any)?.image &&
-    typeof (session?.user as any).image === "string"
-      ? ((session?.user as any).image as string)
-      : null;
-
-  // Τρέχων χρήστης από Nest API (για έλεγχο ρόλου)
-  const currentUser = await getCurrentUserFromApi();
+  const currentUser = await getCurrentUserFromApi().catch(() => null);
   const isAdmin = currentUser?.role === "ADMIN";
 
-  // Query params
   const search = (searchParams?.search ?? "").trim();
-  const page = Number(searchParams?.page ?? "1") || 1;
-  const pageSize = Number(searchParams?.pageSize ?? "10") || 10;
-  const orderby = normalizeOrderby(searchParams?.orderby);
-  const order = normalizeOrder(searchParams?.order);
+  const page = clampInt(Number(searchParams?.page ?? "1") || 1, 1, 1_000_000, 1);
+  const pageSize = clampInt(
+    Number(searchParams?.pageSize ?? "50") || 50,
+    5,
+    200,
+    50,
+  );
 
-  const qs = new URLSearchParams();
-  qs.set("page", String(page));
-  qs.set("pageSize", String(pageSize));
-  if (search) {
-    qs.set("search", search);
+  const orderby = firstParam(searchParams?.orderby || "displayName").trim() || "displayName";
+  const order = firstParam(searchParams?.order || "asc").trim() || "asc";
+  const sortKey = parseSortFromParams(orderby, order);
+
+  if (!currentUser) {
+    return (
+      <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto", color: "#fff" }}>
+        <ActionBar left={<h1 style={{ fontSize: 28, margin: 0 }}>Χρήστες</h1>} />
+        <div style={{ color: "#ccc", marginTop: 12 }}>
+          Πρέπει να συνδεθείτε για να δείτε τη σελίδα χρηστών.{" "}
+          <a href="/api/auth/signin">Μετάβαση στη σελίδα σύνδεσης</a>
+        </div>
+      </section>
+    );
   }
-  qs.set("sort", orderby);
-  qs.set("order", order);
 
-  const url = `/users?${qs.toString()}`;
 
-  const data = await fetchJson<UsersResponse>(url);
+  // API call (συμβατό με τον παλιό κώδικα users)
+  const apiUrl = buildUsersUrl({ search, page, pageSize, sortKey });
+  const data = await fetchJson<UsersResponse>(apiUrl);
 
   const items = data.items ?? [];
   const total = data.total ?? 0;
   const totalPages = data.totalPages ?? 1;
 
-  // Στήλες: ID, Avatar, Όνομα, Username, Email, Ρόλος, Ημ/νία, Τραγούδια, Εκδόσεις, [Ενέργειες]
-  const columnCount = isAdmin ? 10 : 9;
+  const hasPrev = page > 1;
+  const hasNext = page < totalPages;
+
+  // sort toggle (artists-like)
+  const nextSortKey: UsersSortKey = sortKey === "name_asc" ? "name_desc" : "name_asc";
+  const sortLabel = sortKey === "name_asc" ? "Α-Ω" : "Ω-Α";
+  const sortTitle =
+    sortKey === "name_asc"
+      ? "Ταξινόμηση φθίνουσα (Ω-Α)"
+      : "Ταξινόμηση αύξουσα (Α-Ω)";
 
   return (
-    <section className="users-page-wrapper">
-      <h1 className="users-page-title">Χρήστες</h1>
+    <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto", color: "#fff" }}>
+      <ActionBar left={<h1 style={{ fontSize: 28, margin: 0 }}>Χρήστες</h1>} />
 
-      {!currentUser && (
-        <div className="user-not-logged">
-          Πρέπει να συνδεθείτε για να δείτε τη σελίδα χρηστών.{" "}
-          <a href="/api/auth/signin">Μετάβαση στη σελίδα σύνδεσης</a>
-        </div>
-      )}
-
-      {currentUser && !isAdmin && (
-        <div className="user-not-admin">
-          Δεν έχετε δικαίωμα πρόσβασης στη σελίδα χρηστών (απαιτείται ρόλος
-          Διαχειριστή).
-        </div>
-      )}
-
-      {currentUser && isAdmin && (
-        <>
-          <form className="user-search-form" action="/users" method="get">
-            <label>
-              Αναζήτηση:&nbsp;
-              <input
-                type="text"
-                name="search"
-                defaultValue={search}
-                placeholder="Όνομα, email ή username"
-              />
-            </label>
-
-            <label>
-              Ανά σελίδα:&nbsp;
-              <select name="pageSize" defaultValue={String(pageSize)}>
-                <option value="10">10</option>
-                <option value="25">25</option>
-                <option value="50">50</option>
-              </select>
-            </label>
-
-            <input type="hidden" name="page" value="1" />
-            <input type="hidden" name="orderby" value={orderby} />
-            <input type="hidden" name="order" value={order} />
-
-            <button type="submit">Αναζήτηση</button>
-          </form>
-
-          <div className="users-table-wrapper">
-            <table className="wp-user-list-table">
-              <thead>
-                <tr>
-                  <th>
-                    <Link
-                      href={buildSortHref("id", {
-                        search,
-                        pageSize,
-                        currentOrderBy: orderby,
-                        currentOrder: order,
-                      })}
-                    >
-                      ID
-                      {orderby === "id" && (order === "asc" ? " ▲" : " ▼")}
-                    </Link>
-                  </th>
-                  <th>Avatar</th>
-                  <th>
-                    <Link
-                      href={buildSortHref("displayName", {
-                        search,
-                        pageSize,
-                        currentOrderBy: orderby,
-                        currentOrder: order,
-                      })}
-                    >
-                      Όνομα εμφάνισης
-                      {orderby === "displayName" &&
-                        (order === "asc" ? " ▲" : " ▼")}
-                    </Link>
-                  </th>
-                  <th>
-                    <Link
-                      href={buildSortHref("username", {
-                        search,
-                        pageSize,
-                        currentOrderBy: orderby,
-                        currentOrder: order,
-                      })}
-                    >
-                      Username
-                      {orderby === "username" &&
-                        (order === "asc" ? " ▲" : " ▼")}
-                    </Link>
-                  </th>
-                  <th>
-                    <Link
-                      href={buildSortHref("email", {
-                        search,
-                        pageSize,
-                        currentOrderBy: orderby,
-                        currentOrder: order,
-                      })}
-                    >
-                      Email
-                      {orderby === "email" &&
-                        (order === "asc" ? " ▲" : " ▼")}
-                    </Link>
-                  </th>
-                  <th>
-                    <Link
-                      href={buildSortHref("role", {
-                        search,
-                        pageSize,
-                        currentOrderBy: orderby,
-                        currentOrder: order,
-                      })}
-                    >
-                      Ρόλος
-                      {orderby === "role" &&
-                        (order === "asc" ? " ▲" : " ▼")}
-                    </Link>
-                  </th>
-                  <th>
-                    <Link
-                      href={buildSortHref("createdAt", {
-                        search,
-                        pageSize,
-                        currentOrderBy: orderby,
-                        currentOrder: order,
-                      })}
-                    >
-                      Ημ/νία δημιουργίας
-                      {orderby === "createdAt" &&
-                        (order === "asc" ? " ▲" : " ▼")}
-                    </Link>
-                  </th>
-                  <th>
-                    <Link
-                      href={buildSortHref("createdSongsCount", {
-                        search,
-                        pageSize,
-                        currentOrderBy: orderby,
-                        currentOrder: order,
-                      })}
-                    >
-                      Τραγούδια
-                      {orderby === "createdSongsCount" &&
-                        (order === "asc" ? " ▲" : " ▼")}
-                    </Link>
-                  </th>
-                  <th>
-                    <Link
-                      href={buildSortHref("createdVersionsCount", {
-                        search,
-                        pageSize,
-                        currentOrderBy: orderby,
-                        currentOrder: order,
-                      })}
-                    >
-                      Εκδόσεις
-                      {orderby === "createdVersionsCount" &&
-                        (order === "asc" ? " ▲" : " ▼")}
-                    </Link>
-                  </th>
-                  {isAdmin && <th>Ενέργειες</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {items.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={columnCount}
-                      style={{ textAlign: "center", padding: "12px" }}
-                    >
-                      Δεν βρέθηκαν χρήστες.
-                    </td>
-                  </tr>
-                ) : (
-                  items.map((user) => {
-                    let avatarSrc: string | null = user.avatarUrl ?? null;
-
-                    // Αν είναι ο τρέχων logged-in και έχουμε Google image από session,
-                    // δίνουμε προτεραιότητα σε αυτήν.
-                    if (
-                      !avatarSrc &&
-                      sessionEmail &&
-                      sessionImage &&
-                      user.email &&
-                      user.email.toLowerCase() === sessionEmail
-                    ) {
-                      avatarSrc = sessionImage;
-                    }
-
-                    const fallbackText =
-                      (user.displayName ||
-                        user.username ||
-                        user.email ||
-                        "?")?.charAt(0).toUpperCase() || "?";
-
-                    const songsHref = `/songs?createdByUserId=${user.id}`;
-                    const versionsHref = `/versions?createdByUserId=${user.id}`;
-
-                    return (
-                      <tr key={user.id}>
-                        <td>{user.id}</td>
-                        <td>
-                          {avatarSrc ? (
-                            <img
-                              src={avatarSrc}
-                              alt={user.displayName || user.email || "User"}
-                              className="user-avatar"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div className="user-avatar user-avatar-fallback">
-                              {fallbackText}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          <Link href={`/users/${user.id}`}>
-                            {user.displayName || "—"}
-                          </Link>
-                        </td>
-                        <td>{user.username || "—"}</td>
-                        <td>{user.email || "—"}</td>
-                        <td>{formatRoleLabel(user.role)}</td>
-                        <td>{formatDate(user.createdAt)}</td>
-                        <td>
-                          {user.createdSongsCount > 0 ? (
-                            <Link href={songsHref}>
-                              {user.createdSongsCount}
-                            </Link>
-                          ) : (
-                            user.createdSongsCount
-                          )}
-                        </td>
-                        <td>
-                          {user.createdVersionsCount > 0 ? (
-                            <Link href={versionsHref}>
-                              {user.createdVersionsCount}
-                            </Link>
-                          ) : (
-                            user.createdVersionsCount
-                          )}
-                        </td>
-                        {isAdmin && (
-                          <td>
-                            <Link href={`/users/${user.id}/edit`}>
-                              Επεξεργασία
-                            </Link>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="user-pagination">
-            {page > 1 && (
-              <Link
-                href={buildPageHref(page - 1, {
-                  search,
-                  pageSize,
-                  orderby,
-                  order,
-                })}
-              >
-                « Προηγούμενη
-              </Link>
-            )}
-
-            <span className="user-pagination-current">
-              Σελίδα {page} από {totalPages} (σύνολο {total} χρήστες)
-            </span>
-
-            {page < totalPages && (
-              <Link
-                href={buildPageHref(page + 1, {
-                  search,
-                  pageSize,
-                  orderby,
-                  order,
-                })}
-              >
-                Επόμενη »
-              </Link>
-            )}
-          </div>
-        </>
-      )}
-
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-.users-page-wrapper {
-  padding: 24px;
-}
-
-.users-page-title {
-  font-size: 1.5rem;
-  margin-bottom: 16px;
-}
-
-.user-not-logged,
-.user-not-admin {
-  padding: 12px;
-  background-color: #441111;
-  border: 1px solid #aa4444;
-  border-radius: 4px;
-  margin-bottom: 16px;
-}
-
-.user-not-logged a {
-  color: #ffccaa;
-  text-decoration: underline;
-}
-
-.user-search-form {
-  margin-bottom: 20px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-}
-
-.user-search-form input[type="text"] {
-  padding: 4px 8px;
-}
-
-.user-search-form select {
-  padding: 4px 8px;
-}
-
-.user-search-form button {
-  padding: 4px 12px;
-  cursor: pointer;
-}
-
-.users-table-wrapper {
-  overflow-x: auto;
-}
-
-.wp-user-list-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 12px;
-}
-
-.wp-user-list-table th,
-.wp-user-list-table td {
-  border-bottom: 1px solid #333;
-  padding: 8px;
-  text-align: left;
-}
-
-.wp-user-list-table th {
-  cursor: pointer;
-  user-select: none;
-}
-
-.user-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.user-avatar-fallback {
-  background-color: #444;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-}
-
-.user-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 8px;
-}
-
-.user-pagination a {
-  text-decoration: none;
-}
-
-.user-pagination a:hover {
-  text-decoration: underline;
-}
-
-.user-pagination-current {
-  font-weight: bold;
-}
-          `,
+      {/* Search form (artists-like) */}
+      <form
+        method="GET"
+        action="/users"
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 8,
+          alignItems: "center",
         }}
-      />
+      >
+        <input
+          type="text"
+          name="search"
+          placeholder="Αναζήτηση χρήστη..."
+          defaultValue={search}
+          style={{
+            flex: "1 1 240px",
+            padding: "8px 12px",
+            borderRadius: 20,
+            border: "1px solid #ccc",
+            backgroundColor: "#fff",
+            color: "#000",
+          }}
+        />
+
+        <Button type="submit" variant="primary" action="search" title="Αναζήτηση">
+          Αναζήτηση
+        </Button>
+
+        <select
+          name="pageSize"
+          defaultValue={String(pageSize)}
+          style={{
+            padding: "8px 12px",
+            borderRadius: 20,
+            border: "1px solid #555",
+            backgroundColor: "#111",
+            color: "#fff",
+          }}
+        >
+          <option value="25">25 / σελίδα</option>
+          <option value="50">50 / σελίδα</option>
+          <option value="100">100 / σελίδα</option>
+          <option value="200">200 / σελίδα</option>
+        </select>
+
+        {/* sort toggle: το κρατάμε στο UI, αλλά παράγουμε orderby/order ώστε να “γράφεται” στο URL */}
+        <LinkButton
+          href={buildPageHref({ search, page: 1, pageSize, sortKey: nextSortKey })}
+          variant="secondary"
+          action="sort"
+          title={sortTitle}
+          showLabel
+        >
+          Ταξινόμηση: {sortLabel}
+        </LinkButton>
+
+        {/* reset page σε νέα αναζήτηση */}
+        <input type="hidden" name="page" value="1" />
+        <input type="hidden" name="orderby" value="displayName" />
+        <input type="hidden" name="order" value={sortKey === "name_desc" ? "desc" : "asc"} />
+      </form>
+
+      {/* Summary */}
+      <div style={{ marginBottom: 16, fontSize: 14 }}>
+        {total === 0 ? (
+          <span>Δεν βρέθηκαν χρήστες.</span>
+        ) : (
+          <span>
+            Βρέθηκαν {total} χρήστες. Εμφάνιση{" "}
+            {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)}.
+          </span>
+        )}
+      </div>
+
+      {/* LIST (artists-like) */}
+      {items.length > 0 && (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {items.map((u) => {
+            const displayName = deriveDisplayName(u);
+            const avatarText = displayName.charAt(0).toUpperCase() || "?";
+
+            const songsHref = `/songs?createdByUserId=${u.id}`;
+            const versionsHref = `/versions?createdByUserId=${u.id}`;
+
+            return (
+              <li
+                key={u.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "8px 0",
+                  borderBottom: "1px solid #333",
+                  gap: 12,
+                }}
+              >
+                <div
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: "50%",
+                    overflow: "hidden",
+                    backgroundColor: "#222",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    fontSize: 20,
+                  }}
+                >
+                  {u.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={u.avatarUrl}
+                      alt={displayName}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  ) : (
+                    <span>{avatarText}</span>
+                  )}
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Link
+                    href={`/users/${u.id}`}
+                    style={{
+                      color: "#fff",
+                      textDecoration: "none",
+                      fontSize: 18,
+                      fontWeight: 600,
+                      display: "inline-block",
+                      maxWidth: "100%",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={displayName}
+                  >
+                    {displayName}
+                  </Link>
+
+                  {/* 1η “δευτερη γραμμή”: email/role */}
+                  <div style={{ fontSize: 13, color: "#ccc" }}>
+                    {u.email || "—"} · {u.role}
+                  </div>
+
+                  {/* 2η “δευτερη γραμμή”: Songs / Versions counts */}
+                  <div style={{ fontSize: 13, color: "#ccc", marginTop: 2 }}>
+                    Τραγούδια:{" "}
+                    {u.createdSongsCount > 0 ? (
+                      <Link href={songsHref} style={{ color: "#fff", textDecoration: "underline" }}>
+                        {u.createdSongsCount}
+                      </Link>
+                    ) : (
+                      <span>{u.createdSongsCount}</span>
+                    )}
+                    {" · "}
+                    Εκδόσεις:{" "}
+                    {u.createdVersionsCount > 0 ? (
+                      <Link
+                        href={versionsHref}
+                        style={{ color: "#fff", textDecoration: "underline" }}
+                      >
+                        {u.createdVersionsCount}
+                      </Link>
+                    ) : (
+                      <span>{u.createdVersionsCount}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* ✅ ΑΦΑΙΡΕΘΗΚΕ το "Επεξεργασία" όπως ζήτησες */}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* Pagination (artists-like) */}
+      {total > pageSize ? (
+        <div
+          style={{
+            marginTop: 24,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
+        >
+          {hasPrev ? (
+            <LinkButton
+              href={buildPageHref({ search, page: page - 1, pageSize, sortKey })}
+              action="back"
+              variant="secondary"
+              title="Προηγούμενη σελίδα"
+            >
+              Προηγούμενη
+            </LinkButton>
+          ) : (
+            <div />
+          )}
+
+          {hasNext ? (
+            <LinkButton
+              href={buildPageHref({ search, page: page + 1, pageSize, sortKey })}
+              action="select"
+              variant="secondary"
+              title="Επόμενη σελίδα"
+            >
+              Επόμενη
+            </LinkButton>
+          ) : (
+            <div />
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

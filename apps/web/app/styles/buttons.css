@@ -117,3 +117,20 @@
   overflow: hidden; clip: rect(0,0,0,0);
   border: 0;
 }
+/* Focus handling (best practice)
+   - mouse click: no persistent blue ring
+   - keyboard (Tab): visible focus ring
+*/
+.btn:focus {
+  outline: none;
+}
+
+.btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+.btn--toggle:hover {
+  box-shadow: none !important;
+  /* και αν χρειάζεται: */
+  /* background: inherit !important; */
+}

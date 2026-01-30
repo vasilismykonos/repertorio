@@ -38,7 +38,6 @@ export interface Song {
   characteristics: string | null;
   status: SongStatus;
   originalKey: string | null;
-  defaultKey: string | null;
   basedOn: string | null;
   scoreFile: string | null;
   highestVocalNote: string | null;

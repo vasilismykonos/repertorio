@@ -8,7 +8,6 @@ import {
   Optional,
 } from "@nestjs/common";
 
-
 import { PrismaService } from "../prisma/prisma.service";
 import {
   Prisma,
@@ -18,7 +17,6 @@ import {
   SongStatus,
   VersionArtistRole,
 } from "@prisma/client";
-
 
 // ✅ NEW
 import { ElasticsearchSongsSyncService } from "../elasticsearch/elasticsearch-songs-sync.service";
@@ -76,6 +74,7 @@ type SongDetailDto = {
   assets: SongAssetDto[];
 
   originalKey: string | null;
+  originalKeySign: "+" | "-" | null;
   chords: string | null;
   status: string | null;
 
@@ -86,6 +85,7 @@ type SongDetailDto = {
   categoryTitle: string | null;
   composerName: string | null;
   lyricistName: string | null;
+
   credits: {
     composers: Array<{
       creditId: number;
@@ -102,6 +102,7 @@ type SongDetailDto = {
       lastName: string | null;
     }>;
   };
+
   rythmTitle: string | null;
 
   basedOnSongId: number | null;
@@ -110,6 +111,7 @@ type SongDetailDto = {
   views: number;
 
   createdByUserId: number | null;
+  createdByDisplayName: string | null;
 
   versions: SongVersionDto[];
 };
@@ -129,9 +131,7 @@ function buildArtistDisplayName(a: {
  * - κάνει trim
  * - επιστρέφει null αν δεν υπάρχει περιεχόμενο
  */
-function extractFirstLyricsFromLyrics(
-  lyrics: string | null | undefined,
-): string | null {
+function extractFirstLyricsFromLyrics(lyrics: string | null | undefined): string | null {
   if (lyrics === null || lyrics === undefined) return null;
   const text = String(lyrics);
   const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
@@ -223,52 +223,61 @@ type UpdateSongBody = {
   characteristics?: string | null;
 
   originalKey?: string | null;
-  defaultKey?: string | null;
+  originalKeySign?: "+" | "-" | null;
   chords?: string | null;
+
   status?: SongStatus;
   categoryId?: number | null;
   rythmId?: number | null;
   basedOnSongId?: number | null;
+
   scoreFile?: string | null;
   highestVocalNote?: string | null;
+
+  createdByUserId?: number | null;
 
   // ✅ NEW (tags replace-all)
   tagIds?: number[] | null;
 
   // ✅ NEW (assets replace-all)
-  assets?: Array<{
-    id?: number;
-    kind: AssetKind;
-    type?: AssetType;
-    title?: string | null;
-    url?: string | null;
-    filePath?: string | null;
-    mimeType?: string | null;
-    sizeBytes?: string | number | bigint | null;
+  assets?:
+    | Array<{
+        id?: number;
+        kind: AssetKind;
+        type?: AssetType;
+        title?: string | null;
+        url?: string | null;
+        filePath?: string | null;
+        mimeType?: string | null;
+        sizeBytes?: string | number | bigint | null;
 
-    // relation metadata
-    label?: string | null;
-    sort?: number | null;
-    isPrimary?: boolean | null;
-  }> | null;
+        // relation metadata
+        label?: string | null;
+        sort?: number | null;
+        isPrimary?: boolean | null;
+      }>
+    | null;
 
   // ✅ NEW (discographies/versions replace-all)
-  versions?: Array<{
-    id?: number | null;
-    year?: number | string | null;
-    youtubeSearch?: string | null;
+  versions?:
+    | Array<{
+        id?: number | null;
+        year?: number | string | null;
+        youtubeSearch?: string | null;
 
-    // backward compatible: comma-separated names
-    singerFrontNames?: string | null;
-    singerBackNames?: string | null;
-    solistNames?: string | null;
+        // backward compatible: comma-separated names
+        singerFrontNames?: string | null;
+        singerBackNames?: string | null;
+        solistNames?: string | null;
 
-    // ✅ preferred: ids (array or CSV string)
-    singerFrontIds?: number[] | string | null;
-    singerBackIds?: number[] | string | null;
-    solistIds?: number[] | string | null;
-  }> | null;
+        // ✅ preferred: ids (array or CSV string)
+        singerFrontIds?: number[] | string | null;
+        singerBackIds?: number[] | string | null;
+        solistIds?: number[] | string | null;
+      }>
+    | null;
 };
+
 function slugifySongTitle(input: string): string {
   const trimmed = input.replace(/\s+/g, " ").trim();
   if (!trimmed) return "song";
@@ -291,8 +300,6 @@ async function ensureUniqueSongSlugTx(tx: any, base: string): Promise<string> {
   let candidate = base;
   let i = 2;
 
-  // If slug is UNIQUE, this prevents collisions.
-  // If it is not UNIQUE, this loop still works harmlessly.
   while (
     await tx.song.findFirst({
       where: { slug: candidate },
@@ -305,14 +312,34 @@ async function ensureUniqueSongSlugTx(tx: any, base: string): Promise<string> {
   return candidate;
 }
 
+function inferOriginalKeySignFromChords(chords: unknown): "+" | "-" | null {
+  if (typeof chords !== "string" || chords.trim() === "") return null;
+
+  const re =
+    /([Νν][το]|[Ρρ][ε]|[Μμ][ι]|[Φφ][α]|[Σσ][ολ]|[Λλ][α]|[Σσ][ι])(#?)([+\-])?/g;
+
+  let m: RegExpExecArray | null = null;
+  let last: RegExpExecArray | null = null;
+
+  while ((m = re.exec(chords)) !== null) last = m;
+
+  // δεν βρέθηκε καθόλου νότα με +/- => NULL
+  if (!last) return null;
+
+  // αν το τελευταίο match δεν είχε ρητό πρόσημο, πάλι NULL
+  // (γιατί είπες "NULL όταν δεν προκύπτει πρόσημο")
+  if (last[3] !== "+" && last[3] !== "-") return null;
+
+  return last[3] === "-" ? "-" : "+";
+}
+
+
 @Injectable()
 export class SongsService {
-  // ✅ CHANGED: inject και το ES sync service
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly esSync?: ElasticsearchSongsSyncService,
   ) {}
-
 
   /**
    * Επιστρέφει 1 τραγούδι σε DTO συμβατό με το SongDetail του Next.
@@ -326,33 +353,23 @@ export class SongsService {
         rythm: true,
         basedOnSong: { select: { id: true, title: true } },
         credits: { include: { artist: true } },
-        versions: {
-          include: {
-            artists: { include: { artist: true } },
-          },
-        },
+        versions: { include: { artists: { include: { artist: true } } } },
 
-        // ✅ EXPLICIT: Tags μέσω SongTag
+        createdBy: { select: { id: true, displayName: true, username: true } },
+
         SongTag: {
-          include: {
-            Tag: { select: { id: true, title: true, slug: true } },
-          },
+          include: { Tag: { select: { id: true, title: true, slug: true } } },
           orderBy: [{ tagId: "asc" }],
         },
 
-        // ✅ EXPLICIT: Assets μέσω SongAsset
         SongAsset: {
-          include: {
-            Asset: true,
-          },
+          include: { Asset: true },
           orderBy: [{ sort: "asc" }, { assetId: "asc" }],
         },
       },
     });
 
-    if (!song) {
-      throw new NotFoundException(`Song with id=${id} not found`);
-    }
+    if (!song) throw new NotFoundException(`Song with id=${id} not found`);
 
     if (!noIncrement) {
       await this.prisma.song.update({
@@ -382,28 +399,26 @@ export class SongsService {
         ? lyricistArtists.map((a) => buildArtistDisplayName(a)).join(", ")
         : null;
 
-// ✅ NEW: Credits details (for edit UI) - replaces legacy /songs/:id/credits
-const creditsDto = {
-  composers: (song.credits ?? [])
-    .filter((c) => c.role === SongCreditRole.COMPOSER)
-    .map((c) => ({
-      creditId: c.id,
-      artistId: c.artistId,
-      title: c.artist.title,
-      firstName: c.artist.firstName ?? null,
-      lastName: c.artist.lastName ?? null,
-    })),
-  lyricists: (song.credits ?? [])
-    .filter((c) => c.role === SongCreditRole.LYRICIST)
-    .map((c) => ({
-      creditId: c.id,
-      artistId: c.artistId,
-      title: c.artist.title,
-      firstName: c.artist.firstName ?? null,
-      lastName: c.artist.lastName ?? null,
-    })),
-};
-
+    const creditsDto = {
+      composers: (song.credits ?? [])
+        .filter((c) => c.role === SongCreditRole.COMPOSER && c.artist)
+        .map((c) => ({
+          creditId: c.id,
+          artistId: c.artistId,
+          title: c.artist!.title,
+          firstName: c.artist!.firstName ?? null,
+          lastName: c.artist!.lastName ?? null,
+        })),
+      lyricists: (song.credits ?? [])
+        .filter((c) => c.role === SongCreditRole.LYRICIST && c.artist)
+        .map((c) => ({
+          creditId: c.id,
+          artistId: c.artistId,
+          title: c.artist!.title,
+          firstName: c.artist!.firstName ?? null,
+          lastName: c.artist!.lastName ?? null,
+        })),
+    };
 
     const basedOnSongId = song.basedOnSong?.id ?? null;
     const basedOnSongTitle = song.basedOnSong?.title ?? null;
@@ -447,7 +462,6 @@ const creditsDto = {
                 .join(", ")
             : null;
 
-        // ✅ arrays of NEW Artist IDs (για edit)
         const singerFrontIds = frontArray
           .map((x) => x.artistId)
           .filter((x): x is number => typeof x === "number");
@@ -493,7 +507,11 @@ const creditsDto = {
       isPrimary: sa.isPrimary ?? false,
     }));
 
-    const views = (song.views ?? 0) + (noIncrement ? 0 : 1);
+    const createdByUserId = song.createdByUserId ?? song.createdBy?.id ?? null;
+    const createdByDisplayName =
+      song.createdBy?.displayName?.trim() ||
+      song.createdBy?.username?.trim() ||
+      null;
 
     return {
       id: song.id,
@@ -511,6 +529,11 @@ const creditsDto = {
       assets,
 
       originalKey: song.originalKey ?? null,
+      originalKeySign:
+        song.originalKeySign === "-" ? "-" :
+        song.originalKeySign === "+" ? "+" :
+        null,
+
       chords: song.chords ?? null,
       status: song.status ?? null,
 
@@ -527,14 +550,15 @@ const creditsDto = {
       basedOnSongId,
       basedOnSongTitle,
 
-      views,
+      views: song.views ?? 0,
 
-      createdByUserId: song.createdByUserId ?? null,
+      createdByUserId,
+      createdByDisplayName,
 
       versions,
     };
   }
-  
+
   private validateAssetInput(input: {
     kind: AssetKind;
     url?: string | null;
@@ -550,16 +574,12 @@ const creditsDto = {
     }
   }
 
-  private async upsertArtistsByTitlesTx(
-    tx: any,
-    titles: string[],
-  ): Promise<number[]> {
+  private async upsertArtistsByTitlesTx(tx: any, titles: string[]): Promise<number[]> {
     const ids: number[] = [];
     for (const title of titles) {
       const t = title.trim();
       if (!t) continue;
 
-      // ⚠️ Artist.title δεν είναι unique στο schema, άρα χρησιμοποιούμε findFirst.
       const existing = await tx.artist.findFirst({
         where: { title: t },
         select: { id: true },
@@ -621,9 +641,10 @@ const creditsDto = {
 
     const data: any = {};
 
+    // --- core fields ---
     if (typeof body.title === "string") data.title = body.title;
 
-    // ✅ Αν έρχονται lyrics, παράγουμε firstLyrics αυτόματα
+    // ✅ lyrics -> firstLyrics (only if lyrics is provided)
     if (Object.prototype.hasOwnProperty.call(body, "lyrics")) {
       data.lyrics = body.lyrics;
       data.firstLyrics = extractFirstLyricsFromLyrics(body.lyrics);
@@ -631,47 +652,71 @@ const creditsDto = {
       data.firstLyrics = body.firstLyrics;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "characteristics"))
+    if (Object.prototype.hasOwnProperty.call(body, "characteristics")) {
       data.characteristics = body.characteristics;
+    }
 
-    if (Object.prototype.hasOwnProperty.call(body, "originalKey"))
+    if (Object.prototype.hasOwnProperty.call(body, "originalKey")) {
       data.originalKey = body.originalKey;
+    }
 
-    if (Object.prototype.hasOwnProperty.call(body, "defaultKey"))
-      data.defaultKey = body.defaultKey;
-
-    if (Object.prototype.hasOwnProperty.call(body, "highestVocalNote"))
+    if (Object.prototype.hasOwnProperty.call(body, "highestVocalNote")) {
       data.highestVocalNote = body.highestVocalNote;
+    }
 
-    if (Object.prototype.hasOwnProperty.call(body, "chords"))
-      data.chords = body.chords;
-
-    if (Object.prototype.hasOwnProperty.call(body, "scoreFile"))
+    if (Object.prototype.hasOwnProperty.call(body, "scoreFile")) {
       data.scoreFile = body.scoreFile;
+    }
 
     if (body.status && Object.values(SongStatus).includes(body.status)) {
       data.status = body.status;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "categoryId"))
+    if (Object.prototype.hasOwnProperty.call(body, "categoryId")) {
       data.categoryId = body.categoryId;
+    }
 
-    if (Object.prototype.hasOwnProperty.call(body, "rythmId"))
+    if (Object.prototype.hasOwnProperty.call(body, "rythmId")) {
       data.rythmId = body.rythmId;
+    }
 
-    if (Object.prototype.hasOwnProperty.call(body, "basedOnSongId"))
+    if (Object.prototype.hasOwnProperty.call(body, "basedOnSongId")) {
       data.basedOnSongId = body.basedOnSongId;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "createdByUserId")) {
+      data.createdByUserId = body.createdByUserId;
+    }
+
+    // --- originalKeySign + chords (canonical, safe) ---
+    const hasOriginalKeySign = Object.prototype.hasOwnProperty.call(body, "originalKeySign");
+    const hasChords = Object.prototype.hasOwnProperty.call(body, "chords");
+
+    // 1) Αν στάλθηκε ρητά sign, αυτό κερδίζει πάντα
+    if (hasOriginalKeySign) {
+      data.originalKeySign =
+        body.originalKeySign === "-" ? "-" :
+        body.originalKeySign === "+" ? "+" :
+        null;
+    } else if (typeof body.chords === "string") {
+      data.originalKeySign = inferOriginalKeySignFromChords(body.chords);
+    }
+
+    // 2) Αν στάλθηκαν chords, τα σώζουμε.
+    //    Και ΜΟΝΟ αν ΔΕΝ στάλθηκε sign, κάνουμε infer από αυτά τα chords
+    if (hasChords) {
+      data.chords = body.chords ?? null;
+
+      if (!hasOriginalKeySign) {
+        data.originalKeySign = inferOriginalKeySignFromChords(body.chords);
+      }
+    }
 
     const hasTagIds = Object.prototype.hasOwnProperty.call(body, "tagIds");
     const hasAssets = Object.prototype.hasOwnProperty.call(body, "assets");
     const hasVersions = Object.prototype.hasOwnProperty.call(body, "versions");
 
-    if (
-      Object.keys(data).length === 0 &&
-      !hasTagIds &&
-      !hasAssets &&
-      !hasVersions
-    ) {
+    if (Object.keys(data).length === 0 && !hasTagIds && !hasAssets && !hasVersions) {
       return this.findOne(id, true);
     }
 
@@ -684,7 +729,7 @@ const creditsDto = {
         });
       }
 
-      // 2) Tags (EXPLICIT): replace-all μέσω SongTag
+      // 2) Tags replace-all
       if (hasTagIds) {
         const ids = Array.isArray(body.tagIds)
           ? body.tagIds.filter((x) => typeof x === "number" && Number.isFinite(x))
@@ -700,7 +745,7 @@ const creditsDto = {
         }
       }
 
-      // 3) Assets (EXPLICIT): replace-all μέσω SongAsset
+      // 3) Assets replace-all
       if (hasAssets) {
         const assets = Array.isArray(body.assets) ? body.assets : [];
 
@@ -774,7 +819,7 @@ const creditsDto = {
         }
       }
 
-      // 4) ✅ Discographies / Versions (replace-all)
+      // 4) Versions replace-all (με upsert)
       if (hasVersions) {
         const incoming = Array.isArray(body.versions) ? body.versions : [];
 
@@ -796,7 +841,6 @@ const creditsDto = {
             const singerBackNames = parseCsvNames(v?.singerBackNames ?? "");
             const solistNames = parseCsvNames(v?.solistNames ?? "");
 
-            // ✅ NEW: ids (preferred)
             const singerFrontIds = normalizeArtistIds(v?.singerFrontIds);
             const singerBackIds = normalizeArtistIds(v?.singerBackIds);
             const solistIds = normalizeArtistIds(v?.solistIds);
@@ -821,11 +865,9 @@ const creditsDto = {
                 typeof youtubeSearch === "string" && youtubeSearch.trim() !== ""
                   ? youtubeSearch
                   : null,
-
               singerFrontNames,
               singerBackNames,
               solistNames,
-
               singerFrontIds,
               singerBackIds,
               solistIds,
@@ -833,7 +875,6 @@ const creditsDto = {
           })
           .filter((x): x is NonNullable<typeof x> => !!x);
 
-        // Fetch existing versions for this song
         const existingVersions = await tx.songVersion.findMany({
           where: { songId: id },
           select: { id: true },
@@ -849,20 +890,13 @@ const creditsDto = {
           if (v.id != null && existingIds.has(v.id)) {
             const updated = await tx.songVersion.update({
               where: { id: v.id },
-              data: {
-                year: v.year,
-                youtubeSearch: v.youtubeSearch,
-              },
+              data: { year: v.year, youtubeSearch: v.youtubeSearch },
               select: { id: true },
             });
             versionId = updated.id;
           } else {
             const created = await tx.songVersion.create({
-              data: {
-                songId: id,
-                year: v.year,
-                youtubeSearch: v.youtubeSearch,
-              },
+              data: { songId: id, year: v.year, youtubeSearch: v.youtubeSearch },
               select: { id: true },
             });
             versionId = created.id;
@@ -870,11 +904,8 @@ const creditsDto = {
 
           keepIds.push(versionId);
 
-          // replace-all artists for this version
           await tx.songVersionArtist.deleteMany({ where: { versionId } });
 
-          // ✅ ID-first: αν έχουν δοθεί ids, αυτά είναι source of truth.
-          // Fallback σε titles μόνο αν ΔΕΝ δόθηκαν ids.
           const finalSingerFrontIds =
             v.singerFrontIds.length > 0
               ? v.singerFrontIds
@@ -890,97 +921,66 @@ const creditsDto = {
               ? v.solistIds
               : await this.upsertArtistsByTitlesTx(tx, v.solistNames);
 
-          // ✅ Validate ότι όλα τα Artist.id υπάρχουν (αποφεύγουμε “σιωπηλό” λάθος)
           await this.assertArtistsExistTx(
             tx,
             [...finalSingerFrontIds, ...finalSingerBackIds, ...finalSolistIds],
             `versionsJson(versionId=${versionId})`,
           );
 
-          const rows: Array<{
-            versionId: number;
-            artistId: number;
-            role: VersionArtistRole;
-          }> = [];
+          const rows: Array<{ versionId: number; artistId: number; role: VersionArtistRole }> =
+            [];
 
           for (const artistId of finalSingerFrontIds) {
-            rows.push({
-              versionId,
-              artistId,
-              role: VersionArtistRole.SINGER_FRONT,
-            });
+            rows.push({ versionId, artistId, role: VersionArtistRole.SINGER_FRONT });
           }
           for (const artistId of finalSingerBackIds) {
-            rows.push({
-              versionId,
-              artistId,
-              role: VersionArtistRole.SINGER_BACK,
-            });
+            rows.push({ versionId, artistId, role: VersionArtistRole.SINGER_BACK });
           }
           for (const artistId of finalSolistIds) {
-            rows.push({
-              versionId,
-              artistId,
-              role: VersionArtistRole.SOLOIST,
-            });
+            rows.push({ versionId, artistId, role: VersionArtistRole.SOLOIST });
           }
 
           if (rows.length) {
-            await tx.songVersionArtist.createMany({
-              data: rows,
-              skipDuplicates: true,
-            });
+            await tx.songVersionArtist.createMany({ data: rows, skipDuplicates: true });
           }
         }
 
-        // delete versions not in keepIds
         const keepSet = new Set(keepIds);
         const toDelete = existingVersions
           .map((x) => x.id)
           .filter((vid) => !keepSet.has(vid));
 
         if (toDelete.length) {
-          // cascade is not declared for SongVersionArtist; we delete explicitly first
-          await tx.songVersionArtist.deleteMany({
-            where: { versionId: { in: toDelete } },
-          });
-          await tx.songVersion.deleteMany({
-            where: { id: { in: toDelete } },
-          });
+          await tx.songVersionArtist.deleteMany({ where: { versionId: { in: toDelete } } });
+          await tx.songVersion.deleteMany({ where: { id: { in: toDelete } } });
         }
       }
     });
 
-    // ✅ NEW: sync στο Elasticsearch ΠΑΝΤΑ μετά το transaction
-    await this.esSync?.upsertSong(id);
-
+    // ✅ ES sync best-effort
+    try {
+      await this.esSync?.upsertSong(id);
+    } catch (e) {
+      console.error("[SongsService] ES upsert failed", e);
+    }
 
     return this.findOne(id, true);
   }
-    /**
-   * ✅ NEW: Διαγραφή τραγουδιού (NEW architecture)
-   *
-   * - Καθαρίζει ρητά relations που στο schema σου ΔΕΝ είναι σίγουρο ότι κάνουν cascade:
-   *   - SongVersionArtist -> SongVersion
-   *   - Credits (SongCredit) αν υπάρχουν
-   *   - ListItem.songId -> null (για να μη μπλοκάρει FK)
-   *
-   * - SongTag / SongAsset έχουν onDelete: Cascade στο schema που έστειλες, άρα δεν απαιτείται explicit delete.
+
+  /**
+   * ✅ Διαγραφή τραγουδιού
    */
   async deleteSong(id: number) {
-    // 1) Βεβαιώσου ότι υπάρχει
     const existing = await this.prisma.song.findUnique({
       where: { id },
       select: { id: true, title: true },
     });
 
-    if (!existing) {
-      throw new NotFoundException(`Song with id=${id} not found`);
-    }
+    if (!existing) throw new NotFoundException(`Song with id=${id} not found`);
 
     try {
       const deleted = await this.prisma.$transaction(async (tx) => {
-        // (A) ListItem.songId είναι optional στο schema σου -> αποσύνδεση
+        // (A) ListItem.songId είναι optional -> αποσύνδεση
         await tx.listItem.updateMany({
           where: { songId: id },
           data: { songId: null },
@@ -1003,25 +1003,17 @@ const creditsDto = {
           });
         }
 
-        // (C) Credits: το service σου χρησιμοποιεί song.credits,
-        // άρα υπάρχει relation "credits" στο Song.
-        // Διαγράφουμε ρητά για να μην κολλήσουμε σε FK.
-        // Αν το model λέγεται αλλιώς στο Prisma, θα το δούμε από TS error και θα το προσαρμόσεις.
-        await tx.songCredit.deleteMany({
-          where: { songId: id },
-        });
+        // (C) Credits
+        await tx.songCredit.deleteMany({ where: { songId: id } });
 
         // (D) Τελική διαγραφή Song
-        const song = await tx.song.delete({
+        return tx.song.delete({
           where: { id },
           select: { id: true, title: true },
         });
-
-        return song;
       });
 
-      // ✅ ES sync: στο delete θέλουμε να φύγει από ES.
-      // Δεν υποθέτουμε method name στο typed service -> χρησιμοποιούμε any-safe optional call.
+      // ✅ ES sync (best-effort)
       try {
         await (this.esSync as any)?.deleteSong?.(id);
       } catch (e) {
@@ -1030,14 +1022,12 @@ const creditsDto = {
 
       return deleted;
     } catch (err: any) {
-      // Αν κάτι άλλο κρατάει FK, γύρνα 409 με καθαρό μήνυμα
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
         throw new ConflictException(
           "Δεν μπορεί να διαγραφεί το τραγούδι επειδή υπάρχουν συσχετισμένα δεδομένα που το αναφέρουν (FK constraint).",
         );
       }
 
-      // Αν στο μεταξύ διαγράφηκε
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
         throw new NotFoundException(`Song with id=${id} not found`);
       }
@@ -1047,25 +1037,17 @@ const creditsDto = {
   }
 
   /**
-   * Δημιουργεί ένα νέο τραγούδι. Χρησιμοποιεί τα ίδια πεδία με
-   * updateSong (UpdateSongBody) αλλά χωρίς id.  Τα tags,
-   * assets και versions προστίθενται ως replace-all στην αρχική
-   * δημιουργία.  Μετά το transaction συγχρονίζει στο Elasticsearch
-   * και επιστρέφει το νέο τραγούδι όπως το findOne.
+   * Δημιουργεί νέο τραγούδι.
    */
   async createSong(body: UpdateSongBody) {
-    // Βασικά δεδομένα για το νέο τραγούδι
     const data: any = {};
 
     if (typeof body.title === "string" && body.title.trim() !== "") {
       data.title = body.title.trim();
     } else {
-      // Δεν μπορούμε να δημιουργήσουμε τραγούδι χωρίς τίτλο
       throw new BadRequestException("title is required for new song");
     }
 
-    // Εξάγουμε firstLyrics από lyrics αν δοθεί, αλλιώς παίρνουμε
-    // explicitly το παρεχόμενο firstLyrics
     if (Object.prototype.hasOwnProperty.call(body, "lyrics")) {
       data.lyrics = body.lyrics ?? null;
       data.firstLyrics = extractFirstLyricsFromLyrics(body.lyrics);
@@ -1073,44 +1055,69 @@ const creditsDto = {
       data.firstLyrics = body.firstLyrics;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "characteristics"))
+    if (Object.prototype.hasOwnProperty.call(body, "characteristics")) {
       data.characteristics = body.characteristics;
+    }
 
-    if (Object.prototype.hasOwnProperty.call(body, "originalKey"))
+    if (Object.prototype.hasOwnProperty.call(body, "originalKey")) {
       data.originalKey = body.originalKey;
+    }
 
-    if (Object.prototype.hasOwnProperty.call(body, "defaultKey"))
-      data.defaultKey = body.defaultKey;
-
-    if (Object.prototype.hasOwnProperty.call(body, "highestVocalNote"))
+    if (Object.prototype.hasOwnProperty.call(body, "highestVocalNote")) {
       data.highestVocalNote = body.highestVocalNote;
+    }
 
-    if (Object.prototype.hasOwnProperty.call(body, "chords"))
-      data.chords = body.chords;
-
-    if (Object.prototype.hasOwnProperty.call(body, "scoreFile"))
+    if (Object.prototype.hasOwnProperty.call(body, "scoreFile")) {
       data.scoreFile = body.scoreFile;
+    }
 
     if (body.status && Object.values(SongStatus).includes(body.status)) {
       data.status = body.status;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "categoryId"))
+    if (Object.prototype.hasOwnProperty.call(body, "categoryId")) {
       data.categoryId = body.categoryId;
+    }
 
-    if (Object.prototype.hasOwnProperty.call(body, "rythmId"))
+    if (Object.prototype.hasOwnProperty.call(body, "rythmId")) {
       data.rythmId = body.rythmId;
+    }
 
-    if (Object.prototype.hasOwnProperty.call(body, "basedOnSongId"))
+    if (Object.prototype.hasOwnProperty.call(body, "basedOnSongId")) {
       data.basedOnSongId = body.basedOnSongId;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "createdByUserId")) {
+      data.createdByUserId = body.createdByUserId;
+    }
+
+    // --- originalKeySign + chords (canonical, safe) ---
+    const hasOriginalKeySign = Object.prototype.hasOwnProperty.call(body, "originalKeySign");
+    const hasChords = Object.prototype.hasOwnProperty.call(body, "chords");
+
+    if (hasOriginalKeySign) {
+      data.originalKeySign =
+        body.originalKeySign === "-" ? "-" :
+        body.originalKeySign === "+" ? "+" :
+        null;
+    } else if (typeof body.chords === "string") {
+      data.originalKeySign = inferOriginalKeySignFromChords(body.chords);
+    }
+
+
+    if (hasChords) {
+      data.chords = body.chords ?? null;
+
+      if (!hasOriginalKeySign) {
+        data.originalKeySign = inferOriginalKeySignFromChords(body.chords);
+      }
+    }
 
     const hasTagIds = Object.prototype.hasOwnProperty.call(body, "tagIds");
     const hasAssets = Object.prototype.hasOwnProperty.call(body, "assets");
     const hasVersions = Object.prototype.hasOwnProperty.call(body, "versions");
 
-    // Δημιουργούμε το τραγούδι και τις σχέσεις σε ένα transaction
     const songId = await this.prisma.$transaction(async (tx) => {
-      // 1) Δημιουργία του Song
       const baseSlug = slugifySongTitle(data.title);
       const slug = await ensureUniqueSongSlugTx(tx, baseSlug);
 
@@ -1121,11 +1128,12 @@ const creditsDto = {
 
       const songId = createdSong.id;
 
-      // 2) Tags: δημιουργούνται μέσω SongTag
+      // Tags
       if (hasTagIds) {
         const ids = Array.isArray(body.tagIds)
           ? body.tagIds.filter((x) => typeof x === "number" && Number.isFinite(x))
           : [];
+
         if (ids.length > 0) {
           await tx.songTag.createMany({
             data: ids.map((tagId) => ({ songId, tagId })),
@@ -1134,15 +1142,16 @@ const creditsDto = {
         }
       }
 
-      // 3) Assets: παρόμοια λογική με updateSong
+      // Assets
       if (hasAssets) {
         const assets = Array.isArray(body.assets) ? body.assets : [];
+
         for (let i = 0; i < assets.length; i++) {
           const a = assets[i];
+
           const kind = a.kind;
           const type = a.type ?? AssetType.GENERIC;
 
-          // βεβαιωνόμαστε ότι τα απαραίτητα πεδία υπάρχουν
           this.validateAssetInput({
             kind,
             url: a.url ?? null,
@@ -1151,9 +1160,11 @@ const creditsDto = {
 
           const sort =
             typeof a.sort === "number" && Number.isFinite(a.sort) ? a.sort : i * 10;
+
           const isPrimary = a.isPrimary === true;
 
           let assetId: number;
+
           if (typeof a.id === "number" && Number.isFinite(a.id)) {
             const updated = await tx.asset.update({
               where: { id: a.id },
@@ -1161,12 +1172,12 @@ const creditsDto = {
                 kind,
                 type,
                 title: Object.prototype.hasOwnProperty.call(a, "title")
-                  ? a.title ?? null
+                  ? (a.title ?? null)
                   : undefined,
-                url: kind === AssetKind.LINK ? a.url ?? null : null,
-                filePath: kind === AssetKind.FILE ? a.filePath ?? null : null,
+                url: kind === AssetKind.LINK ? (a.url ?? null) : null,
+                filePath: kind === AssetKind.FILE ? (a.filePath ?? null) : null,
                 mimeType: Object.prototype.hasOwnProperty.call(a, "mimeType")
-                  ? a.mimeType ?? null
+                  ? (a.mimeType ?? null)
                   : undefined,
                 sizeBytes: Object.prototype.hasOwnProperty.call(a, "sizeBytes")
                   ? toNullableBigInt(a.sizeBytes ?? null)
@@ -1181,8 +1192,8 @@ const creditsDto = {
                 kind,
                 type,
                 title: a.title ?? null,
-                url: kind === AssetKind.LINK ? a.url ?? null : null,
-                filePath: kind === AssetKind.FILE ? a.filePath ?? null : null,
+                url: kind === AssetKind.LINK ? (a.url ?? null) : null,
+                filePath: kind === AssetKind.FILE ? (a.filePath ?? null) : null,
                 mimeType: a.mimeType ?? null,
                 sizeBytes: toNullableBigInt(a.sizeBytes ?? null),
               },
@@ -1192,30 +1203,22 @@ const creditsDto = {
           }
 
           await tx.songAsset.create({
-            data: {
-              songId,
-              assetId,
-              label: a.label ?? null,
-              sort,
-              isPrimary,
-            },
+            data: { songId, assetId, label: a.label ?? null, sort, isPrimary },
           });
         }
       }
 
-      // 4) Versions: παρόμοια λογική με updateSong
+      // Versions
       if (hasVersions) {
         const incoming = Array.isArray(body.versions) ? body.versions : [];
+
         const norm = incoming
           .map((v) => {
-            const vid =
-              typeof v?.id === "number" && Number.isFinite(v.id)
-                ? Math.trunc(v.id)
-                : null;
             const year = this.normalizeYear(v?.year);
+
             const youtubeSearch =
               Object.prototype.hasOwnProperty.call(v ?? {}, "youtubeSearch")
-                ? v?.youtubeSearch ?? null
+                ? (v?.youtubeSearch ?? null)
                 : null;
 
             const singerFrontNames = parseCsvNames(v?.singerFrontNames ?? "");
@@ -1239,7 +1242,6 @@ const creditsDto = {
             if (!hasAny) return null;
 
             return {
-              id: vid,
               year,
               youtubeSearch:
                 typeof youtubeSearch === "string" && youtubeSearch.trim() !== ""
@@ -1256,26 +1258,22 @@ const creditsDto = {
           .filter((x): x is NonNullable<typeof x> => !!x);
 
         for (const v of norm) {
-          // Δημιουργούμε πάντα νέο version για createSong
           const created = await tx.songVersion.create({
-            data: {
-              songId,
-              year: v.year,
-              youtubeSearch: v.youtubeSearch,
-            },
+            data: { songId, year: v.year, youtubeSearch: v.youtubeSearch },
             select: { id: true },
           });
           const versionId = created.id;
 
-          // If ids are provided we use them, otherwise upsert by titles
           const finalSingerFrontIds =
             v.singerFrontIds.length > 0
               ? v.singerFrontIds
               : await this.upsertArtistsByTitlesTx(tx, v.singerFrontNames);
+
           const finalSingerBackIds =
             v.singerBackIds.length > 0
               ? v.singerBackIds
               : await this.upsertArtistsByTitlesTx(tx, v.singerBackNames);
+
           const finalSolistIds =
             v.solistIds.length > 0
               ? v.solistIds
@@ -1287,11 +1285,8 @@ const creditsDto = {
             `versionsJson(songId=${songId})`,
           );
 
-          const rows: Array<{
-            versionId: number;
-            artistId: number;
-            role: VersionArtistRole;
-          }> = [];
+          const rows: Array<{ versionId: number; artistId: number; role: VersionArtistRole }> =
+            [];
 
           for (const artistId of finalSingerFrontIds) {
             rows.push({ versionId, artistId, role: VersionArtistRole.SINGER_FRONT });
@@ -1309,22 +1304,16 @@ const creditsDto = {
         }
       }
 
-      // ✅ Επιστρέφουμε songId ώστε να είναι πάντα ορισμένο εκτός transaction
       return songId;
     });
 
-    // Συγχρονίζουμε το νέο τραγούδι στο Elasticsearch
+    // ✅ ES sync best-effort
     try {
-    await this.esSync?.upsertSong(songId);
+      await this.esSync?.upsertSong(songId);
     } catch (e) {
-      // ΜΗΝ ρίξεις το request — το song δημιουργήθηκε.
-      // Κάνε μόνο log.
-      // (αν έχεις logger: this.logger.error(...))
       console.error("[SongsService] ES upsert failed", e);
     }
 
-    // Επιστρέφουμε το νέο τραγούδι χωρίς να αυξήσουμε views
     return this.findOne(songId, true);
-
   }
 }

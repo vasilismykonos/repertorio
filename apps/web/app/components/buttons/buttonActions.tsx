@@ -2,7 +2,7 @@
 "use client";
 
 import React from "react";
-
+import { signIn, signOut } from "next-auth/react";
 import Button, { type ButtonAction } from "./Button";
 import LinkButton from "./LinkButton";
 
@@ -63,6 +63,11 @@ function resolveVisibilityProps(p: CommonProps) {
   const iconOnly = !!p.iconOnly;
   const showLabel = iconOnly ? false : p.showLabel ?? true;
   return { iconOnly, showLabel };
+}
+function getSameOriginCallbackUrl(fallback = "/") {
+  if (typeof window === "undefined") return fallback;
+  const path = window.location.pathname + window.location.search;
+  return path || fallback;
 }
 
 /**
@@ -185,6 +190,37 @@ export const A = {
       showLabel: props.showLabel,
     });
   },
+  search(props: ClickProps & { action?: ButtonAction; label?: string }) {
+    const {
+      onClick,
+      disabled,
+      title = "Αναζήτηση",
+      className,
+      style,
+      label = "Αναζήτηση",
+    } = props;
+
+    const { iconOnly, showLabel } = resolveVisibilityProps(props);
+
+    return (
+      <Button
+        type="button"
+        variant="primary"
+        size="md"
+        action={props.action ?? "search"}
+        disabled={disabled}
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+        className={className}
+        style={style}
+        iconOnly={iconOnly}
+        showLabel={showLabel}
+      >
+        {label}
+      </Button>
+    );
+  },
 
   newLink(props: LinkProps & { action?: LinkAction }) {
     const {
@@ -228,6 +264,61 @@ export const A = {
       style,
       label,
       action: props.action ?? "edit",
+      variant: "secondary",
+      iconOnly: props.iconOnly,
+      showLabel: props.showLabel,
+    });
+  },
+  edit(props: ClickProps & { action?: ButtonAction; label?: string }) {
+    const {
+      onClick,
+      disabled,
+      title = "Επεξεργασία",
+      className,
+      style,
+      label = "Επεξεργασία",
+    } = props;
+
+    const { iconOnly, showLabel } = resolveVisibilityProps(props);
+
+    return (
+      <Button
+        type="button"
+        variant="secondary"
+        size="md"
+        action={props.action ?? "edit"}
+        disabled={disabled}
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+        className={className}
+        style={style}
+        iconOnly={iconOnly}
+        showLabel={showLabel}
+      >
+        {label}
+      </Button>
+    );
+  },
+
+  settingsLink(props: LinkProps & { action?: LinkAction }) {
+    const {
+      href,
+      disabled,
+      title = "Ρυθμίσεις",
+      className,
+      style,
+      label = "Ρυθμίσεις",
+    } = props;
+
+    return A.link({
+      href,
+      disabled,
+      title,
+      className,
+      style,
+      label,
+      action: props.action ?? "settings",
       variant: "secondary",
       iconOnly: props.iconOnly,
       showLabel: props.showLabel,
@@ -398,4 +489,108 @@ export const A = {
       </Button>
     );
   },
+  refresh(props: ClickProps & { label?: string }) {
+    const {
+      onClick,
+      disabled,
+      title = "Ανανέωση",
+      className,
+      style,
+      label = "Ανανέωση",
+    } = props;
+
+    const { iconOnly, showLabel } = resolveVisibilityProps(props);
+
+    return (
+      <Button
+        type="button"
+        variant="secondary"
+        size="md"
+        action="refresh"          // ✅ σωστό action
+        disabled={disabled}
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+        className={className}
+        style={style}
+        iconOnly={iconOnly}
+        showLabel={showLabel}
+      >
+        {label}
+      </Button>
+    );
+  },
+ 
+  login(props: CommonProps & { label?: string; provider?: string; callbackUrl?: string }) {
+    const {
+      disabled,
+      title = "Σύνδεση",
+      className,
+      style,
+      label = "Σύνδεση",
+      provider = "google",
+      callbackUrl,
+    } = props;
+
+    const { iconOnly, showLabel } = resolveVisibilityProps(props);
+
+    return (
+      <Button
+        type="button"
+        variant="primary"
+        size="md"
+        action="login"
+        disabled={disabled}
+        onClick={() => {
+          const cb = callbackUrl ?? getSameOriginCallbackUrl("/");
+          void signIn(provider, { callbackUrl: cb });
+        }}
+        title={title}
+        aria-label={title}
+        className={className}
+        style={style}
+        iconOnly={iconOnly}
+        showLabel={showLabel}
+      >
+        {label}
+      </Button>
+    );
+  },
+
+  logout(props: CommonProps & { label?: string; callbackUrl?: string; variant?: React.ComponentProps<typeof Button>["variant"] }) {
+    const {
+      disabled,
+      title = "Αποσύνδεση",
+      className,
+      style,
+      label = "Αποσύνδεση",
+      callbackUrl,
+      variant = "danger",
+    } = props;
+
+    const { iconOnly, showLabel } = resolveVisibilityProps(props);
+
+    return (
+      <Button
+        type="button"
+        variant={variant}
+        size="md"
+        action="logout"
+        disabled={disabled}
+        onClick={() => {
+          const cb = callbackUrl ?? getSameOriginCallbackUrl("/");
+          void signOut({ callbackUrl: cb });
+        }}
+        title={title}
+        aria-label={title}
+        className={className}
+        style={style}
+        iconOnly={iconOnly}
+        showLabel={showLabel}
+      >
+        {label}
+      </Button>
+    );
+  },
+
 };

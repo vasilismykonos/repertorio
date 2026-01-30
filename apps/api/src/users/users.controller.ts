@@ -2,14 +2,20 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
   Patch,
   Query,
 } from "@nestjs/common";
-import { UsersService, type ListUsersOptions } from "./users.service";
 import { UserRole } from "@prisma/client";
+
+import { UsersService, type ListUsersOptions } from "./users.service";
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
 
 @Controller("users")
 export class UsersController {
@@ -50,16 +56,36 @@ export class UsersController {
       displayName?: string | null;
       role?: UserRole;
       avatarUrl?: string | null;
+
+      // ✅ NEW
+      profile?: unknown | null;
     },
   ) {
-    // ελάχιστος έλεγχος τύπων (χωρίς να “μαντεύουμε” business rules)
-    if (body.displayName !== undefined && body.displayName !== null && typeof body.displayName !== "string") {
+    // Ελάχιστος έλεγχος τύπων
+    if (
+      body.displayName !== undefined &&
+      body.displayName !== null &&
+      typeof body.displayName !== "string"
+    ) {
       throw new BadRequestException("displayName must be string or null");
     }
+
     if (body.avatarUrl !== undefined && body.avatarUrl !== null && typeof body.avatarUrl !== "string") {
       throw new BadRequestException("avatarUrl must be string or null");
     }
 
+    // ✅ NEW: profile must be object or null (όχι array/string/number)
+    if (body.profile !== undefined) {
+      if (body.profile !== null && !isPlainObject(body.profile)) {
+        throw new BadRequestException("profile must be an object or null");
+      }
+    }
+
     return this.usersService.updateUser(id, body);
+  }
+
+  @Delete(":id")
+  async deleteUser(@Param("id", ParseIntPipe) id: number) {
+    return this.usersService.deleteUser(id);
   }
 }

@@ -9,473 +9,612 @@ License: GNU General Public License v2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: repertorio
 */
-/* Στυλ για το container του header */
-h4, p, a, div, span, ul, li, button, main, article  {
-    font-size: 15px;
-    color: white;
+
+/* =========================================================
+   0) Base typography / base colors (VERY GLOBAL RULES)
+   ========================================================= */
+
+/* Προσοχή: εξαιρετικά γενικό rule. Το κρατάμε όπως είναι. */
+h4,
+p,
+a,
+div,
+span,
+ul,
+li,
+button,
+main,
+article {
+  font-size: 15px;
+  color: white;
 }
-label, input {
+
+label,
+input {
   font-size: 15px;
   color: rgb(0, 0, 0);
 }
 
-main, article, .profile  {
-    background-color: #000000;
+body {
+  font-family: Verdana, sans-serif;
 }
+
+/* =========================================================
+   1) Page layout (html/body/main/footer)
+   ========================================================= */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  flex: 1; /* fills the vertical space */
+}
+
+main,
+article,
+.profile {
+  background-color: #000000;
+}
+
+/* =========================================================
+   2) Links
+   ========================================================= */
+
 a {
-    text-decoration: none;
-    transition: transform 0.2s ease, text-shadow 0.2s ease;
+  text-decoration: none;
+  transition: transform 0.2s ease, text-shadow 0.2s ease;
 }
 
 a:hover {
-    transform: translateY(-2px); /* Υπερύψωση κατά 2px */
-    text-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2); /* Ελαφριά σκιά */
+  transform: translateY(-2px);
+  text-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
 }
+
+/* =========================================================
+   3) Header: container + responsive
+   ========================================================= */
 
 .header-container {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 20px;
-    background-color: #333;
-    color: #fff;
-    flex-wrap: wrap; /* Επιτρέπει στο περιεχόμενο να "τυλίγεται" σε δεύτερη σειρά αν χρειαστεί */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  background-color: #333;
+  color: #fff;
+  flex-wrap: wrap;
 }
 
-/* Προσαρμογές για κινητά */
 @media (max-width: 768px) {
-    /* Τοποθετεί την αναζήτηση σε νέα σειρά */
-    .header-search {
-        flex-basis: 100%; /* Καταλαμβάνει όλη τη σειρά */
-        order: 1; /* Εμφανίζεται στη δεύτερη σειρά */
-        margin-top: 10px; /* Απόσταση από τα υπόλοιπα στοιχεία */
-    }
+  .header-search {
+    flex-basis: 100%;
+    order: 1;
+    margin-top: 10px;
+  }
 
-    /* Τα υπόλοιπα στοιχεία του header (π.χ., λογότυπο και κουμπιά) παραμένουν στην πρώτη σειρά */
-    .header-logo, .header-buttons, .header-main-menu {
-        flex-basis: auto;
-        margin-top: 0;
-        order: 0; /* Εξασφαλίζει ότι θα παραμείνουν στην πρώτη σειρά */
-    }
+  .header-logo,
+  .header-buttons,
+  .header-main-menu {
+    flex-basis: auto;
+    margin-top: 0;
+    order: 0;
+  }
 }
-#search-filters {
-    display: flex;
-    flex-direction: column; /* Κατακόρυφη στοίχιση */
-    align-items: flex-start;
-    gap: 2;
-    width: 100%;
-}
-
-.search-group-filters {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    height: 20px;
-    padding: 5px;
-}
-.search-group-filters-dropbox label {
-    text-align: left;
-    display: block; /* Σιγουρεύει ότι το label καταλαμβάνει όλη τη γραμμή */
-}
-
-.search-group-filters-dropbox select {
-    border-radius: 10px;
-    border: 1px solid #ccc;
-    background-color: #f0f0f0;
-    color: #333;
-    cursor: pointer;
-    width: 100%; /* Προαιρετικό για πλήρη πλάτος */
-}
-
-.search-filter-option {
-    border-radius: 10px!important;
-}
-.search-filter-option, #apply-filters {
-    padding: 8px 16px;
-    cursor: pointer;
-    border: none;
-    background-color: #f0f0f0;
-    color: #333;
-    border-radius: 10px; /* Στρογγυλεμένες γωνίες */
-    transition: background-color 0.3s;
-}
-
-.search-filter-option.selected {
-    background-color: #4c7aaf;
-    color: white;
-    border-radius: 10px; /* Στρογγυλεμένες γωνίες */
-
-}
-
-.search-filter-option:hover, #apply-filters:hover {
-    background-color: #4c7aaf;
-    border-radius: 10px; /* Στρογγυλεμένες γωνίες */
-}
-#apply-filters {
-    margin-top: auto; /* Τοποθετεί το κουμπί "Εφαρμογή" στο τέλος του container */
-    align-self: flex-end;
-    background-color: #4c7aaf;
-    color: white;
-    font-size: 16px;
-    height: 30px;
-}
-
 
 .header-logo img {
-    max-width: 31px; /* Προσαρμογή του μέγιστου πλάτους */
-    height: auto;     /* Διατήρηση αναλογιών */
+  max-width: 31px;
+  height: auto;
 }
 
-/* Στυλ για το πεδίο αναζήτησης */
+/* =========================================================
+   4) Header: search
+   ========================================================= */
+
 .header-search {
-    display: flex;
-    align-items: center;
-    max-width: 300px;
-    flex-grow: 10; /* Προσαρμόζει το πλάτος ώστε να γεμίσει τον διαθέσιμο χώρο */
-    margin: 0 20px;
-    align-items: stretch; /* Διατηρεί τα παιδιά στο ίδιο ύψος */
-    margin-left: auto;
-    background-color: #fff; /* Φόντο του πεδίου αναζήτησης */
-    border-radius: 5px;
-    height: 40px; /* Σταθερό ύψος για να ταιριάζει με το κουμπί */
-    border-radius: 30px 30px 30px 30px; /* Στρογγυλεμένες γωνίες αριστερά */
+  display: flex;
+  align-items: center;
+  max-width: 300px;
+  flex-grow: 10;
+  margin: 0 20px;
+  align-items: stretch;
+  margin-left: auto;
+  background-color: #fff;
+  border-radius: 30px;
+  height: 40px;
 }
 
 .header-search input[type="text"] {
-    padding: 10px;
-    font-size: 16px;
-    border: none;
-    outline: none;
-    background: transparent; /* Διαφανές φόντο για να ταιριάζει με το container */
-    color: #000000;
-    height: 100%; /* Ίδιο ύψος με το container */
-    box-sizing: border-box;
-    border-radius: 5px 0 0 5px; /* Στρογγυλεμένες γωνίες αριστερά */
+  padding: 10px;
+  font-size: 16px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #000000;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: 5px 0 0 5px;
 }
 
 .header-search button {
-    background-color: #ffffff;
-    border: none;
-    padding: 0 12px 0 5px; /* Περισσότερο padding δεξιά, λιγότερο αριστερά */
-    cursor: pointer;
-    border-radius: 0 5px 5px 0;
-    color: #040000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%; /* Ίδιο ύψος με το container */
-    box-sizing: border-box;
+  background-color: #ffffff;
+  border: none;
+  padding: 0 12px 0 5px;
+  cursor: pointer;
+  border-radius: 0 5px 5px 0;
+  color: #040000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  box-sizing: border-box;
 }
 
-/* Clear search button styling */
+/* Clear search button */
 .clear-search {
-    position: absolute;
-    right: 35px; /* Τοποθέτηση πριν το κουμπί του φακού */
-    top: 50%; /* Κάθετη κεντροθέτηση */
-    transform: translateY(-50%);
-    font-size: 18px;
-    cursor: pointer;
-    color: #aaa;
+  position: absolute;
+  right: 35px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 18px;
+  cursor: pointer;
+  color: #aaa;
 }
-
 
 .clear-search:hover {
-    color: #333; /* Αλλαγή χρώματος κατά το hover */
+  color: #333;
 }
 
+/* =========================================================
+   5) Header: buttons + menu
+   ========================================================= */
 
-/* Στοίχιση κουμπιών δεξιά */
 .header-buttons {
-    margin-left: auto; /* Ωθεί τα κουμπιά δεξιά */
-    display: flex;
-    gap: 13px; /* Απόσταση μεταξύ των κουμπιών */
-    align-items: center;
+  margin-left: auto;
+  display: flex;
+  gap: 13px;
+  align-items: center;
 }
+
 .header-buttons > :last-child {
-    margin-right: 10px; /* Προσθέτει κενό δεξιά στο τελευταίο κουμπί */
+  margin-right: 10px;
 }
+
 .header-buttons button,
 .header-buttons a {
-    width: 30px; /* Σταθερό πλάτος για όλα τα κουμπιά */
-    height: 30px; /* Σταθερό ύψος για όλα τα κουμπιά */
-    color: #fff;
-    text-decoration: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    border-radius: 50%; /* Κάνει τα κουμπιά κυκλικά */
-    border: none;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
+  width: 30px;
+  height: 30px;
+  color: #fff;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
 }
 
 .header-buttons button:hover,
 .header-buttons a:hover {
-    transform: translateY(-3px); /* Ελαφριά ανύψωση */
-    box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.15);
-    }
+  transform: translateY(-3px);
+  box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.15);
+}
 
+/* Rooms button special */
+.header-buttons a.rooms-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  text-decoration: none;
+  background-color: transparent;
+  color: #aaaaaa;
+  font-size: 22px;
+}
 
-/* Αύξηση μεγέθους για το .header-main-menu */
+.header-buttons a.rooms-button .rooms-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* Main menu */
 .header-main-menu {
-    font-size: 1.2em; /* Αύξηση μεγέθους γραμματοσειράς */
-    padding: 10px 1px; /* Αύξηση padding για μεγαλύτερο "κλικ" */
-    margin-left: 5px;
-    transform: scale(1.2); /* Μεγέθυνση κατά 10% */
-    transition: transform 0.3s ease, color 0.3s ease, background-color 0.3s ease;
+  font-size: 1.2em;
+  padding: 10px 1px;
+  margin-left: 5px;
+  transform: scale(1.2);
+  transition: transform 0.3s ease, color 0.3s ease, background-color 0.3s ease;
 }
+
+/* Consolidated: menu-toggle (ήταν διπλό) */
+.header-main-menu button.menu-toggle {
+  font-size: 18px;
+  padding: 8px;
+  width: 40px;
+  height: 40px;
+  background-color: #444;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+/* =========================================================
+   6) Generic buttons (global)
+   ========================================================= */
+
+button,
+.button-style,
+input[type="button"],
+input[type="submit"],
+a.button-style,
+button.menu-button,
+.header-main-menu button.menu-toggle {
+  display: inline-block;
+  padding: 10px 8px;
+  margin: 1px;
+  font-size: 12px;
+  font-weight: 200;
+  text-align: center;
+  color: #fff;
+  background-color: #444;
+  border: 1px solid #fff;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background-color 0.3s ease, transform 0.1s ease;
+  box-shadow: 0px 4px 6px rgba(135, 132, 132, 0.1);
+  cursor: pointer;
+}
+
+button:hover,
+.button-style:hover,
+input[type="button"]:hover,
+input[type="submit"]:hover,
+a.button-style:hover {
+  box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.15);
+}
+
+button:active,
+.button-style:active,
+input[type="button"]:active,
+input[type="submit"]:active,
+a.button-style:active {
+  background-color: #003a80;
+  box-shadow: 0px 3px 4px rgba(0, 0, 0, 0.1);
+}
+
+button:disabled,
+.button-style:disabled,
+input[type="button"]:disabled,
+input[type="submit"]:disabled {
+  background-color: #ccc;
+  color: #666;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+a.button-style {
+  color: #fff;
+  padding: 8px 16px;
+}
+
+.icon-left {
+  direction: ltr;
+  text-align: left;
+}
+
+/* Small edit button */
+button.edit-button {
+  margin: 0;
+  transform: translateY(-5px);
+  background-color: transparent;
+  font-size: 10px !important;
+  font-weight: 100;
+  box-shadow: none;
+  padding: 0%;
+  padding-left: 5px;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+/* =========================================================
+   7) Filters controls (#filters, search filters)
+   ========================================================= */
+
+#search-filters {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px; /* ήταν "2" */
+  width: 100%;
+}
+
+.search-group-filters {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 5px;
+}
+
+.search-group-filters-dropbox label {
+  text-align: left;
+  display: block;
+}
+
+.search-group-filters-dropbox select {
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  background-color: #f0f0f0;
+  color: #333;
+  cursor: pointer;
+  width: 100%;
+}
+
+.search-filter-option {
+  border-radius: 10px !important;
+}
+
+.search-filter-option,
+#apply-filters {
+  padding: 8px 16px;
+  cursor: pointer;
+  border: none;
+  background-color: #f0f0f0;
+  color: #333;
+  border-radius: 10px;
+  transition: background-color 0.3s;
+}
+
+.search-filter-option.selected {
+  background-color: #4c7aaf;
+  color: white;
+  border-radius: 10px;
+}
+
+.search-filter-option:hover,
+#apply-filters:hover {
+  background-color: #4c7aaf;
+  border-radius: 10px;
+}
+
+#apply-filters {
+  margin-top: auto;
+  align-self: flex-end;
+  background-color: #4c7aaf;
+  color: white;
+  font-size: 16px;
+  height: 30px;
+}
+
+/* Consolidated: #filters button was duplicated */
 #filters {
-    display: flex; /* Ενεργοποίηση του flexbox */
-    flex-direction: row; /* Οριζόντια στοίχιση */
-    align-items: center; /* Κεντράρισμα κάθετα */
-    justify-content: left; /* Κεντράρισμα οριζόντια */
-    gap: 1px; /* Απόσταση μεταξύ των κουμπιών */
-    flex-wrap: wrap; /* Επιτρέπει τη συνέχιση σε νέα γραμμή */
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: left;
+  gap: 1px;
+  flex-wrap: wrap;
 }
 
 #filters button {
-    height: 40px; /* Σταθερό ύψος για όλα τα κουμπιά */
-    width: 40px; /* Σταθερό πλάτος */
-    display: flex;
-    align-items: center; /* Κεντράρισμα περιεχομένου */
-    justify-content: center; /* Κεντράρισμα περιεχομένου */
-    background-color: #444;
-    color: #fff;
-    border: 1px solid #fff;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.3s ease;
+  gap: 5px;
+  height: 40px;
+  width: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  text-align: center;
+  box-sizing: border-box;
+  font-size: 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  background-color: #444;
+  color: #fff;
+  border: 1px solid #fff;
+  transition: all 0.3s ease;
 }
 
-/* Προαιρετικά στυλ hover */
 #filters button:hover {
-    background-color: #005bb5;
-    transform: translateY(-2px);
+  background-color: #005bb5;
+  transform: translateY(-2px);
 }
 
-#filters button {
-    gap: 5px; /* Μικρότερη απόσταση μεταξύ των κουμπιών */
-    height: 40px; /* Καθορισμένο ύψος */
-    width: auto; /* Εναλλακτικά, μπορείς να ορίσεις και πλάτος */
-    display: flex; /* Χρήση flex για σωστή στοίχιση περιεχομένου */
-    align-items: center; /* Κεντράρισμα περιεχομένου κατακόρυφα */
-    justify-content: center; /* Κεντράρισμα περιεχομένου οριζόντια */
-    padding: 5px 10px; /* Εσωτερικά περιθώρια για καλύτερη εμφάνιση */
-    text-align: center; /* Στοίχιση κειμένου */
-    box-sizing: border-box; /* Περιλαμβάνει padding και border στις διαστάσεις */
-    font-size: 14px; /* Μέγεθος γραμματοσειράς */
-    border-radius: 8px; /* Στρογγυλεμένες γωνίες */
-    cursor: pointer; /* Δείκτης χεριού */
-    background-color: #444; /* Φόντο κουμπιού */
-    color: #fff; /* Χρώμα κειμένου */
-    transition: all 0.3s ease; /* Απαλή μετάβαση σε hover */
-}
-
-/* Προαιρετικά στυλ για hover */
-#filters button:hover {
-    background-color: #005bb5; /* Αλλαγή χρώματος κατά το hover */
-    transform: translateY(-2px); /* Ελαφριά ανύψωση */
-}
-
-
+/* =========================================================
+   8) Button groups / containers
+   ========================================================= */
 
 div.list-buttons button {
-    height: 60px; /* Σταθερό ύψος για όλα τα κουμπιά */
-} 
+  height: 60px;
+}
 
-/* Γενικό container για κουμπιά */
+/* Generic button container */
 .button-container {
-    display: flex; /* Ενεργοποίηση του flexbox */
-    flex-direction: row; /* Οριζόντια στοίχιση */
-    align-items: center; /* Κεντράρισμα κάθετα */
-    justify-content: flex-start; /* Ευθυγράμμιση προς τα αριστερά */
-    gap: 1px; /* Απόσταση μεταξύ των κουμπιών */
-    flex-wrap: wrap; /* Επιτρέπει τη συνέχιση σε νέα γραμμή */
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1px;
+  flex-wrap: wrap;
 }
 
-/* Γενικά στυλ για κουμπιά */
 .button-container .button {
-    height: 60px; /* Σταθερό ύψος για όλα τα κουμπιά */
-    display: flex;
-    align-items: center; /* Κεντράρισμα περιεχομένου */
-    justify-content: center; /* Κεντράρισμα περιεχομένου */
-    background-color: #444; /* Χρώμα φόντου */
-    color: #fff; /* Χρώμα κειμένου */
-    border: 1px solid #fff; /* Περιγράμματα */
-    border-radius: 8px; /* Στρογγυλεμένες γωνίες */
-    cursor: pointer; /* Δείκτης χεριού */
-    transition: all 0.3s ease; /* Μετάβαση */
-    padding: 5px 10px; /* Εσωτερικό padding */
-    text-align: center; /* Στοίχιση κειμένου */
-    box-sizing: border-box; /* Συμπερίληψη padding και border */
-    font-size: 14px; /* Μέγεθος γραμματοσειράς */
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #444;
+  color: #fff;
+  border: 1px solid #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 5px 10px;
+  text-align: center;
+  box-sizing: border-box;
+  font-size: 14px;
 }
+
 .button-container button,
 .button-container .song-sheet-button button,
 .button-container .youtube-button,
 .button-container .menu-button-wrapper > button {
-    height: 55px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
+  height: 55px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
-/* Προαιρετικά στυλ hover */
 .button-container .button:hover {
-    background-color: #005bb5; /* Αλλαγή χρώματος φόντου */
-    transform: translateY(-2px); /* Ελαφριά ανύψωση */
+  background-color: #005bb5;
+  transform: translateY(-2px);
 }
 
-/* Κουμπιά μικρού ύψους */
+/* Small button container */
 .small-button-container {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }
 
-/* Όλα τα μικρά κουμπιά */
 .small-button-container button {
-    background-color: #444;
-    border: 1px solid #fff;
-    padding: 3px 8px;
-    border-radius: 6px;
-    font-size: 13px;
-    height: auto;
-    line-height: 1.1;
+  background-color: #444;
+  border: 1px solid #fff;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  height: auto;
+  line-height: 1.1;
 }
 
-/* Ειδικά για new_button — πιο δυνατός selector */
 .small-button-container button.new_button {
-    padding: 3px 8px;   /* override */
-    font-size: 13px;
-    height: auto;
-    line-height: 1.1;
+  padding: 3px 8px;
+  font-size: 13px;
+  height: auto;
+  line-height: 1.1;
 }
 
-/* Hover */
 .small-button-container button:hover,
 .small-button-container button.new_button:hover {
-    background-color: #005bb5;
-    transform: translateY(-1px);
+  background-color: #005bb5;
+  transform: translateY(-1px);
 }
 
-
-
-
-/* Προαιρετικά, αν θέλεις να αλλάξεις το μέγεθος του κουμπιού menu */
-.header-main-menu button.menu-toggle {
-    font-size: 20px; /* Αύξηση του μεγέθους εικονιδίου μενού */
-    padding: 10px 15px; /* Αύξηση του padding για να είναι πιο εμφανές */
-    width: 40px; /* Σταθερό πλάτος για όλα τα κουμπιά */
-    height: 40px; /* Σταθερό ύψος για όλα τα κουμπιά */
+/* Compact buttons row */
+.buttons {
+  display: flex !important;
+  align-items: center !important;
+  gap: 1px !important;
 }
 
-
-.header-main-menu button.menu-toggle {
-    background-color: #444;
-    color: #fff;
-    padding: 8px;
-    border: none;
-    cursor: pointer;
-    border-radius: 5px;
-    font-size: 18px;
+.buttons > * {
+  padding: 5px 8px;
 }
 
-/* Sidebar Styling */
+.buttons form button {
+  padding: 5px 8px;
+}
+
+/* =========================================================
+   9) Sidebar + overlay
+   ========================================================= */
+
 .site-sidebar {
-    position: fixed;
-    right: 0;
-    top: 0;
-    width: 300px;
-    height: 100%;
-    background-color: #333;
-    color: #fff;
-    padding: 20px;
-    box-shadow: -5px 0 10px rgba(0, 0, 0, 0.3);
-    transition: transform 0.3s ease;
-    transform: translateX(100%); /* Απόκρυψη */
-    z-index: 10;
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 300px;
+  height: 100%;
+  background-color: #333;
+  color: #fff;
+  padding: 20px;
+  box-shadow: -5px 0 10px rgba(0, 0, 0, 0.3);
+  transition: transform 0.3s ease;
+  transform: translateX(100%);
+  z-index: 10;
 }
+
 .site-sidebar a {
-    color: #fff;
-    text-decoration: none;
+  color: #fff;
+  text-decoration: none;
 }
+
 .site-sidebar.visible {
-    transform: translateX(0); /* Εμφάνιση */
+  transform: translateX(0);
 }
-
-
 
 #overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    display: none;
-    z-index: 5;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: none;
+  z-index: 5;
 }
 
 #overlay.visible {
-    display: block;
+  display: block;
 }
 
+/* =========================================================
+   10) User avatar / icons
+   ========================================================= */
 
 .user-avatar img {
-    border-radius: 50%; /* Στρογγυλό avatar */
-    width: 32px; /* Πλάτος avatar */
-    height: 32px; /* Ύψος avatar */
-    border: 1.5px solid #fff; /* Προαιρετικό: Λευκό περίγραμμα */
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid #fff;
 }
 
 .user-icon {
-    font-size: 24px; /* Μέγεθος default εικονιδίου */
-    color: #fff;
+  font-size: 24px;
+  color: #fff;
 }
 
-body {
-    font-family: Verdana, sans-serif;
-}
-/* Στυλ για το σώμα και το container */
-html, body {
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-}
+/* =========================================================
+   11) Footer
+   ========================================================= */
 
-/* FOOTER – ίδιο με το παλιό */
 .site-footer {
-  background-color: #333;        /* γκρι μπάρα όπως πριν */
+  background-color: #333;
   color: #fff;
   text-align: center;
   padding: 8px 0;
   width: 100%;
-  margin-top: auto;              /* κολλάει στο κάτω μέρος */
+  margin-top: auto;
   font-size: 14px;
 }
 
-/* Εσωτερικό container για κεντράρισμα */
 .footer-inner {
   max-width: 1200px;
   margin: 0 auto;
   display: flex;
   align-items: center;
-  justify-content: center;       /* ΟΛΑ στο κέντρο οριζόντια */
+  justify-content: center;
   gap: 12px;
 }
 
-/* Κείμενο © 2025... */
 .footer-text {
   white-space: nowrap;
 }
 
-/* Τμήμα "Follow us:  [icon]" */
 .footer-follow {
   display: inline-flex;
   align-items: center;
@@ -483,10 +622,9 @@ html, body {
 }
 
 .footer-follow-label {
-  font-weight: 700;              /* bold όπως στην παλιά εικόνα */
+  font-weight: 700;
 }
 
-/* «Κουτί» Facebook χωρίς εξωτερικές βιβλιοθήκες */
 .footer-facebook {
   display: inline-flex;
   align-items: center;
@@ -494,7 +632,7 @@ html, body {
   width: 28px;
   height: 28px;
   border-radius: 4px;
-  background-color: #1877f2;     /* μπλε Facebook */
+  background-color: #1877f2;
   text-decoration: none;
 }
 
@@ -504,197 +642,107 @@ html, body {
   line-height: 1;
   color: #fff;
 }
-/* Responsive footer για μικρές οθόνες */
+
 @media (max-width: 600px) {
   .footer-inner {
-    flex-direction: column;      /* από οριζόντια -> κάθετη στοίχιση */
+    flex-direction: column;
     gap: 4px;
     text-align: center;
   }
 
   .footer-follow {
-    justify-content: center;     /* "Follow us: [f]" στο κέντρο */
+    justify-content: center;
   }
 
   .footer-text {
-    white-space: normal;         /* επιτρέπουμε κανονικό σπάσιμο γραμμής */
+    white-space: normal;
   }
 }
 
+/* =========================================================
+   12) Autocomplete (jQuery UI) + ARIA noise suppression
+   ========================================================= */
 
-main {
-    flex: 1; /* Επεκτείνει το main περιεχόμενο ώστε να γεμίζει τον χώρο */
+.ui-autocomplete {
+  background-color: #333;
+  color: black;
+  border: 1px solid #ccc;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-/* Βασικό στυλ κουμπιού */
-button, .header-main-menu button.menu-toggle ,
-.button-style,
-input[type="button"],
-input[type="submit"],
-a.button-style, button.menu-button {
-    display: inline-block;
-    padding: 10px 8px;
-    margin: 1px; 
-    font-size: 12px;
-    font-weight: 200;
-    text-align: center;
-    color: #fff;
-    background-color: #444; /* Βασικό χρώμα κουμπιού */
-    border: 1px solid #fff; /* Λευκή γραμμή εξωτερικά */
-    border-radius: 8px; /* Στρογγυλεμένες γωνίες */
-    text-decoration: none;
-    transition: background-color 0.3s ease, transform 0.1s ease;
-    box-shadow: 0px 4px 6px rgba(135, 132, 132, 0.1);
-    cursor: pointer;
-}
-
-
-/* Hover effect */
-button:hover,
-.button-style:hover,
-input[type="button"]:hover,
-input[type="submit"]:hover,
-a.button-style:hover {
-    background-color: #005bb5; /* Χρώμα κατά το hover */
-    box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.15);
-}
-
-/* Ενεργή κατάσταση (όταν πατηθεί) */
-button:active,
-.button-style:active,
-input[type="button"]:active,
-input[type="submit"]:active,
-a.button-style:active {
-    background-color: #003a80; /* Σκούρο χρώμα για το πάτημα */
-    box-shadow: 0px 3px 4px rgba(0, 0, 0, 0.1);
-}
-
-/* Απενεργοποιημένα κουμπιά */
-button:disabled,
-.button-style:disabled,
-input[type="button"]:disabled,
-input[type="submit"]:disabled {
-    background-color: #ccc;
-    color: #666;
-    cursor: not-allowed;
-    box-shadow: none;
-    transform: none;
-}
-
-/* Προσαρμογή για κουμπιά που μοιάζουν με links */
-a.button-style {
-    color: #fff;
-    padding: 8px 16px;
-}
-.icon-left {
-    direction: ltr;
-    text-align: left;
-}
-
-button.edit-button {
-    margin: 0;
-    transform: translateY(-5px); /* Αύξησε ή μείωσε την τιμή ανάλογα με το επιθυμητό αποτέλεσμα */
-    background-color: transparent;
-    font-size: 10px !important;
-    font-weight: 100;
-    box-shadow: none;
-    padding: 0%; /* Μικρό padding για μικρότερο μέγεθος */
-    padding-left: 5px;
-    border: none; /* Αφαιρεί περίγραμμα αν υπάρχει */
-    cursor: pointer; /* Δείκτης χεριού για καλύτερη εμπειρία */
-    border-radius: 4px; /* Προαιρετικά: Στρογγυλεμένες γωνίες */
-}
-
-
-.buttons {
-    display: flex!important;
-    align-items: center!important; /* Κεντρική κατακόρυφη στοίχιση */
-    gap: 1px!important; /* Αλλάξτε το 10px με την απόσταση που θέλετε */
-}
-.buttons > * {
-    padding: 5px 8px; /* Επάνω/Κάτω: 5px, Αριστερά/Δεξιά: 8px */
-}
-.buttons form button {
-    padding: 5px 8px; /* Επάνω/Κάτω: 5px, Αριστερά/Δεξιά: 8px */
-}
-
-  /* Autocomplete Styles */
-  .ui-autocomplete {
-    background-color: #333;
-    color: black;
-    border: 1px solid #ccc;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
- }
- div[role="status"][aria-live="assertive"] {
-    display: none !important;
-    height: 0 !important;
-    overflow: hidden !important;
-    visibility: hidden !important;
-    font-size: 0 !important;
+div[role="status"][aria-live="assertive"] {
+  display: none !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  font-size: 0 !important;
 }
 
 .ui-autocomplete li {
-    padding: 8px 12px;
-    cursor: pointer;
-    width: 300px;
+  padding: 8px 12px;
+  cursor: pointer;
+  width: 300px;
 }
+
 .ui-autocomplete li:hover {
-    transform: translateY(0px); /* Ελαφριά ανύψωση */
-    box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.15);
-    color: lightblue;
+  transform: translateY(0px);
+  box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.15);
+  color: lightblue;
 }
+
 .ui-autocomplete.ui-menu {
-    width: 100% ;
+  width: 100%;
 }
+
 .ui-autocomplete .no-results {
-    color: red ;
+  color: red;
 }
-/*-------------------------------------------*/
-/* Κουμπί Κλεισίματος */
+
+/* =========================================================
+   13) Close buttons (sidebar/modals)
+   ========================================================= */
+
 #closeSidebar {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    font-size: 24px!important;
-    color: #fff;
-    cursor: pointer;
-    background: none;
-    border: none;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 24px !important;
+  color: #fff;
+  cursor: pointer;
+  background: none;
+  border: none;
 }
 
-/* Γενικό στυλ για κουμπί κλεισίματος */
-.close-btn, .close {
-    position: absolute!important;
-    top: 10px!important;
-    right: 10px!important;
-    background: none!important;
-    border: none!important;
-    font-size: 24px !important;
-    color: white!important;
-    cursor: pointer!important;
+.close-btn,
+.close {
+  position: absolute !important;
+  top: 10px !important;
+  right: 10px !important;
+  background: none !important;
+  border: none !important;
+  font-size: 24px !important;
+  color: white !important;
+  cursor: pointer !important;
 }
 
+/* =========================================================
+   14) Modal (generic)
+   ========================================================= */
 
-
-#debug-steps, #debug-steps * {
-    color: black !important; /* Εξασφαλίζει ότι όλα τα στοιχεία μέσα στο debug-steps είναι μαύρα */
-}
-/* Βασικό στιλ για το modal */
 .modal {
-    display: none; /* Αρχικά κρύβεται το modal */
-    position: fixed; /* Σταθερή θέση */
-    z-index: 1001; /* Τοποθετείται πάνω από άλλα στοιχεία */
-    left: 0;
-    top: 0;
-    width: 100%; /* Πλήρες πλάτος */
-    height: 100%; /* Πλήρες ύψος */
-    overflow: auto; /* Ενεργοποίηση κύλισης αν χρειαστεί */
-    background-color: rgba(0,0,0,0.4); /* Χρώμα φόντου με αδιαφάνεια */
+  display: none;
+  position: fixed;
+  z-index: 1001;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: rgba(0, 0, 0, 0.4);
 }
 
-/* Στιλ για το περιεχόμενο του modal */
 .modal-content {
-  position: absolute!important;
+  position: absolute !important;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -710,252 +758,269 @@ button.edit-button {
   border-radius: 0.3rem;
   outline: 0;
   max-height: 95%;
-  overflow-y: auto; /* Προσθέτει αυτόματη κατακόρυφη κύλιση */
+  overflow-y: auto;
 }
 
-/* Αλλαγή φόντου σε όλα τα <li> του Select2 */
+/* Select2 */
 .select2-container .select2-results__option {
-    background-color: #f0f0f0; /* Το νέο χρώμα φόντου */
-    color: #333; /* Χρώμα κειμένου (προαιρετικό) */
+  background-color: #f0f0f0;
+  color: #333;
 }
 
-.select2-container--default .select2-selection--multiple .select2-selection__choice {
-    background-color:#333333;
+.select2-container--default
+  .select2-selection--multiple
+  .select2-selection__choice {
+  background-color: #333333;
 }
 
-/*------modal στοιχεια της λιστας------*/
+/* =========================================================
+   15) Songs list / items
+   ========================================================= */
+
 li {
-    display: flex;
-    align-items: center;
+  display: flex;
+  align-items: center;
 }
+
 a.song-title {
-    font-weight: 700;
-    white-space: nowrap; /* Αποτρέπει την αναδίπλωση του κειμένου */
-    margin-right: 10px;
-}
-#title {
-    padding-left: 5px; 
- }
-#song-info, #chords-info  {
-   padding-left: 5px; 
-   padding-bottom: 20px;
-}
-#lyrics {
-    padding-left: 5px; 
- }
- .song-item  {
-    display: flex;
-    flex-wrap: wrap; /* Τα στοιχεία μεταφέρονται στην επόμενη γραμμή αν δεν χωρούν */
-}
-.song-item .song-title {
-    white-space: nowrap; /* Αποτρέπει την αναδίπλωση του τίτλου */
-    overflow: hidden; /* Κόβει τον τίτλο αν δεν χωράει */
-    text-overflow: ellipsis; /* Προσθέτει "..." στο τέλος αν κοπεί */
-    flex: 1 1 auto;
-}
-.song-item .icons-and-title {
-    display: flex; /* Δημιουργεί εσωτερικό flex container */
-    flex-wrap: nowrap; /* Κρατά τα εικονίδια και τον τίτλο μαζί */
-    align-items: center;
-}
-#chords {
-    color: lightblue;
-    padding-bottom: 10px;
-    padding-top: 10px;
-    font-style: italic;
-    font-weight: 400;
+  font-weight: 700;
+  white-space: nowrap;
+  margin-right: 10px;
 }
 
 ul {
-    padding-inline-start: 10px;
+  padding-inline-start: 10px;
 }
 
+#title {
+  padding-left: 5px;
+}
+
+#song-info,
+#chords-info {
+  padding-left: 5px;
+  padding-bottom: 20px;
+}
+
+#lyrics {
+  padding-left: 5px;
+}
+
+.song-item {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.song-item .song-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+}
+
+.song-item .icons-and-title {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+#chords {
+  color: lightblue;
+  padding-bottom: 10px;
+  padding-top: 10px;
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* =========================================================
+   16) Active filters + navigation buttons
+   ========================================================= */
+
 .active-filters-item {
-    display: inline-block;
-    padding: 5px 8px!important; /* Ελαφρώς μικρότερο padding */
-    margin: 1px; 
-    font-size: 0.7em!important; /* Μείωση μεγέθους κειμένου στο 90% */
-    font-weight: 200;
-    text-align: center;
-    color: #fff;
-    background-color: #444; /* Βασικό χρώμα κουμπιού */
-    border: 1px solid #fff;
-    border-radius: 8px; /* Στρογγυλεμένες γωνίες */
-    text-decoration: none;
-    transition: background-color 0.3s ease, transform 0.1s ease;
-    box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
-    cursor: pointer;
+  display: inline-block;
+  padding: 5px 8px !important;
+  margin: 1px;
+  font-size: 0.7em !important;
+  font-weight: 200;
+  text-align: center;
+  color: #fff;
+  background-color: #444;
+  border: 1px solid #fff;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background-color 0.3s ease, transform 0.1s ease;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
 }
+
 .active-filters-item:hover {
-    background-color: #0056b3; /* Σκούρο μπλε στο hover */
+  background-color: #0056b3;
 }
+
 .active-filters-item a {
-    font-size: 0.9em!important; /* Μικρότερο μέγεθος */
-    vertical-align: center; /* Υπερυψωμένο */
-    text-decoration: none; /* Αφαίρεση υπογράμμισης */
-    margin-left: 5px; /* Απόσταση από το κείμενο του φίλτρου */
+  font-size: 0.9em !important;
+  vertical-align: center;
+  text-decoration: none;
+  margin-left: 5px;
 }
-.active-filters, .navigation-buttons{
-    display: flex;
-    align-items: stretch; /* Ίδιο ύψος για όλα τα αντικείμενα */
-    justify-content: flex-start; /* Ευθυγράμμιση αριστερά */
-    flex-wrap: wrap; /* Επιτρέπεται η αναδίπλωση */
-    margin-top: 5px;
-    max-width: 100%; /* Μη υπέρβαση του πλάτους της οθόνης */
+
+.active-filters,
+.navigation-buttons {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 5px;
+  max-width: 100%;
 }
 
 .active-filters > * {
-    white-space: nowrap; /* Αποτρέπει την αναδίπλωση του κειμένου */
+  white-space: nowrap;
 }
 
+/* Consolidated: navigation-buttons was duplicated; keep final look (scale 0.7 + centered) */
 .navigation-buttons {
-    display: flex;
-    justify-content: flex-start; /* Ευθυγράμμιση αντικειμένων στα αριστερά */
-    align-items: center; /* Κεντράρισμα των αντικειμένων κάθετα */
-    flex-wrap: wrap; /* Επιτρέπεται η αναδίπλωση */
-    max-width: 100%; /* Μη υπέρβαση του πλάτους της οθόνης */
-    height: 40px; /* Καθορισμένο ύψος για το κοντέινερ */
-    box-sizing: border-box; /* Συμπερίληψη padding και borders στο συνολικό πλάτος */
-    margin: 0; /* Στοίχιση του div στα αριστερά */
-}
-.navigation-buttons > * {
-    height: 100%; /* Τα παιδιά καταλαμβάνουν το πλήρες ύψος του κοντέινερ */
-    flex: 0 1 auto; /* Επιτρέπει στα στοιχεία να μεγαλώνουν ή να μικραίνουν κατά ανάγκη */
-    margin: 5px; /* Απόσταση μεταξύ των κουμπιών */
-    box-sizing: border-box; /* Συμπερίληψη padding και borders στο συνολικό πλάτος */
+  height: 40px;
+  box-sizing: border-box;
+  margin: 0;
+  transform: scale(0.7);
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
 }
 
-/* Εμφανιση του Modal των active-filters */
+.navigation-buttons > * {
+  height: 100%;
+  flex: 0 1 auto;
+  margin: 5px;
+  box-sizing: border-box;
+}
+
+/* =========================================================
+   17) Filter modal (active-filters modal)
+   ========================================================= */
+
 .filter-modal {
-    display: none;
-    position: fixed;
-    z-index: 1000;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.5);
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
 }
 
 .filter-modal-content {
-    background-color: #000000;
-    margin: auto;
-    padding: 10px;
-    border: 1px solid #888;
-    width: 300px;
-    max-height: 95%;
-    overflow-y: auto; /* Προσθήκη scroll αν το περιεχόμενο υπερβεί το 95% */
+  background-color: #000000;
+  margin: auto;
+  padding: 10px;
+  border: 1px solid #888;
+  width: 300px;
+  max-height: 95%;
+  overflow-y: auto;
 }
 
 .filter-close {
-    float: right;
-    font-size: 28px;
-    font-weight: bold;
-    cursor: pointer;
+  float: right;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
 }
+
 .filter-close:hover,
 .filter-close:focus {
-    color: black;
-    text-decoration: none;
-    cursor: pointer;
+  color: black;
+  text-decoration: none;
+  cursor: pointer;
 }
+
 .filter-modal-content ul {
-    padding: 0px; /* Καταργεί την εσωτερική εσοχή της λίστας */
-    margin: 0px;  /* Καταργεί την εξωτερική εσοχή της λίστας */
-    padding-bottom: 5px;
-    list-style-position: inside; /* Τοποθετεί τα bullets πιο μέσα */
+  padding: 0px;
+  margin: 0px;
+  padding-bottom: 5px;
+  list-style-position: inside;
 }
 
 .filter-modal-content li {
-    padding-left: 0; /* Αφαιρεί την εσωτερική εσοχή από τα στοιχεία της λίστας */
-    margin-left: 0; /* Αφαιρεί την εξωτερική εσοχή από τα στοιχεία της λίστας */
+  padding-left: 0;
+  margin-left: 0;
 }
 
-/* ---------------------------------------- */
+/* =========================================================
+   18) Tonicities
+   ========================================================= */
 
 .tonicities {
-    display: flex;
-    flex-direction: column;
-    align-items: left;
+  display: flex;
+  flex-direction: column;
+  align-items: left;
 }
 
-.natural-tonicities, .sharp-tonicities {
-    display: flex;
-    justify-content: left;
+.natural-tonicities,
+.sharp-tonicities {
+  display: flex;
+  justify-content: left;
 }
 
 .tonicity-button {
-    font-size: 0.9em !important;
-    margin: 2px;
-    padding: 5px;
-    font-weight: 600;
-    width: 40px; /* Προσαρμογή του πλάτους για στοίχιση */
-    text-align: center;
+  font-size: 0.9em !important;
+  margin: 2px;
+  padding: 5px;
+  font-weight: 600;
+  width: 40px;
+  text-align: center;
 }
 
 .sharp-tonicities .tonicity-button:empty {
-    visibility: hidden; /* Απόκρυψη των κενών κουμπιών στις διέσεις */
+  visibility: hidden;
 }
+
+/* =========================================================
+   19) Room modal
+   ========================================================= */
 
 #roomModal {
-    display: none;
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 90%;
-    max-width: 300px;
-    background: #222;
-    color: #bbb;
-    padding: 20px;
-    border-radius: 8px;
-    z-index: 1000;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-    text-align: center;
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 300px;
+  background: #222;
+  color: #bbb;
+  padding: 20px;
+  border-radius: 8px;
+  z-index: 1000;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  text-align: center;
 }
+
 #closeRoomModal {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    cursor: pointer;
-    font-size: 24px;
-    color: #fff;
-}
-.navigation-buttons {
-    display: flex;
-    transform: scale(0.7);
-    justify-content: center; /* Κεντράρισμα οριζόντια */
-    align-items: center; /* Κεντράρισμα κατακόρυφα αν χρειάζεται */
-    gap: 10px; /* Προαιρετικά, για να δώσεις */
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  cursor: pointer;
+  font-size: 24px;
+  color: #fff;
 }
 
+/* =========================================================
+   20) Debug overrides
+   ========================================================= */
 
-/* ---------------------------------------- */
-/* Ειδικό στυλ για το κουμπί Rooms στο header */
-.header-buttons a.rooms-button {
-    width: 32px;                 /* ίδιο περίπου με το avatar */
-    height: 32px;
-    border-radius: 50%;          /* κυκλικό, όπως το avatar */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    text-decoration: none;
-
-    background-color: transparent; /* χωρίς φόντο */
-    color: #aaaaaa;                /* ΓΚΡΙ εικονίδιο, override του λευκού */
-    font-size: 22px;               /* λίγο μεγαλύτερο από το default 18px */
+#debug-steps,
+#debug-steps * {
+  color: black !important;
 }
 
-/* Μέσα στο κουμπί, το icon 🔄 */
-.header-buttons a.rooms-button .rooms-icon {
-    font-size: 22px;    /* εξασφαλίζουμε ότι δεν "μικραίνει" από το h4,p,a,span rule */
-    line-height: 1;
-}
-/* ---- Edit song page ---- */
+/* =========================================================
+   21) Edit song page (kept as-is, already structured)
+   ========================================================= */
 
 .song-edit-page {
-  min-height: calc(100vh - 80px); /* αφήνει χώρο για header/footer */
+  min-height: calc(100vh - 80px);
   display: flex;
   justify-content: center;
   padding: 2.5rem 1.25rem 3rem;
@@ -972,8 +1037,6 @@ ul {
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
   padding: 2rem 2.25rem 2.5rem;
 }
-
-/* Header / τίτλοι */
 
 .song-edit-header {
   margin-bottom: 1.75rem;
@@ -1015,15 +1078,11 @@ ul {
   color: rgba(255, 255, 255, 0.8);
 }
 
-/* Φόρμα */
-
 .song-edit-form {
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
 }
-
-/* Ενότητες */
 
 .song-edit-section {
   padding: 1.25rem 1.1rem 1.35rem;
@@ -1038,8 +1097,6 @@ ul {
   margin: 0 0 0.9rem;
   color: rgba(255, 255, 255, 0.85);
 }
-
-/* Κοινά πεδία */
 
 .song-edit-field {
   display: flex;
@@ -1093,15 +1150,11 @@ ul {
   background-color: rgba(15, 15, 15, 0.98);
 }
 
-/* Grid για τα "τεχνικά" πεδία */
-
 .song-edit-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem 1.5rem;
 }
-
-/* Actions */
 
 .song-edit-actions {
   margin-top: 0.5rem;
@@ -1146,8 +1199,6 @@ ul {
   background: rgba(255, 255, 255, 0.06);
 }
 
-/* Responsive */
-
 @media (max-width: 768px) {
   .song-edit-wrapper {
     padding: 1.6rem 1.3rem 2rem;
@@ -1168,10 +1219,9 @@ ul {
 }
 
 /* =========================================================
-   Forms: responsive grid + prevent overflow on small screens
+   22) Forms: responsive grid + prevent overflow on small screens
    ========================================================= */
 
-/* Grid helpers (used by ArtistForm: className="grid grid2") */
 .form .grid {
   display: grid;
   gap: 16px;
@@ -1181,17 +1231,14 @@ ul {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-/* Full-width field inside grid */
 .form .field.full {
   grid-column: 1 / -1;
 }
 
-/* Critical: allow grid children to shrink (prevents overflow) */
 .form .field {
   min-width: 0;
 }
 
-/* Inputs should never overflow their container */
 .form .input,
 .form input,
 .form select,
@@ -1202,19 +1249,17 @@ ul {
   box-sizing: border-box;
 }
 
-/* Small screens: 2 columns -> 1 column */
 @media (max-width: 640px) {
   .form .grid2 {
     grid-template-columns: 1fr;
   }
 
-  /* Optional: segmented buttons wrap nicely on mobile */
   .form .segmented {
     flex-wrap: wrap;
   }
+
   .form .segmented > * {
     min-width: 0;
     flex: 1 1 auto;
   }
 }
-

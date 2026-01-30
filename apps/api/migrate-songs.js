@@ -72,7 +72,6 @@ function mapSongRowToPrismaCreate(row) {
     status: mapStatus(row.Status),
 
     originalKey: row.Tune_Writed || null,
-    defaultKey: row.Default_Tune || null,
     basedOn: row.BasedOn || null,
     scoreFile: row.Partiture || null,
     highestVocalNote: row.Highest_Vocal_Note || null,
@@ -153,7 +152,6 @@ async function migrateSongs() {
               characteristics: data.characteristics,
               status: data.status,
               originalKey: data.originalKey,
-              defaultKey: data.defaultKey,
               basedOn: data.basedOn,
               scoreFile: data.scoreFile,
               highestVocalNote: data.highestVocalNote,

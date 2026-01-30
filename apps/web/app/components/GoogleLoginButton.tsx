@@ -1,13 +1,27 @@
-// app/components/GoogleLoginButton.tsx
+// apps/web/app/components/GoogleLoginButton.tsx
 "use client";
 
 import { signIn, signOut, useSession } from "next-auth/react";
+import { useCallback } from "react";
 
 export default function GoogleLoginButton() {
   const { data: session, status } = useSession();
   const loading = status === "loading";
 
-  // Εμφάνιση loader ενώ ετοιμάζεται το session
+  const getSameOriginCallbackUrl = useCallback(() => {
+    if (typeof window === "undefined") return "/";
+    return window.location.pathname + window.location.search || "/";
+  }, []);
+
+  const doSignIn = useCallback(() => {
+    void signIn("google", { callbackUrl: getSameOriginCallbackUrl() });
+  }, [getSameOriginCallbackUrl]);
+
+  const doSignOut = useCallback(() => {
+    void signOut({ callbackUrl: getSameOriginCallbackUrl() });
+  }, [getSameOriginCallbackUrl]);
+
+  // Loader ενώ ετοιμάζεται το session
   if (loading) {
     return (
       <button
@@ -28,12 +42,12 @@ export default function GoogleLoginButton() {
     );
   }
 
-  // ΑΝ ΔΕΝ είναι συνδεδεμένος → κλασικό κουμπί "Σύνδεση με Google"
+  // Δεν είναι συνδεδεμένος
   if (!session) {
     return (
       <button
         type="button"
-        onClick={() => signIn("google")}
+        onClick={doSignIn}
         style={{
           display: "flex",
           alignItems: "center",
@@ -47,7 +61,6 @@ export default function GoogleLoginButton() {
           fontSize: "14px",
         }}
       >
-        {/* Μικρό "G" bubble – μπορείς να το αντικαταστήσεις με SVG αργότερα */}
         <span
           style={{
             width: "18px",
@@ -69,18 +82,18 @@ export default function GoogleLoginButton() {
     );
   }
 
-  // ΑΝ είναι συνδεδεμένος → avatar όπως στο WordPress
+  // Είναι συνδεδεμένος
   const avatarUrl =
     (session.user as any).image ||
     (session.user as any).picture ||
-    "/images/default-avatar.png"; // βάλε ένα default στο /public/images/
+    "/images/default-avatar.png";
 
   const altText = session.user?.name || session.user?.email || "User avatar";
 
   return (
     <button
       type="button"
-      onClick={() => signOut()}
+      onClick={doSignOut}
       title="Αποσύνδεση"
       style={{
         border: "none",

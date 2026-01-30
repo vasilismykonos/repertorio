@@ -5,7 +5,7 @@ import React, { useMemo, useState } from "react";
 export type Option = {
   value: string;
   label: string;
-  count?: number; // μπορεί να είναι 0 και πρέπει να εμφανίζεται
+  count?: number; // μπορεί να είναι 0 και πρέπει να εμφανίζεται (όταν υπάρχει)
 };
 
 type SortMode = "auto" | "countDesc" | "labelAsc" | "numericAsc" | "asIs";
@@ -18,7 +18,7 @@ type Props = {
 
   /**
    * ✅ ΝΕΟ:
-   * - auto: (default) αν options.length > 5 => count desc, αλλιώς as-is
+   * - auto: (default) αν options.length > 5 => count desc ΜΟΝΟ αν υπάρχουν counts, αλλιώς as-is
    * - countDesc: πάντα count desc
    * - labelAsc: πάντα label asc
    * - numericAsc: πάντα numeric asc (με fallback σε label)
@@ -91,11 +91,15 @@ export default function FilterSelectWithSearch({
   const normalizedBaseOptions = useMemo(() => {
     const base = Array.isArray(options) ? options : [];
 
+    // ✅ αν υπάρχει έστω ένα count (ακόμα και 0), τότε θεωρούμε ότι "counts υπάρχουν"
+    const hasAnyCount = base.some((o) => o.count != null);
+
     // αποφασίζουμε effective sort
     let effective: SortMode = sortMode;
 
     if (effective === "auto") {
-      effective = base.length > 5 ? "countDesc" : "asIs";
+      // ✅ countDesc μόνο όταν υπάρχουν counts, αλλιώς asIs
+      effective = base.length > 5 && hasAnyCount ? "countDesc" : "asIs";
     }
 
     if (effective === "asIs") return base;
@@ -225,7 +229,10 @@ export default function FilterSelectWithSearch({
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {visibleOptions.map((opt) => {
               const isChecked = selectedSet.has(opt.value);
-              const count = safeCount(opt.count);
+
+              // ✅ show count μόνο όταν έχει δοθεί count (όχι default 0)
+              const hasCount = opt.count != null;
+              const count = hasCount ? safeCount(opt.count) : 0;
 
               return (
                 <label
@@ -249,7 +256,8 @@ export default function FilterSelectWithSearch({
                   />
 
                   <span style={{ lineHeight: "16px", minWidth: 0, wordBreak: "break-word" }}>
-                    {opt.label} <span style={{ color: "#aaa" }}>({count})</span>
+                    {opt.label}
+                    {hasCount && <span style={{ color: "#aaa" }}> ({count})</span>}
                   </span>
                 </label>
               );

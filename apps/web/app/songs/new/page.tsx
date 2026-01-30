@@ -67,6 +67,7 @@ export default async function NewSongPage() {
     characteristics: null,
 
     originalKey: null,
+    originalKeySign: "+",
     chords: null,
     status: "DRAFT",
 
@@ -88,13 +89,20 @@ export default async function NewSongPage() {
     lyricistArtistIds: [],
   };
 
+  const canChangeCreator =
+    currentUser?.role === "ADMIN" || currentUser?.role === "EDITOR";
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
       <ActionBar
         left={<h1 className="text-2xl font-semibold">Νέο τραγούδι</h1>}
         right={
-          <LinkButton href="/songs" variant="secondary" action="back" title="Πίσω στη λίστα τραγουδιών">
-
+          <LinkButton
+            href="/songs"
+            variant="secondary"
+            action="back"
+            title="Πίσω στη λίστα τραγουδιών"
+          >
             Επιστροφή
           </LinkButton>
         }
@@ -109,6 +117,7 @@ export default async function NewSongPage() {
         isOwner={true}
         currentUserRoleLabel={roleLabel(currentUser?.role)}
         apiBase="/api/v1"
+        canChangeCreator={canChangeCreator}
       />
     </main>
   );

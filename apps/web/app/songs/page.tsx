@@ -48,6 +48,11 @@ export type SongsPageSearchParams = {
   status?: string | string[];
   popular?: string | string[];
   createdByUserId?: string | string[];
+
+  // ✅ picker mode support
+  mode?: string | string[];
+  return_to?: string | string[];
+  listId?: string | string[];
 };
 
 type SongsPageProps = {
@@ -55,14 +60,23 @@ type SongsPageProps = {
 };
 
 export default function SongsPage({ searchParams }: SongsPageProps) {
+  const mode = (() => {
+    const v = (searchParams as any)?.mode;
+    return Array.isArray(v) ? v[0] : v;
+  })();
+
+  const pickerMode = String(mode || "").trim() === "pick";
+
   return (
     <>
       <ActionBar
-        left={<h1 style={{ margin: 0 }}>Τραγούδια</h1>}
+        left={<h1 style={{ margin: 0 }}>{pickerMode ? "Επιλογή τραγουδιού" : "Τραγούδια"}</h1>}
         right={
-          <LinkButton href="/songs/new" variant="primary" action="new" title="Νέο τραγούδι">
-            Νέο τραγούδι
-          </LinkButton>
+          pickerMode ? null : (
+            <LinkButton href="/songs/new" variant="primary" action="new" title="Νέο τραγούδι">
+              Νέο τραγούδι
+            </LinkButton>
+          )
         }
       />
       <PageSuspense>

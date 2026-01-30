@@ -80,6 +80,7 @@ async function fetchSongBundle(
       : [],
 
     originalKey: s.originalKey ?? null,
+    originalKeySign: (s.originalKeySign ?? s.original_key_sign ?? "+") as "+" | "-",
     chords: s.chords ?? null,
     status: s.status ?? null,
 
@@ -88,6 +89,10 @@ async function fetchSongBundle(
 
     createdByUserId:
       typeof s.createdByUserId === "number" ? s.createdByUserId : null,
+
+    // ✅ χρειάζεται για το UI “Τρέχων: <displayName>”
+    createdByDisplayName:
+      typeof s.createdByDisplayName === "string" ? s.createdByDisplayName : null,
 
     hasScore: Boolean(s.hasScore),
     scoreFile: s.scoreFile ?? null,
@@ -169,6 +174,7 @@ export default async function SongEditPage({
     fetchCategories().catch(() => []),
     fetchRythms().catch(() => []),
   ]);
+
   const { song, credits } = bundle;
 
   if (!currentUser) redirect(`/songs/${songId}`);
@@ -181,14 +187,16 @@ export default async function SongEditPage({
   const canEdit = isPrivilegedRole(currentUser.role) || isOwner;
   if (!canEdit) redirect(`/songs/${songId}`);
 
-  // ✅ APPLY return flow overrides (from /categories/new)
+  // ✅ ADMIN-only: αλλαγή creator
+  const canChangeCreator = currentUser.role === "ADMIN";
+
+  // ✅ APPLY return flow overrides
   const overrideCategoryId = parsePositiveInt(searchParams?.categoryId);
   const overrideRythmId = parsePositiveInt(searchParams?.rythmId);
 
   const songForForm: SongForEdit = {
     ...song,
-    categoryId:
-      overrideCategoryId != null ? overrideCategoryId : song.categoryId,
+    categoryId: overrideCategoryId != null ? overrideCategoryId : song.categoryId,
     rythmId: overrideRythmId != null ? overrideRythmId : song.rythmId,
   };
 
@@ -201,6 +209,7 @@ export default async function SongEditPage({
       isOwner={isOwner}
       currentUserRoleLabel={String(currentUser.role)}
       apiBase={API_BASE_URL}
+      canChangeCreator={canChangeCreator} // ✅ ΠΡΟΣΘΗΚΗ
     />
   );
 }

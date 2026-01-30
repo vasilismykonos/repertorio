@@ -48,6 +48,10 @@ type PreviewItem = {
   composerName?: string | null;
   lyricistName?: string | null;
 
+  // ✅ NEW: createdBy
+  createdById?: number | null;
+  createdByName?: string | null;
+
   singerFrontNames?: string[] | null;
   singerBackNames?: string[] | null;
 
@@ -192,6 +196,10 @@ export class ElasticsearchReindexService {
 
           composerName: this.kwWithText(),
           lyricistName: this.kwWithText(),
+
+          // ✅ NEW: createdBy
+          createdById: { type: "integer" },
+          createdByName: this.kwWithText(),
 
           singerFrontNames: this.kwWithText(),
           singerBackNames: this.kwWithText(),
@@ -383,9 +391,7 @@ export class ElasticsearchReindexService {
   }
 
   /**
-   * ✅ NEW: επιστρέφει ΚΑΙ ids (composerId/lyricistId) εκτός από names
-   * - Παίρνουμε το πρώτο COMPOSER / πρώτο LYRICIST όπως ήδη κάνεις για το name.
-   * - Τα ids βγαίνουν από credits[].artist.id (υπάρχει ήδη στο select σου)
+   * ✅ credits: επιστρέφει ids + names (first composer/first lyricist)
    */
   private computeCredits(credits: any[]) {
     let composerName: string | null = null;
@@ -442,16 +448,20 @@ export class ElasticsearchReindexService {
       const categoryTitle = String(s?.category?.title ?? "").trim() || null;
       const rythmTitle = String(s?.rythm?.title ?? "").trim() || null;
 
-      // ✅ NEW: μαζί με names παίρνουμε και ids
       const { composerName, lyricistName, composerId, lyricistId } =
         this.computeCredits(s.credits);
 
-      // ✅ FIX: singers από versions (όχι credits)
       const { singerFrontNames, singerBackNames } =
         this.computeSingersFromVersions(s.versions);
 
       const { years, minYear, maxYear, yearText, versionSingerPairs } =
         this.computeVersionMeta(s.versions);
+
+      const createdById =
+        typeof s?.createdByUserId === "number" ? s.createdByUserId : null;
+
+      const createdByNameRaw = String(s?.createdBy?.displayName ?? "").trim();
+      const createdByName = createdByNameRaw ? createdByNameRaw : null;
 
       lines.push(JSON.stringify({ index: { _index: index, _id: String(s.id) } }));
       lines.push(
@@ -465,7 +475,6 @@ export class ElasticsearchReindexService {
 
           characteristics: s.characteristics ?? null,
 
-          // ✅ Tags
           tagIds: Array.isArray((s as any).SongTag)
             ? (s as any).SongTag
                 .map((st: any) => Number(st?.tagId))
@@ -488,14 +497,16 @@ export class ElasticsearchReindexService {
           rythmId: s.rythmId ?? null,
           rythmTitle,
 
-          // ✅ NEW: ids στο ES
           composerId: composerId ?? null,
           lyricistId: lyricistId ?? null,
 
           composerName,
           lyricistName,
 
-          // ✅ τώρα γεμίζουν σωστά
+          // ✅ NEW: createdBy
+          createdById,
+          createdByName,
+
           singerFrontNames,
           singerBackNames,
 
@@ -597,7 +608,10 @@ export class ElasticsearchReindexService {
               status: true,
               originalKey: true,
 
-              // ✅ Tags
+              // ✅ NEW: createdBy
+              createdByUserId: true,
+              createdBy: { select: { id: true, displayName: true } },
+
               SongTag: {
                 select: {
                   tagId: true,
@@ -615,7 +629,6 @@ export class ElasticsearchReindexService {
                 },
               },
 
-              // ✅ singers/pairs διαβάζονται από versions.artists
               versions: {
                 select: {
                   id: true,
@@ -685,12 +698,15 @@ export class ElasticsearchReindexService {
           "rythmId",
           "rythmTitle",
 
-          // ✅ NEW
           "composerId",
           "lyricistId",
-
           "composerName",
           "lyricistName",
+
+          // ✅ NEW: createdBy
+          "createdById",
+          "createdByName",
+
           "singerFrontNames",
           "singerBackNames",
           "minYear",

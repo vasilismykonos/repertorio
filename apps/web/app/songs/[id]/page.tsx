@@ -2,7 +2,7 @@
 
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
-
+import SongSendToRoomButton from "./SongSendToRoomButton";
 import SongPageClient from "./SongPageClient";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +33,7 @@ export type SongDetail = {
   lyrics: string | null;
   characteristics: string | null;
   originalKey: string | null;
+  originalKeySign: "+" | "-" | null;
   chords: string | null;
   status: string | null;
 
@@ -50,6 +51,7 @@ export type SongDetail = {
   views: number;
 
   createdByUserId?: number | null;
+  createdByDisplayName?: string | null;
 
   tags: TagDto[];
 
@@ -62,6 +64,8 @@ export type SongDetail = {
 type SongPageProps = {
   params: { id: string };
 };
+
+type RedirectDefault = "TITLE" | "CHORDS" | "LYRICS" | "SCORE";
 
 // Βοηθητικό slug (σαν sanitize_title)
 function slugify(text: string): string {
@@ -133,7 +137,12 @@ function normalizeVersions(raw: any): SongVersion[] {
       v.soloistName,
     );
 
-    const youtubeSearch = pickText(v.youtubeSearch, v.youtube_search, v.youtubeQuery, v.youtube_query);
+    const youtubeSearch = pickText(
+      v.youtubeSearch,
+      v.youtube_search,
+      v.youtubeQuery,
+      v.youtube_query,
+    );
 
     const singerFrontId = v.singerFrontId ?? v.singer_front_id ?? v.singerfront_id ?? null;
     const singerBackId = v.singerBackId ?? v.singer_back_id ?? v.singerback_id ?? null;
@@ -229,6 +238,54 @@ function isPrivilegedRole(role: UserRole | null | undefined): boolean {
   return EDIT_ROLES.includes(role);
 }
 
+/**
+ * Διαβάζει prefs από user.profile όπως στο MePageClient.tsx
+ * και επιστρέφει default panels για το SongPageClient.
+ */
+function readSongToggleDefaultsFromProfile(profile: any, hasChords: boolean) {
+  const prefs =
+    profile && typeof profile === "object" && !Array.isArray(profile)
+      ? (profile.prefs ?? {})
+      : {};
+
+  const songTogglesDefault =
+    prefs && typeof prefs === "object" && !Array.isArray(prefs)
+      ? (prefs.songTogglesDefault ?? {})
+      : {};
+
+  const defInfo = typeof songTogglesDefault.info === "boolean" ? songTogglesDefault.info : true;
+
+  const defChordsRaw =
+    typeof songTogglesDefault.chords === "boolean" ? songTogglesDefault.chords : true;
+
+  const defTonicities =
+    typeof songTogglesDefault.tonicities === "boolean" ? songTogglesDefault.tonicities : true;
+
+  const defScores =
+    typeof songTogglesDefault.scores === "boolean" ? songTogglesDefault.scores : false;
+
+  return {
+    info: defInfo,
+    chords: Boolean(defChordsRaw && hasChords),
+    singerTunes: defTonicities, // tonicities -> singerTunes
+    scores: defScores,
+  };
+}
+
+/**
+ * Διαβάζει prefs.songsRedirectDefault από user.profile.
+ */
+function readSongsRedirectDefaultFromProfile(profile: any): RedirectDefault {
+  const prefs =
+    profile && typeof profile === "object" && !Array.isArray(profile)
+      ? (profile.prefs ?? {})
+      : {};
+
+  const v = (prefs as any)?.songsRedirectDefault;
+
+  return v === "TITLE" || v === "CHORDS" || v === "LYRICS" || v === "SCORE" ? v : "TITLE";
+}
+
 export default async function SongPage({ params }: SongPageProps) {
   const songId = Number(params.id);
 
@@ -264,6 +321,10 @@ export default async function SongPage({ params }: SongPageProps) {
     lyrics: rawSong.lyrics ?? null,
     characteristics: rawSong.characteristics ?? null,
     originalKey: rawSong.originalKey ?? rawSong.original_key ?? null,
+    originalKeySign: (() => {
+      const v = rawSong.originalKeySign ?? rawSong.original_key_sign ?? null;
+      return v === "+" || v === "-" ? v : null;
+    })(),
     chords: rawSong.chords ?? null,
     status: rawSong.status ?? null,
 
@@ -284,7 +345,19 @@ export default async function SongPage({ params }: SongPageProps) {
     basedOnSongTitle: rawSong.basedOnSongTitle ?? rawSong.based_on_song_title ?? null,
     views: typeof rawSong.views === "number" ? rawSong.views : Number(rawSong.views ?? 0) || 0,
 
-    createdByUserId: rawSong.createdByUserId ?? rawSong.created_by_user_id ?? null,
+    createdByUserId:
+      rawSong.createdByUserId ??
+      rawSong.createdById ??
+      rawSong.created_by_user_id ??
+      rawSong.created_by_id ??
+      null,
+
+    createdByDisplayName:
+      rawSong.createdByDisplayName ??
+      rawSong.created_by_display_name ??
+      rawSong.createdByName ??
+      rawSong.created_by_name ??
+      null,
 
     tags,
     hasScore,
@@ -292,15 +365,14 @@ export default async function SongPage({ params }: SongPageProps) {
     versions,
   };
 
-  let currentUser: any = null;
-  try {
-    currentUser = await getCurrentUserFromApi();
-  } catch {
-    currentUser = null;
-  }
+  // ✅ ΜΟΝΟ ΕΔΩ hasChords (όχι δεύτερο)
+  const hasChords = Boolean(song.chords && song.chords.trim() !== "");
+
+  // τρέχων χρήστης (με profile πλέον)
+  const currentUser = await getCurrentUserFromApi().catch(() => null);
 
   const isOwner =
-    currentUser &&
+    !!currentUser &&
     typeof currentUser.id === "number" &&
     song.createdByUserId != null &&
     currentUser.id === song.createdByUserId;
@@ -326,6 +398,16 @@ export default async function SongPage({ params }: SongPageProps) {
       ? `/api/scores/${encodeURIComponent(song.scoreFile)}`
       : `/api/scores/${song.id}`;
 
+  // ✅ defaults από profile (αν υπάρχει)
+  const defaultPanelsOpen = currentUser?.profile
+    ? readSongToggleDefaultsFromProfile(currentUser.profile, hasChords)
+    : { info: true, singerTunes: true, chords: hasChords, scores: true };
+
+  // ✅ redirect default από profile (αν υπάρχει)
+  const redirectDefault = currentUser?.profile
+    ? readSongsRedirectDefaultFromProfile(currentUser.profile)
+    : ("TITLE" as const);
+
   return (
     <SongPageClient
       song={song}
@@ -334,12 +416,8 @@ export default async function SongPage({ params }: SongPageProps) {
       youtubeUrl={youtubeUrl}
       scoreFileUrl={scoreFileUrl}
       schemaNode={renderSongSchema(song)}
-      defaultPanelsOpen={{
-        info: true,
-        chords: Boolean(song.chords && song.chords.trim() !== ""),
-        scores: true,
-      }}
+      defaultPanelsOpen={defaultPanelsOpen}
+      redirectDefault={redirectDefault}
     />
   );
-
 }

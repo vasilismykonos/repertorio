@@ -1,31 +1,51 @@
-// app/components/Header.tsx
+// apps/web/app/components/Header.tsx
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useRef } from "react";
+import { Recycle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 
 // Wrapper: κρύβει εντελώς το header όταν έχουμε ?embed=1
 export default function Header() {
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
-
-  if (isEmbed) {
-    // Σε embed mode (π.χ. /categories?embed=1 μέσα σε iframe)
-    // δεν αποδίδουμε καθόλου header, άρα δεν έχεις διπλό header.
-    return null;
-  }
-
-  return <HeaderInner searchParams={searchParams} />;
+  if (isEmbed) return null;
+  return <HeaderInner />;
 }
 
-type HeaderInnerProps = {
-  // ReadonlyURLSearchParams στην πράξη, αλλά δεν μας απασχολεί ιδιαίτερα το ακριβές type
-  searchParams: ReturnType<typeof useSearchParams>;
+// ✅ MUST MATCH RoomsClient.tsx
+const STORAGE_KEY_ROOM = "repertorio_current_room";
+const ROOM_CHANGED_EVENT = "repertorio_current_room_changed";
+
+// ✅ Rooms page χρησιμοποιεί /rooms-api (proxy από nginx προς rooms server)
+const ROOMS_API_BASE = "/rooms-api";
+
+type StatusRoomUser = {
+  device_id?: string;
+  user_id?: number;
+  username?: string | null;
 };
 
-function HeaderInner({ searchParams }: HeaderInnerProps) {
+type StatusRoom = {
+  room: string;
+  userCount?: number;
+  hasPassword: boolean;
+  users?: StatusRoomUser[];
+};
+
+type StatusResponse = {
+  ok: boolean;
+  rooms?: StatusRoom[];
+};
+
+function HeaderInner() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const isSongsPage = pathname === "/songs";
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // ---- NextAuth session ----
@@ -55,117 +75,164 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
   const recognitionRef = useRef<any | null>(null);
   const recognitionTimeoutRef = useRef<number | null>(null);
 
-  // Ενημέρωση searchValue από το URL (ώστε να μην χάνεται μετά την αναζήτηση)
+  // ✅ Auth helpers: ΠΑΝΤΑ login στο ίδιο origin + σωστό post-login redirect
+  const getSameOriginCallbackUrl = useCallback(() => {
+    if (typeof window === "undefined") return "/";
+    const path = window.location.pathname + window.location.search;
+    return path || "/";
+  }, []);
+
+  const doSignIn = useCallback(() => {
+    const callbackUrl = getSameOriginCallbackUrl();
+    void signIn("google", { callbackUrl });
+  }, [getSameOriginCallbackUrl]);
+
+  const doSignOut = useCallback(() => {
+    const callbackUrl = getSameOriginCallbackUrl();
+    void signOut({ callbackUrl });
+  }, [getSameOriginCallbackUrl]);
+
+  const submitSearch = useCallback(
+    (term: string) => {
+      const params = new URLSearchParams(isSongsPage ? searchParams.toString() : "");
+
+      if (term && term.trim() !== "") params.set("search_term", term.trim());
+      else params.delete("search_term");
+
+      params.set("skip", "0");
+      if (!params.get("take")) params.set("take", "50");
+
+      const qs = params.toString();
+      router.push(qs ? `/songs?${qs}` : "/songs");
+    },
+    [isSongsPage, searchParams, router],
+  );
+
+  // ✅ Hidden inputs για να διατηρούνται τα filters όταν κάνεις νέα αναζήτηση από το header
+  const preservedHiddenInputs = useMemo(() => {
+    if (!isSongsPage) return [];
+
+    const keysToPreserve = [
+      "take",
+      "chords",
+      "partiture",
+      "category_id",
+      "rythm_id",
+      "tagIds",
+      "composerIds",
+      "lyricistIds",
+      "singerFrontIds",
+      "singerBackIds",
+      "yearFrom",
+      "yearTo",
+      "lyrics",
+      "status",
+      "popular",
+      "createdByUserId",
+    ];
+
+    const out: Array<{ name: string; value: string }> = [];
+    for (const k of keysToPreserve) {
+      const v = searchParams.get(k);
+      if (v && v.trim() !== "") out.push({ name: k, value: v });
+    }
+    out.push({ name: "skip", value: "0" });
+    return out;
+  }, [isSongsPage, searchParams]);
+
+  // Ενημέρωση searchValue από το URL
   useEffect(() => {
     const termFromUrl = searchParams.get("search_term") || "";
     setSearchValue(termFromUrl);
     setHasText(termFromUrl.trim().length > 0);
   }, [searchParams]);
 
-  // Διαβάζουμε το rep_current_room από το localStorage και ακούμε αλλαγές
+  // ✅ Διαβάζουμε το current room από localStorage (ίδιο key με RoomsClient) + ακούμε event (ίδιο event name)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const readFromStorage = () => {
       try {
-        const stored = window.localStorage.getItem("rep_current_room");
-        if (stored && stored.trim() !== "") {
-          setCurrentRoomName(stored.trim());
-        } else {
-          setCurrentRoomName(null);
-        }
+        const stored = window.localStorage.getItem(STORAGE_KEY_ROOM);
+        if (stored && stored.trim() !== "") setCurrentRoomName(stored.trim());
+        else setCurrentRoomName(null);
       } catch {
         setCurrentRoomName(null);
       }
     };
 
-    // αρχική ανάγνωση
     readFromStorage();
 
-    const handleStorage = (event: StorageEvent | Event) => {
-      // Αλλαγές από άλλα tabs
+    const handleStorageOrCustom = (event: StorageEvent | Event) => {
       if (event instanceof StorageEvent) {
-        if (event.key === "rep_current_room") {
-          readFromStorage();
-        }
+        if (event.key === STORAGE_KEY_ROOM) readFromStorage();
         return;
       }
-
-      // Custom event π.χ. από RoomsClient: rep_current_room_changed
-      if ((event as any).type === "rep_current_room_changed") {
-        readFromStorage();
-      }
+      if ((event as any).type === ROOM_CHANGED_EVENT) readFromStorage();
     };
 
-    window.addEventListener("storage", handleStorage as any);
-    window.addEventListener(
-      "rep_current_room_changed",
-      handleStorage as any,
-    );
+    window.addEventListener("storage", handleStorageOrCustom as any);
+    window.addEventListener(ROOM_CHANGED_EVENT, handleStorageOrCustom as any);
 
     return () => {
-      window.removeEventListener("storage", handleStorage as any);
-      window.removeEventListener(
-        "rep_current_room_changed",
-        handleStorage as any,
-      );
+      window.removeEventListener("storage", handleStorageOrCustom as any);
+      window.removeEventListener(ROOM_CHANGED_EVENT, handleStorageOrCustom as any);
     };
   }, []);
 
-  // Φόρτωση πλήθους χρηστών για το currentRoom από /api/rooms
+  // ✅ Φόρτωση count από /rooms-api/status (ίδιο source με Rooms page)
   useEffect(() => {
     if (!isLoggedIn || !currentRoomName) {
       setRoomUserCount(null);
+      setRoomLoading(false);
       return;
     }
 
     let cancelled = false;
 
-    const fetchRoomCount = async () => {
+    const fetchCountFromStatus = async () => {
       try {
         setRoomLoading(true);
-        const res = await fetch("/api/rooms", { cache: "no-store" });
-        if (!res.ok) {
-          throw new Error("Αποτυχία φόρτωσης rooms");
-        }
 
-        const data = (await res.json()) as {
-          room: string;
-          userCount?: number;
-          hasPassword?: boolean;
-        }[];
+        const res = await fetch(`${ROOMS_API_BASE}/status`, { cache: "no-store" });
+        if (!res.ok) throw new Error("Rooms status HTTP error");
+
+        const data = (await res.json()) as StatusResponse;
 
         if (cancelled) return;
 
-        const match = data.find(
-          (r) =>
-            r.room &&
-            r.room.toLowerCase() === currentRoomName.toLowerCase(),
+        if (!data?.ok || !Array.isArray(data.rooms)) {
+          setRoomUserCount(null);
+          return;
+        }
+
+        const match = data.rooms.find(
+          (r) => r.room && r.room.toLowerCase() === currentRoomName.toLowerCase(),
         );
 
-        if (match && typeof match.userCount === "number") {
-          setRoomUserCount(match.userCount);
-        } else {
-          setRoomUserCount(null);
+        if (!match) {
+          setRoomUserCount(0);
+          return;
         }
+
+        const usersArr = Array.isArray(match.users) ? match.users : [];
+        const count =
+          typeof match.userCount === "number" ? match.userCount : usersArr.length;
+
+        setRoomUserCount(Number.isFinite(count) ? count : null);
       } catch {
-        if (!cancelled) {
-          setRoomUserCount(null);
-        }
+        if (!cancelled) setRoomUserCount(null);
       } finally {
-        if (!cancelled) {
-          setRoomLoading(false);
-        }
+        if (!cancelled) setRoomLoading(false);
       }
     };
 
-    fetchRoomCount();
+    fetchCountFromStatus();
+    const id = window.setInterval(fetchCountFromStatus, 5000);
 
-    // ανανέωση κάθε 10 δευτερόλεπτα
-    const id = setInterval(fetchRoomCount, 10000);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      window.clearInterval(id);
     };
   }, [isLoggedIn, currentRoomName]);
 
@@ -195,20 +262,15 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
 
       const transcript = event.results[0][0].transcript as string;
 
-      // ενημέρωση controlled state
       setSearchValue(transcript);
       setHasText(transcript.trim().length > 0);
 
-      if (searchInputRef.current) {
-        searchInputRef.current.value = transcript;
-      }
+      if (searchInputRef.current) searchInputRef.current.value = transcript;
 
-      window.setTimeout(() => {
-        formRef.current?.submit();
-      }, 300);
+      window.setTimeout(() => submitSearch(transcript), 300);
     };
 
-    recognition.onspeechend = () => {
+    const stopRecognition = () => {
       if (recognitionTimeoutRef.current !== null) {
         window.clearTimeout(recognitionTimeoutRef.current);
         recognitionTimeoutRef.current = null;
@@ -216,44 +278,34 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
       recognition.stop();
     };
 
-    recognition.onerror = () => {
-      if (recognitionTimeoutRef.current !== null) {
-        window.clearTimeout(recognitionTimeoutRef.current);
-        recognitionTimeoutRef.current = null;
-      }
-      recognition.stop();
-    };
+    recognition.onspeechend = stopRecognition;
+    recognition.onerror = stopRecognition;
 
     return () => {
-      if (recognitionTimeoutRef.current !== null) {
-        window.clearTimeout(recognitionTimeoutRef.current);
-      }
+      if (recognitionTimeoutRef.current !== null) window.clearTimeout(recognitionTimeoutRef.current);
       try {
         recognition.stop();
       } catch {
         // ignore
       }
     };
-  }, []);
+  }, [submitSearch]);
 
   const handleVoiceSearchClick = () => {
     if (!recognitionRef.current) return;
 
-    // καθαρισμός πριν ξεκινήσει η φωνητική
     setSearchValue("");
     setHasText(false);
-    if (searchInputRef.current) {
-      searchInputRef.current.value = "";
-    }
+    if (searchInputRef.current) searchInputRef.current.value = "";
 
     recognitionRef.current.start();
 
-    if (recognitionTimeoutRef.current !== null) {
-      window.clearTimeout(recognitionTimeoutRef.current);
-    }
+    if (recognitionTimeoutRef.current !== null) window.clearTimeout(recognitionTimeoutRef.current);
     recognitionTimeoutRef.current = window.setTimeout(() => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        // ignore
       }
     }, 5000);
   };
@@ -267,17 +319,14 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
     }
   };
 
-  const openSidebar = () => setIsSidebarOpen(true);
   const closeSidebar = () => setIsSidebarOpen(false);
-
   const sidebarClass = `site-sidebar${isSidebarOpen ? " visible" : ""}`;
   const overlayClass = isSidebarOpen ? "visible" : "";
 
-  // κοινό JSX για avatar (header + sidebar)
   const avatarNode = avatarUrl ? (
     <img
       src={avatarUrl}
-      alt={session?.user?.name || session?.user?.email || "User avatar"}
+      alt={(session?.user as any)?.name || (session?.user as any)?.email || "User avatar"}
       style={{
         width: "100%",
         height: "100%",
@@ -300,29 +349,18 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
     </span>
   );
 
+  const isInRoom = isLoggedIn && !!currentRoomName;
+
   return (
     <>
-      {/* ΚΕΦΑΛΙ / HEADER */}
       <header className="site-header">
         <div className="header-container">
-          {/* ΛΟΓΟΤΥΠΟ */}
           <div className="header-logo">
-            <Link
-              href="/"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                textDecoration: "none",
-              }}
-            >
+            <Link href="/" style={{ display: "flex", alignItems: "center", textDecoration: "none" }}>
               <img
                 src="/images/default-logo.png"
                 alt="Repertorio.net logo"
-                style={{
-                  maxWidth: 31,
-                  height: "auto",
-                  borderRadius: 8,
-                }}
+                style={{ maxWidth: 31, height: "auto", borderRadius: 8 }}
               />
               <span
                 style={{
@@ -337,7 +375,6 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
             </Link>
           </div>
 
-          {/* ΑΝΑΖΗΤΗΣΗ */}
           <div className="header-search" style={{ width: "100%" }}>
             <div
               className="search-container"
@@ -348,10 +385,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
                 width: "100%",
               }}
             >
-              <div
-                className="menu-button-wrapper"
-                style={{ display: "inline-block" }}
-              >
+              <div className="menu-button-wrapper" style={{ display: "inline-block" }}>
                 <Link href="/categories">
                   <button
                     type="button"
@@ -372,8 +406,10 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
 
               <form
                 ref={formRef}
-                method="GET"
-                action="/songs"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  submitSearch(searchValue);
+                }}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -383,12 +419,11 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
                   marginLeft: 8,
                 }}
               >
-                <div
-                  style={{
-                    position: "relative",
-                    flex: 1,
-                  }}
-                >
+                {preservedHiddenInputs.map((x) => (
+                  <input key={x.name} type="hidden" name={x.name} value={x.value} />
+                ))}
+
+                <div style={{ position: "relative", flex: 1 }}>
                   <input
                     ref={searchInputRef}
                     type="text"
@@ -410,6 +445,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
                     }}
                     autoComplete="off"
                   />
+
                   <span
                     id="clearSearch"
                     style={{
@@ -433,12 +469,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
                     type="button"
                     id="voiceSearch"
                     className="button-style"
-                    style={{
-                      marginLeft: 5,
-                      border: "none",
-                      background: "none",
-                      cursor: "pointer",
-                    }}
+                    style={{ marginLeft: 5, border: "none", background: "none", cursor: "pointer" }}
                     onClick={handleVoiceSearchClick}
                   >
                     <i className="fas fa-microphone" />
@@ -448,12 +479,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
                 <button
                   type="submit"
                   className="button-style search-button"
-                  style={{
-                    marginLeft: 5,
-                    border: "none",
-                    background: "none",
-                    cursor: "pointer",
-                  }}
+                  style={{ marginLeft: 5, border: "none", background: "none", cursor: "pointer" }}
                 >
                   <i className="fas fa-search" />
                 </button>
@@ -461,48 +487,84 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
             </div>
           </div>
 
-          {/* ΔΕΞΙΑ ΚΟΥΜΠΙΑ – Room, Avatar, Menu */}
           <div className="header-buttons">
-            {/* Κουμπί Rooms */}
+            {/* Rooms indicator */}
             <Link
               href="/rooms"
               className="rooms-button"
               title={currentRoomName ? `Rooms: ${currentRoomName}` : "Rooms"}
             >
-              <span className="rooms-icon">
-                {!isLoggedIn || !currentRoomName
-                  ? "🔄"
-                  : roomUserCount != null && roomUserCount > 0
-                  ? `🔄${roomUserCount}`
-                  : "🔄"}
+              <span
+                className="rooms-icon"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  color: isInRoom ? "#7c3aed" : "rgba(255,255,255,0.55)",
+                  fontWeight: 700,
+                }}
+              >
+                <Recycle size={32} strokeWidth={2.6} />
+
+                {isInRoom && typeof roomUserCount === "number" ? (
+                  <span style={{ fontSize: 22, lineHeight: 1 }}>{roomUserCount}</span>
+                ) : null}
+
+                {isInRoom && roomUserCount == null && roomLoading ? (
+                  <span style={{ fontSize: 22, lineHeight: 1 }}>…</span>
+                ) : null}
               </span>
             </Link>
 
-            {/* AVATAR HEADER */}
-            <button
-              type="button"
-              onClick={() => (isLoggedIn ? signOut() : signIn("google"))}
-              title={isLoggedIn ? "Αποσύνδεση" : "Σύνδεση με Google"}
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: "50%",
-                background: "#aaa",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 18,
-                border: "1px solid #fff",
-                marginLeft: 8,
-                padding: 0,
-                cursor: "pointer",
-                overflow: "hidden",
-              }}
-            >
-              {avatarNode}
-            </button>
+            {/* Avatar / Login */}
+            {isLoggedIn ? (
+              <Link
+                href="/me"
+                title="Ο λογαριασμός μου"
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: "50%",
+                  background: "#aaa",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 18,
+                  border: "1px solid #fff",
+                  marginLeft: 8,
+                  padding: 0,
+                  cursor: "pointer",
+                  overflow: "hidden",
+                  textDecoration: "none",
+                }}
+              >
+                {avatarNode}
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={doSignIn}
+                title="Σύνδεση με Google"
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: "50%",
+                  background: "#aaa",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 18,
+                  border: "1px solid #fff",
+                  marginLeft: 8,
+                  padding: 0,
+                  cursor: "pointer",
+                  overflow: "hidden",
+                }}
+              >
+                👤
+              </button>
+            )}
 
-            {/* Κουμπί που ανοίγει το πλαϊνό μενού */}
             <button
               type="button"
               className="menu-toggle"
@@ -518,7 +580,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
                 marginLeft: 8,
               }}
               aria-label="Μενού"
-              onClick={openSidebar}
+              onClick={() => setIsSidebarOpen(true)}
             >
               ☰
             </button>
@@ -526,7 +588,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
         </div>
       </header>
 
-      {/* ΠΛΑΙΝΟ ΜΕΝΟΥ (Sidebar μέσα στο Header) */}
+      {/* Sidebar */}
       <aside id="sidebar" className={sidebarClass}>
         <button
           id="closeSidebar"
@@ -545,7 +607,6 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
           &times;
         </button>
 
-        {/* Πάνω μέρος: Νέο τραγούδι + Login/Logout */}
         <div
           style={{
             display: "flex",
@@ -588,7 +649,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
             }}
             onClick={() => {
               closeSidebar();
-              isLoggedIn ? signOut() : signIn("google");
+              isLoggedIn ? doSignOut() : doSignIn();
             }}
           >
             <span
@@ -603,9 +664,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
             >
               {avatarNode}
             </span>
-            <span style={{ fontSize: 12 }}>
-              {isLoggedIn ? "Αποσύνδεση" : "Σύνδεση"}
-            </span>
+            <span style={{ fontSize: 12 }}>{isLoggedIn ? "Αποσύνδεση" : "Σύνδεση"}</span>
           </button>
         </div>
 
@@ -619,18 +678,13 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
           }}
         />
 
-        {/* MENU ITEMS */}
         <nav className="sidebar-nav">
           <ul style={{ listStyle: "none", padding: 0, marginTop: 15 }}>
             <li style={{ marginBottom: 10 }}>
               <Link
                 href="/lists"
                 onClick={closeSidebar}
-                style={{
-                  color: "#fff",
-                  textDecoration: "none",
-                  fontSize: 18,
-                }}
+                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
               >
                 📋 Λίστες
               </Link>
@@ -640,11 +694,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
               <Link
                 href="/artists"
                 onClick={closeSidebar}
-                style={{
-                  color: "#fff",
-                  textDecoration: "none",
-                  fontSize: 18,
-                }}
+                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
               >
                 <i className="fa-solid fa-music" /> Καλλιτέχνες
               </Link>
@@ -654,11 +704,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
               <Link
                 href="/rooms"
                 onClick={closeSidebar}
-                style={{
-                  color: "#fff",
-                  textDecoration: "none",
-                  fontSize: 18,
-                }}
+                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
               >
                 <i className="fas fa-sync-alt" /> Rooms
               </Link>
@@ -666,29 +712,11 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
 
             <li style={{ marginBottom: 10 }}>
               <Link
-                href="/history_changes"
+                href="/me"
                 onClick={closeSidebar}
-                style={{
-                  color: "#fff",
-                  textDecoration: "none",
-                  fontSize: 18,
-                }}
+                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
               >
-                <i className="fas fa-history" /> Ιστορικό αλλαγών
-              </Link>
-            </li>
-
-            <li style={{ marginBottom: 10 }}>
-              <Link
-                href="/profile"
-                onClick={closeSidebar}
-                style={{
-                  color: "#fff",
-                  textDecoration: "none",
-                  fontSize: 18,
-                }}
-              >
-                <i className="fa-solid fa-user" /> Προφίλ
+                <i className="fa-solid fa-user" /> Λογαριασμός
               </Link>
             </li>
 
@@ -697,26 +725,17 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
                 href="#"
                 id="installAppLink"
                 onClick={closeSidebar}
-                style={{
-                  color: "#fff",
-                  textDecoration: "none",
-                  fontSize: 18,
-                }}
+                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
               >
                 🛠️ Εγκατάσταση APP
               </a>
             </li>
 
-            {/* Χρήστες → /users */}
             <li style={{ marginBottom: 10 }}>
               <Link
                 href="/users"
                 onClick={closeSidebar}
-                style={{
-                  color: "#fff",
-                  textDecoration: "none",
-                  fontSize: 18,
-                }}
+                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
               >
                 <i className="fa-solid fa-user" /> Χρήστες
               </Link>
@@ -726,11 +745,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
               <Link
                 href="/settings"
                 onClick={closeSidebar}
-                style={{
-                  color: "#fff",
-                  textDecoration: "none",
-                  fontSize: 18,
-                }}
+                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
               >
                 ⚙️ Ρυθμίσεις
               </Link>
@@ -740,11 +755,7 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
               <a
                 href="mailto:repertorio.net@gmail.com"
                 onClick={closeSidebar}
-                style={{
-                  color: "#fff",
-                  textDecoration: "none",
-                  fontSize: 18,
-                }}
+                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
               >
                 ✉️ Επικοινωνία
               </a>
@@ -752,7 +763,6 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
           </ul>
         </nav>
 
-        {/* FOOTER SIDEBAR */}
         <div
           className="sidebar-footer"
           style={{
@@ -762,31 +772,14 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
             paddingBottom: 5,
           }}
         >
-          <div
-            style={{
-              marginTop: 10,
-              lineHeight: 1.6,
-              textAlign: "left",
-              fontSize: 12,
-            }}
-          >
+          <div style={{ marginTop: 10, lineHeight: 1.6, textAlign: "left", fontSize: 12 }}>
             • Παρτιτούρες:{" "}
-            <a
-              href="https://notttes.blogspot.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "#fff" }}
-            >
+            <a href="https://notttes.blogspot.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#fff" }}>
               notttes.blogspot.com
             </a>
             <br />
             • Ρεμπέτικα:{" "}
-            <a
-              href="https://rebetiko.sealabs.net/"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "#fff" }}
-            >
+            <a href="https://rebetiko.sealabs.net/" target="_blank" rel="noopener noreferrer" style={{ color: "#fff" }}>
               rebetiko.sealabs.net
             </a>
           </div>
@@ -795,20 +788,12 @@ function HeaderInner({ searchParams }: HeaderInnerProps) {
             Έκδοση εφαρμογής: 1.0.0 (Next)
           </div>
 
-          <div
-            style={{
-              color: "#ffffff",
-              textAlign: "center",
-              marginTop: 10,
-              fontSize: 12,
-            }}
-          >
+          <div style={{ color: "#ffffff", textAlign: "center", marginTop: 10, fontSize: 12 }}>
             Χρήστες online: –
           </div>
         </div>
       </aside>
 
-      {/* Overlay για το sidebar */}
       <div id="overlay" className={overlayClass} onClick={closeSidebar} />
     </>
   );

@@ -26,7 +26,6 @@ export class ElasticSongsController {
    */
   private readonly STATUS_FIELD = "status.keyword";
 
-
   private async esSearch<T>(body: any): Promise<EsSearchResponse<T>> {
     const url = `${this.ES_BASE}/${this.INDEX}/_search`;
 
@@ -38,7 +37,9 @@ export class ElasticSongsController {
 
     const text = await res.text().catch(() => "");
     if (!res.ok) {
-      throw new Error(`ES _search failed HTTP ${res.status} ${res.statusText} – body: ${text.slice(0, 800)}`);
+      throw new Error(
+        `ES _search failed HTTP ${res.status} ${res.statusText} – body: ${text.slice(0, 800)}`,
+      );
     }
 
     try {
@@ -208,6 +209,9 @@ export class ElasticSongsController {
     @Query("yearFrom") yearFromStr?: string,
     @Query("yearTo") yearToStr?: string,
 
+    // ✅ NEW: creator multi-select (CSV)
+    @Query("createdByUserId") createdByUserIdStr?: string,
+
     // ✅ optional: tagId του "Οργανικό"
     @Query("organikoTagId") organikoTagIdStr?: string,
   ) {
@@ -231,6 +235,9 @@ export class ElasticSongsController {
       // ✅ ids (CSV)
       const composerIds = this.parseIdsFromAliases(composerIdsStr, composerIdAlt);
       const lyricistIds = this.parseIdsFromAliases(lyricistIdsStr, lyricistIdAlt);
+
+      // ✅ NEW: createdBy ids (CSV)
+      const createdByIds = this.parseIdList(createdByUserIdStr);
 
       // legacy: names (CSV)
       const composerList = this.parseStringCsv(composerStr);
@@ -265,6 +272,9 @@ export class ElasticSongsController {
 
       if (categoryIds?.length) filters.push({ terms: { categoryId: categoryIds } });
       if (rythmIds?.length) filters.push({ terms: { rythmId: rythmIds } });
+
+      // ✅ NEW: createdBy filter
+      if (createdByIds?.length) filters.push({ terms: { createdById: createdByIds } });
 
       // ✅ status CSV: PUBLISHED,DRAFT
       const statusList = this.parseStringCsv(status);
@@ -364,11 +374,15 @@ export class ElasticSongsController {
       if (singerFrontIds.length || singerBackIds.length) {
         const nestedMust: any[] = [];
 
-        if (singerFrontIds.length === 1) nestedMust.push({ term: { "versionSingerPairs.frontId": singerFrontIds[0] } });
-        else if (singerFrontIds.length > 1) nestedMust.push({ terms: { "versionSingerPairs.frontId": singerFrontIds } });
+        if (singerFrontIds.length === 1)
+          nestedMust.push({ term: { "versionSingerPairs.frontId": singerFrontIds[0] } });
+        else if (singerFrontIds.length > 1)
+          nestedMust.push({ terms: { "versionSingerPairs.frontId": singerFrontIds } });
 
-        if (singerBackIds.length === 1) nestedMust.push({ term: { "versionSingerPairs.backId": singerBackIds[0] } });
-        else if (singerBackIds.length > 1) nestedMust.push({ terms: { "versionSingerPairs.backId": singerBackIds } });
+        if (singerBackIds.length === 1)
+          nestedMust.push({ term: { "versionSingerPairs.backId": singerBackIds[0] } });
+        else if (singerBackIds.length > 1)
+          nestedMust.push({ terms: { "versionSingerPairs.backId": singerBackIds } });
 
         filters.push({
           nested: {
@@ -417,6 +431,8 @@ export class ElasticSongsController {
           "categoryTitle",
           "rythmId",
           "rythmTitle",
+          "createdById",
+          "createdByName",
           "composerId",
           "composerName",
           "lyricistId",
@@ -459,6 +475,12 @@ export class ElasticSongsController {
             : {}),
 
           hasScore: { terms: { field: "hasScore", size: 2 } },
+
+          // ✅ NEW: creators aggregation (για options + counts στο modal)
+          createdById: {
+            terms: { field: "createdById", size: 500 },
+            aggs: { topName: { top_hits: { size: 1, _source: { includes: ["createdByName"] } } } },
+          },
 
           composerId: {
             terms: { field: "composerId", size: 500 },
@@ -526,7 +548,8 @@ export class ElasticSongsController {
       throw new HttpException(e?.message ?? "Elasticsearch request failed", HttpStatus.BAD_GATEWAY);
     }
   }
-    @Get("artist-role-counts")
+
+  @Get("artist-role-counts")
   async artistRoleCounts(@Query("artistId") artistIdStr?: string) {
     try {
       const artistId = this.parseNumber(artistIdStr, 0, 1, 2_000_000);
@@ -576,5 +599,4 @@ export class ElasticSongsController {
       throw new HttpException(e?.message ?? "Elasticsearch request failed", HttpStatus.BAD_GATEWAY);
     }
   }
-
 }

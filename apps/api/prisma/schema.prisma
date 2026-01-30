@@ -8,44 +8,129 @@ datasource db {
 }
 
 model User {
-  id               Int               @id @default(autoincrement())
-  email            String?           @unique
-  username         String?           @unique
-  displayName      String?
-  role             UserRole          @default(USER)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  legacyUserId     Int?              @unique
-  avatarUrl        String?
-  listGroupMembers ListGroupMember[]
-  listMembers      ListMember[]
-  createdSongs     Song[]            @relation("SongCreatedBy")
-  createdVersions  SongVersion[]     @relation("SongVersionCreatedBy")
+  id                        Int                    @id @default(autoincrement())
+  email                     String?                @unique
+  username                  String?                @unique
+  displayName               String?
+  role                      UserRole               @default(USER)
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+  legacyUserId              Int?                   @unique
+  avatarUrl                 String?
+  profile                   Json?
+  listGroupMembers          ListGroupMember[]
+  listMembers               ListMember[]
+  createdSongs              Song[]                 @relation("SongCreatedBy")
+  songSingerTunesAsCreator  SongSingerTune[]       @relation("SongSingerTuneCreatedBy")
+  createdVersions           SongVersion[]          @relation("SongVersionCreatedBy")
+  singerTuneAccessAsViewer  UserSingerTuneAccess[] @relation("UserSingerTuneAccessViewer")
+  singerTuneAccessAsCreator UserSingerTuneAccess[] @relation("UserSingerTuneAccessCreator")
+}
+
+model Song {
+  id               Int              @id @default(autoincrement())
+  legacySongId     Int?             @unique
+  slug             String           @unique
+  title            String
+  firstLyrics      String?
+  lyrics           String?
+  chords           String?
+  characteristics  String?
+  originalKey      String?
+  highestVocalNote String?
+  basedOnSongId    Int?
+  categoryId       Int?
+  rythmId          Int?
+  scoreFile        String?
+  hasScore         Boolean          @default(false)
+  status           SongStatus       @default(PENDING_APPROVAL)
+  views            Int              @default(0)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  createdByUserId  Int?
+  originalKeySign  String?          @db.Char(1)
+  listItems        ListItem[]
+  basedOnSong      Song?            @relation("SongBasedOn", fields: [basedOnSongId], references: [id])
+  derivedSongs     Song[]           @relation("SongBasedOn")
+  category         Category?        @relation(fields: [categoryId], references: [id])
+  createdBy        User?            @relation("SongCreatedBy", fields: [createdByUserId], references: [id])
+  rythm            Rythm?           @relation(fields: [rythmId], references: [id])
+  SongAsset        SongAsset[]
+  songCategories   SongCategory[]
+  credits          SongCredit[]
+  singerTunes      SongSingerTune[]
+  SongTag          SongTag[]
+  versions         SongVersion[]
+
+  @@index([categoryId])
+  @@index([rythmId])
+  @@index([createdByUserId])
+}
+
+model SongSingerTune {
+  id                    Int      @id @default(autoincrement())
+  songId                Int
+  createdByUserId       Int?
+  tune                  String   @db.VarChar(32)
+  legacyUserTuneId      Int?     @unique
+  legacySongId          Int?
+  singerLegacyUserId    Int?
+  createdByLegacyUserId Int?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  title                 String   @db.VarChar(200)
+  createdByUser         User?    @relation("SongSingerTuneCreatedBy", fields: [createdByUserId], references: [id])
+  song                  Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@index([songId])
+  @@index([createdByUserId])
+  @@index([title])
+}
+
+model SongSingerTuneMention {
+  id               Int      @id @default(autoincrement())
+  songSingerTuneId Int
+  userId           Int
+  createdAt        DateTime @default(now())
+
+  @@unique([songSingerTuneId, userId], name: "SongSingerTuneMention_unique", map: "SongSingerTuneMention_unique")
+  @@index([songSingerTuneId], map: "SongSingerTuneMention_sst_idx")
+  @@index([userId], map: "SongSingerTuneMention_user_idx")
+}
+
+model UserSingerTuneAccess {
+  viewerUserId  Int
+  creatorUserId Int
+
+  canView Boolean @default(true)
+  canEdit Boolean @default(false)
+
+  viewer  User @relation("UserSingerTuneAccessViewer", fields: [viewerUserId], references: [id], onDelete: Cascade)
+  creator User @relation("UserSingerTuneAccessCreator", fields: [creatorUserId], references: [id], onDelete: Cascade)
+
+  @@id([viewerUserId, creatorUserId])
+  @@unique([viewerUserId, creatorUserId], name: "UserSingerTuneAccess_unique")
+  @@index([viewerUserId])
+  @@index([creatorUserId])
 }
 
 model Artist {
-  id             Int      @id @default(autoincrement())
-  legacyArtistId Int?     @unique
-
+  id             Int                 @id @default(autoincrement())
+  legacyArtistId Int?                @unique
   title          String
   firstName      String?
   lastName       String?
-
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
   imageUrl       String?
-  wikiUrl        String?
-  sex            String?
   biography      String?
-
   bornYear       Int?
   dieYear        Int?
-
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
+  sex            String?
+  wikiUrl        String?
   songCredits    SongCredit[]
   versionCredits SongVersionArtist[]
 }
-
 
 model Category {
   id             Int            @id @default(autoincrement())
@@ -60,49 +145,10 @@ model Category {
 model Rythm {
   id        Int      @id @default(autoincrement())
   title     String   @unique
-  slug      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  slug      String   @unique
   songs     Song[]
-}
-
-model Song {
-  id               Int            @id @default(autoincrement())
-  legacySongId     Int?           @unique
-  slug             String         @unique
-  title            String
-  firstLyrics      String?
-  lyrics           String?
-  chords           String?
-  characteristics  String?
-  originalKey      String?
-  defaultKey       String?
-  highestVocalNote String?
-  basedOnSongId    Int?
-  categoryId       Int?
-  rythmId          Int?
-  scoreFile        String?
-  hasScore         Boolean        @default(false)
-  status           SongStatus     @default(PENDING_APPROVAL)
-  views            Int            @default(0)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  createdByUserId  Int?
-  listItems        ListItem[]
-  basedOnSong      Song?          @relation("SongBasedOn", fields: [basedOnSongId], references: [id])
-  derivedSongs     Song[]         @relation("SongBasedOn")
-  category         Category?      @relation(fields: [categoryId], references: [id])
-  createdBy        User?          @relation("SongCreatedBy", fields: [createdByUserId], references: [id])
-  rythm            Rythm?         @relation(fields: [rythmId], references: [id])
-  SongAsset        SongAsset[]
-  songCategories   SongCategory[]
-  credits          SongCredit[]
-  SongTag          SongTag[]
-  versions         SongVersion[]
-
-  @@index([categoryId])
-  @@index([rythmId])
-  @@index([createdByUserId])
 }
 
 model SongCredit {
@@ -127,7 +173,7 @@ model SongVersion {
   playerCode      String?
   createdAt       DateTime            @default(now())
   createdByUserId Int?
-  createdBy       User?               @relation("SongVersionCreatedBy", fields: [createdByUserId], references: [id])
+  createdByUser   User?               @relation("SongVersionCreatedBy", fields: [createdByUserId], references: [id])
   song            Song                @relation(fields: [songId], references: [id])
   artists         SongVersionArtist[]
 }
@@ -263,6 +309,14 @@ model Tag {
   slug      String    @unique
   createdAt DateTime  @default(now())
   SongTag   SongTag[]
+}
+
+model TuneShareGroup {
+  id            Int      @id @default(autoincrement())
+  creatorUserId Int      @unique
+  groupId       Int      @unique
+  createdAt     DateTime @default(now()) @db.Timestamp(6)
+  updatedAt     DateTime @default(now()) @db.Timestamp(6)
 }
 
 enum SongStatus {

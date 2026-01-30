@@ -1,8 +1,11 @@
-// app/users/[id]/page.tsx
+// apps/web/app/users/[id]/page.tsx
 import type { Metadata } from "next";
-import Link from "next/link";
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
+import { notFound } from "next/navigation";
+
+import ActionBar from "@/app/components/ActionBar";
+import { LinkButton } from "@/app/components/buttons";
 
 type UserDetail = {
   id: number;
@@ -47,155 +50,123 @@ type PageProps = {
 
 export default async function UserDetailPage({ params }: PageProps) {
   const id = Number(params.id);
-  if (!Number.isFinite(id) || id <= 0) {
-    throw new Error("Invalid user id");
-  }
+  if (!Number.isFinite(id) || id <= 0) notFound();
 
-  // Παίρνουμε ΠΑΡΑΛΛΗΛΑ τα στοιχεία του συγκεκριμένου χρήστη
-  // και του "current user" (από Google login + Nest API)
   const [user, currentUser] = await Promise.all([
-    fetchUser(id),
-    getCurrentUserFromApi(),
+    fetchUser(id).catch(() => null),
+    getCurrentUserFromApi().catch(() => null),
   ]);
 
+  if (!user) notFound();
+
   const isAdmin = currentUser?.role === "ADMIN";
-  const isSelf = currentUser && currentUser.id === user.id;
+  const isSelf = !!currentUser && currentUser.id === user.id;
   const canEdit = isAdmin || isSelf;
 
+  const createdDate = new Date(user.createdAt);
+  const createdLabel = Number.isNaN(createdDate.getTime())
+    ? "—"
+    : createdDate.toLocaleDateString("el-GR", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+
   return (
-    <section className="user-detail-wrapper">
-      <h1 className="user-detail-title">
-        Χρήστης #{user.id} – {user.displayName || "—"}
+    <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto" }}>
+      <ActionBar
+        left={
+          <LinkButton
+            href="/users"
+            variant="secondary"
+            title="Επιστροφή στη λίστα χρηστών"
+            action="back"
+          >
+            Πίσω
+          </LinkButton>
+        }
+        right={
+          canEdit ? (
+            <LinkButton
+              href={`/users/${user.id}/edit`}
+              variant="secondary"
+              title="Επεξεργασία χρήστη"
+              action="edit"
+            >
+              Επεξεργασία
+            </LinkButton>
+          ) : null
+        }
+      />
+
+      <h1 style={{ fontSize: 28, margin: "0 0 8px" }}>
+         {user.displayName || "—"}
       </h1>
 
-      <p className="user-detail-subtitle">
-        Δημιουργήθηκε στις{" "}
-        {new Date(user.createdAt).toLocaleDateString("el-GR", {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-        })}
-        . Τραγούδια: {user.createdSongsCount} – Εκδόσεις:{" "}
-        {user.createdVersionsCount}
+      <p style={{ margin: "0 0 16px", color: "#ccc" }}>
+        Δημιουργήθηκε στις {createdLabel}. Εκδόσεις: {user.createdVersionsCount} – Τραγούδια:{" "}
+        {user.createdSongsCount}
       </p>
 
-      <dl className="user-detail-dl">
-        <div className="user-detail-row">
-          <dt>ID</dt>
-          <dd>{user.id}</dd>
-        </div>
-        <div className="user-detail-row">
-          <dt>Όνομα εμφάνισης</dt>
-          <dd>{user.displayName || "—"}</dd>
-        </div>
-        <div className="user-detail-row">
-          <dt>Username</dt>
-          <dd>{user.username || "—"}</dd>
-        </div>
-        <div className="user-detail-row">
-          <dt>Email</dt>
-          <dd>{user.email || "—"}</dd>
-        </div>
-        <div className="user-detail-row">
-          <dt>Ρόλος</dt>
-          <dd>{formatRole(user.role)}</dd>
-        </div>
-        <div className="user-detail-row">
-          <dt>Τραγούδια</dt>
-          <dd>{user.createdSongsCount}</dd>
-        </div>
-        <div className="user-detail-row">
-          <dt>Εκδόσεις</dt>
-          <dd>{user.createdVersionsCount}</dd>
-        </div>
-      </dl>
-
-      <div className="user-detail-buttons">
-        <Link href="/users" className="user-detail-back">
-          ← Επιστροφή στη λίστα
-        </Link>
-        {canEdit && (
-          <Link
-            href={`/users/${user.id}/edit`}
-            className="user-detail-edit-btn"
-          >
-            Επεξεργασία
-          </Link>
-        )}
-      </div>
-
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-.user-detail-wrapper {
-  padding: 24px;
-}
-
-.user-detail-title {
-  font-size: 1.5rem;
-  margin-bottom: 8px;
-}
-
-.user-detail-subtitle {
-  margin-bottom: 16px;
-  color: #ccc;
-}
-
-.user-detail-dl {
-  max-width: 480px;
-  border: 1px solid #444;
-  border-radius: 8px;
-  padding: 16px;
-}
-
-.user-detail-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 4px 0;
-  border-bottom: 1px solid #333;
-}
-
-.user-detail-row:last-child {
-  border-bottom: none;
-}
-
-.user-detail-row dt {
-  font-weight: bold;
-  min-width: 140px;
-}
-
-.user-detail-row dd {
-  margin: 0;
-  text-align: right;
-}
-
-.user-detail-buttons {
-  margin-top: 16px;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-.user-detail-back,
-.user-detail-edit-btn {
-  text-decoration: none;
-  padding: 8px 14px;
-  border-radius: 4px;
-}
-
-.user-detail-back {
-  background-color: #222;
-  color: #fff;
-}
-
-.user-detail-edit-btn {
-  background-color: #4da3ff;
-  color: #000;
-}
-          `,
+      <div
+        style={{
+          maxWidth: 620,
+          border: "1px solid #444",
+          borderRadius: 12,
+          padding: 16,
         }}
-      />
+      >
+        <dl style={{ margin: 0 }}>
+          {[
+            ["ID", String(user.id)],
+            ["Username", user.username || "—"],
+            ["Email", user.email || "—"],
+            ["Ρόλος", formatRole(user.role)],
+            // ✅ διαφορετική σειρά: πρώτα Εκδόσεις μετά Τραγούδια
+            ["Εκδόσεις", String(user.createdVersionsCount)],
+            ["Τραγούδια", String(user.createdSongsCount)],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 10,
+                padding: "8px 0",
+                borderBottom: "1px solid #333",
+                minWidth: 0, // ✅ για να μην ξεχειλίζει σε flex
+              }}
+            >
+              <dt
+                style={{
+                  fontWeight: 700,
+                  color: "#ddd",
+                  margin: 0,
+                  flex: "0 0 auto",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {label}:
+              </dt>
+
+              <dd
+                style={{
+                  margin: 0,
+                  color: "#fff",
+                  flex: "1 1 auto",
+                  minWidth: 0, // ✅ επιτρέπει ellipsis
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={value}
+              >
+                {value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
     </section>
   );
 }

@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+
 import { UserRole } from "@prisma/client";
 
 export interface ListUsersOptions {
@@ -18,6 +19,10 @@ export type ListUserItem = {
   displayName: string | null;
   role: UserRole;
   avatarUrl: string | null;
+
+  // ✅ NEW
+  profile: Prisma.JsonValue | null;
+
   createdAt: Date;
   createdSongsCount: number;
   createdVersionsCount: number;
@@ -30,6 +35,20 @@ export type ListUsersResult = {
   pageSize: number;
   totalPages: number;
 };
+
+function isPlainObject(v: unknown): v is Record<string, any> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+function deepMerge(a: any, b: any): any {
+  if (!isPlainObject(a) || !isPlainObject(b)) return b;
+
+  const out: Record<string, any> = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    out[k] = k in out ? deepMerge(out[k], v) : v;
+  }
+  return out;
+}
 
 @Injectable()
 export class UsersService {
@@ -46,11 +65,15 @@ export class UsersService {
     return n;
   }
 
+  private normalizeOrder(order?: "asc" | "desc"): "asc" | "desc" {
+    return order === "desc" ? "desc" : "asc";
+  }
+
   private buildOrderBy(
     sort: string,
     order: "asc" | "desc",
   ): Prisma.UserOrderByWithRelationInput {
-    const dir = order === "desc" ? "desc" : "asc";
+    const dir = this.normalizeOrder(order);
 
     const sortable: Record<string, keyof Prisma.UserOrderByWithRelationInput> = {
       id: "id",
@@ -130,6 +153,10 @@ export class UsersService {
         displayName: true,
         role: true,
         avatarUrl: true,
+
+        // ✅ NEW
+        profile: true,
+
         createdAt: true,
       },
     });
@@ -147,21 +174,24 @@ export class UsersService {
       displayName: u.displayName,
       role: u.role,
       avatarUrl: u.avatarUrl ?? null,
+
+      // ✅ NEW
+      profile: u.profile ?? null,
+
       createdAt: u.createdAt,
       createdSongsCount: songCounts.get(u.id) ?? 0,
       createdVersionsCount: versionCounts.get(u.id) ?? 0,
     }));
 
-    // Sorting by computed fields (optional)
     if (options.sort === "createdSongsCount") {
       items = items.sort((a, b) =>
-        options.order === "desc"
+        this.normalizeOrder(options.order) === "desc"
           ? b.createdSongsCount - a.createdSongsCount
           : a.createdSongsCount - b.createdSongsCount,
       );
     } else if (options.sort === "createdVersionsCount") {
       items = items.sort((a, b) =>
-        options.order === "desc"
+        this.normalizeOrder(options.order) === "desc"
           ? b.createdVersionsCount - a.createdVersionsCount
           : a.createdVersionsCount - b.createdVersionsCount,
       );
@@ -180,6 +210,10 @@ export class UsersService {
         displayName: true,
         role: true,
         avatarUrl: true,
+
+        // ✅ NEW
+        profile: true,
+
         createdAt: true,
       },
     });
@@ -198,6 +232,10 @@ export class UsersService {
       displayName: user.displayName,
       role: user.role,
       avatarUrl: user.avatarUrl ?? null,
+
+      // ✅ NEW
+      profile: user.profile ?? null,
+
       createdAt: user.createdAt,
       createdSongsCount: songCounts.get(id) ?? 0,
       createdVersionsCount: versionCounts.get(id) ?? 0,
@@ -206,12 +244,18 @@ export class UsersService {
 
   async updateUser(
     id: number,
-    body: { displayName?: string | null; role?: UserRole; avatarUrl?: string | null },
+    body: {
+      displayName?: string | null;
+      role?: UserRole;
+      avatarUrl?: string | null;
+
+      // ✅ NEW
+      profile?: unknown | null;
+    },
   ) {
-    // ensure exists
     const exists = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, profile: true },
     });
     if (!exists) throw new NotFoundException(`User with id=${id} not found`);
 
@@ -220,6 +264,19 @@ export class UsersService {
     if (body.displayName !== undefined) data.displayName = body.displayName;
     if (body.role !== undefined) data.role = body.role;
     if (body.avatarUrl !== undefined) data.avatarUrl = body.avatarUrl;
+
+    // ✅ NEW: merge profile (ώστε να μην σβήνονται άλλα keys)
+    if (body.profile !== undefined) {
+      if (body.profile === null) {
+        data.profile = Prisma.DbNull;
+
+      } else if (isPlainObject(body.profile)) {
+        const merged = deepMerge(exists.profile ?? {}, body.profile);
+        data.profile = merged as any;
+      } else {
+        throw new BadRequestException("profile must be an object or null");
+      }
+    }
 
     return this.prisma.user.update({
       where: { id },
@@ -231,9 +288,35 @@ export class UsersService {
         displayName: true,
         role: true,
         avatarUrl: true,
+
+        // ✅ NEW
+        profile: true,
+
         createdAt: true,
         updatedAt: true,
       },
     });
+  }
+
+  async deleteUser(id: number) {
+    const exists = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException(`User with id=${id} not found`);
+
+    const [songsCount, versionsCount] = await Promise.all([
+      this.prisma.song.count({ where: { createdByUserId: id } }),
+      this.prisma.songVersion.count({ where: { createdByUserId: id } }),
+    ]);
+
+    if (songsCount > 0 || versionsCount > 0) {
+      throw new BadRequestException(
+        `Δεν μπορεί να διαγραφεί: έχει δημιουργήσει τραγούδια (${songsCount}) ή εκδόσεις (${versionsCount}).`,
+      );
+    }
+
+    await this.prisma.user.delete({ where: { id } });
+    return { ok: true };
   }
 }

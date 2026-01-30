@@ -1,6 +1,11 @@
+// apps/web/app/rooms/RoomsPageClient.tsx
 "use client";
 
 import { useEffect, useState } from "react";
+
+import ActionBar from "@/app/components/ActionBar";
+import { A } from "@/app/components/buttons";
+
 import RoomsClient from "./RoomsClient";
 
 type Room = {
@@ -13,6 +18,10 @@ type CurrentUser = {
   id: number;
   email: string;
   role: string;
+  username?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  profile?: any | null;
 };
 
 export default function RoomsPageClient() {
@@ -25,8 +34,6 @@ export default function RoomsPageClient() {
 
     async function load() {
       try {
-        // ΠΡΟΣΟΧΗ: πάμε ΠΑΝΤΑ μέσω Next API
-        // και ΟΧΙ κατευθείαν στο http://localhost:4455
         const [roomsRes, userRes] = await Promise.all([
           fetch("/api/rooms", { cache: "no-store" }),
           fetch("/api/current-user", { cache: "no-store" }),
@@ -34,7 +41,7 @@ export default function RoomsPageClient() {
 
         if (cancelled) return;
 
-        // Rooms
+        // rooms
         if (roomsRes.ok) {
           const roomsJson = await roomsRes.json();
           setRooms(Array.isArray(roomsJson) ? roomsJson : []);
@@ -43,15 +50,13 @@ export default function RoomsPageClient() {
           setRooms([]);
         }
 
-        // Current user
+        // current user
         if (userRes.ok) {
           const userJson = await userRes.json();
-          setCurrentUser(userJson?.user ?? null);
+          const u = userJson?.user ?? null;
+          setCurrentUser(u && typeof u === "object" ? (u as CurrentUser) : null);
         } else {
-          console.warn(
-            "[RoomsPageClient] /api/current-user HTTP",
-            userRes.status
-          );
+          console.warn("[RoomsPageClient] /api/current-user HTTP", userRes.status);
           setCurrentUser(null);
         }
       } catch (err) {
@@ -61,42 +66,44 @@ export default function RoomsPageClient() {
           setCurrentUser(null);
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
     load();
-
     return () => {
       cancelled = true;
     };
   }, []);
 
   const isLoggedIn = !!currentUser;
-  const isAdmin = (currentUser?.role || "").toLowerCase() === "admin";
-  const currentRoom: string | null = null; // προς το παρόν, δεν έχουμε schema field
-
-  if (loading) {
-    return (
-      <div id="rooms-wrapper">
-        <h3>Rooms</h3>
-        <div style={{ color: "#fff", marginTop: 8 }}>Φόρτωση rooms...</div>
-      </div>
-    );
-  }
+  const isAdmin = (currentUser?.role || "").toUpperCase() === "ADMIN";
+  const currentRoom: string | null = null;
 
   return (
-    <div id="rooms-wrapper">
-      <h3>Rooms</h3>
-
-      <RoomsClient
-        initialRooms={rooms}
-        isLoggedIn={isLoggedIn}
-        isAdmin={isAdmin}
-        initialCurrentRoom={currentRoom}
+    <>
+      <ActionBar
+        left={<A.backLink href="/" label="Πίσω" />}
+        right={
+          <>
+            <A.newLink href="/rooms/new" label="Νέο room" />
+            {isAdmin && <A.settingsLink href="/rooms/settings" label="Ρυθμίσεις" />}
+          </>
+        }
       />
-    </div>
+
+      <div id="rooms-wrapper">
+        {loading ? (
+          <div style={{ color: "#fff", marginTop: 8 }}>Φόρτωση rooms...</div>
+        ) : (
+          <RoomsClient
+            initialRooms={rooms}
+            isLoggedIn={isLoggedIn}
+            isAdmin={isAdmin}
+            initialCurrentRoom={currentRoom}
+          />
+        )}
+      </div>
+    </>
   );
 }

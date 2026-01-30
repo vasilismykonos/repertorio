@@ -55,7 +55,7 @@ type CreateOrUpdateSongBody = {
   lyrics?: string | null;
   characteristics?: string | null;
   originalKey?: string | null;
-  defaultKey?: string | null;
+  originalKeySign?: "+" | "-" | null;
   chords?: string | null;
   status?: any;
   categoryId?: number | null;
@@ -63,7 +63,7 @@ type CreateOrUpdateSongBody = {
   basedOnSongId?: number | null;
   scoreFile?: string | null;
   highestVocalNote?: string | null;
-
+   createdByUserId?: number | null; // ✅ add
   tagIds?: number[] | null;
   assets?: SongAssetBody[] | null;
   versions?: SongVersionBody[] | null;
@@ -178,7 +178,7 @@ function normalizeSongBodyFromMultipart(body: SongFullMultipartBody): {
   const assets = normalizeAssets(src.assets ?? body.assets);
   const versions = normalizeVersions(src.versions ?? body.versions);
 
-  const song: CreateOrUpdateSongBody = {
+    const song: CreateOrUpdateSongBody = {
     title: typeof src.title === "string" ? src.title : undefined,
     firstLyrics:
       typeof src.firstLyrics === "string" ? src.firstLyrics : (src.firstLyrics ?? undefined),
@@ -189,8 +189,8 @@ function normalizeSongBodyFromMultipart(body: SongFullMultipartBody): {
         : (src.characteristics ?? undefined),
     originalKey:
       typeof src.originalKey === "string" ? src.originalKey : (src.originalKey ?? undefined),
-    defaultKey:
-      typeof src.defaultKey === "string" ? src.defaultKey : (src.defaultKey ?? undefined),
+    originalKeySign:
+      src.originalKeySign === "-" ? "-" : (src.originalKeySign === "+" ? "+" : undefined),
     chords: typeof src.chords === "string" ? src.chords : (src.chords ?? undefined),
     status: src.status ?? undefined,
     categoryId:
@@ -201,6 +201,13 @@ function normalizeSongBodyFromMultipart(body: SongFullMultipartBody): {
       src.basedOnSongId === ""
         ? null
         : (toNumberOrNull(src.basedOnSongId) ?? (src.basedOnSongId ?? undefined)),
+
+    // ✅ ADD HERE
+    createdByUserId:
+      src.createdByUserId === ""
+        ? null
+        : (toNumberOrNull(src.createdByUserId) ?? (src.createdByUserId ?? undefined)),
+
     scoreFile: typeof src.scoreFile === "string" ? src.scoreFile : (src.scoreFile ?? undefined),
     highestVocalNote:
       typeof src.highestVocalNote === "string"
@@ -211,6 +218,7 @@ function normalizeSongBodyFromMultipart(body: SongFullMultipartBody): {
     assets: assets ?? (src.assets === null ? null : undefined),
     versions: versions ?? (src.versions === null ? null : undefined),
   };
+
 
   // Credits may be sent as a JSON string `credits` or direct fields
   const creditsJson =

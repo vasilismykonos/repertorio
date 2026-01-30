@@ -1,4 +1,4 @@
-// app/api/users/[id]/route.ts
+// apps/web/app/api/users/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { fetchJson } from "@/lib/api";
 
@@ -22,6 +22,7 @@ function buildRedirectHtml(targetPath: string): string {
     <meta charset="utf-8" />
     <title>Μεταφορά...</title>
     <meta http-equiv="refresh" content="0; url=${safePath}" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>
   <body>
     <p>Μεταφορά... Αν δεν γίνει αυτόματα, πατήστε
@@ -34,26 +35,35 @@ function buildRedirectHtml(targetPath: string): string {
 </html>`;
 }
 
+function parseId(rawId: string): number | null {
+  const idNum = Number(rawId);
+  if (!Number.isFinite(idNum) || idNum <= 0) return null;
+  return idNum;
+}
+
 // GET /api/users/[id] -> απλή HTML σελίδα που σε στέλνει στο /users/[id]
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const html = buildRedirectHtml(`/users/${params.id}`);
+  const idNum = parseId(params.id);
+  const html = buildRedirectHtml(idNum ? `/users/${idNum}` : "/users");
+
   return new NextResponse(html, {
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
 }
 
+// POST /api/users/[id] -> update μέσω form submit (HTML form) και redirect πίσω στο /users/[id]
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
   const rawId = params.id;
-  let idNum = Number(rawId);
-  if (!Number.isFinite(idNum) || idNum <= 0) {
-    // Αν είναι άκυρο, δεν δοκιμάζουμε καν update — απλώς πάμε πίσω στη λίστα
+  const idNum = parseId(rawId);
+
+  if (!idNum) {
     const html = buildRedirectHtml("/users");
     return new NextResponse(html, {
       status: 200,
@@ -79,16 +89,20 @@ export async function POST(
     } = {};
 
     if (displayName !== null) {
-      body.displayName = String(displayName);
+      const v = String(displayName).trim();
+      body.displayName = v;
     }
+
     if (username !== null) {
       const v = String(username).trim();
       body.username = v === "" ? null : v;
     }
+
     if (email !== null) {
       const v = String(email).trim();
       body.email = v === "" ? null : v;
     }
+
     // ΠΡΟΣ ΤΟ ΠΑΡΟΝ επιτρέπουμε αλλαγή role χωρίς επιπλέον έλεγχο από το web app
     if (role !== null) {
       body.role = String(role);
@@ -111,4 +125,34 @@ export async function POST(
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
+}
+
+// DELETE /api/users/[id] -> proxy σε Nest DELETE /users/:id (για το κουμπί διαγραφής)
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  const rawId = params.id;
+  const idNum = parseId(rawId);
+
+  if (!idNum) {
+    return NextResponse.json(
+      { ok: false, error: "Invalid user id" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    // Αν το fetchJson σου επιστρέφει πάντα JSON, εδώ μπορεί να μην υπάρχει body.
+    // Οπότε ζητάμε JSON αλλά δεν μας ενδιαφέρει το payload.
+    await fetchJson<{ ok?: boolean }>(`/users/${idNum}`, { method: "DELETE" });
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (err) {
+    console.error("Delete user failed for id=", rawId, err);
+    return NextResponse.json(
+      { ok: false, error: "Delete failed" },
+      { status: 500 },
+    );
+  }
 }

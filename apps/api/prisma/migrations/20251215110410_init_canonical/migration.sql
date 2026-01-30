@@ -67,7 +67,6 @@ CREATE TABLE "Song" (
     "chords" TEXT,
     "characteristics" TEXT,
     "originalKey" TEXT,
-    "defaultKey" TEXT,
     "highestVocalNote" TEXT,
     "basedOnSongId" INTEGER,
     "categoryId" INTEGER,
