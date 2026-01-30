@@ -33,11 +33,27 @@ type PatchSongBody = {
   versions?: any[] | null;
 };
 
-const API_BASE_URL = (
-  process.env.API_INTERNAL_BASE_URL ||
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "/api/v1"
-).replace(/\/$/, "");
+// ✅ Never static: depends on auth cookies / headers
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function getApiBaseUrl(): string {
+  const base = (
+    process.env.API_INTERNAL_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    "/api/v1"
+  )
+    .trim()
+    .replace(/\/$/, "");
+
+  if (!base) {
+    // hard fail: misconfigured server
+    throw new Error(
+      "Missing API base URL. Set API_INTERNAL_BASE_URL (server) and/or NEXT_PUBLIC_API_BASE_URL (client).",
+    );
+  }
+  return base;
+}
 
 function buildRedirectHtml(targetPath: string): string {
   const safePath = targetPath.startsWith("/") ? targetPath : `/${targetPath}`;
@@ -106,10 +122,31 @@ function toNumberOrNull(v: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseSongId(ctx: { params: { id: string } }): number | null {
+  const idNum = Number(ctx?.params?.id);
+  if (!Number.isFinite(idNum) || idNum <= 0) return null;
+  return Math.trunc(idNum);
+}
+
+async function readBodyAsJsonOrText(res: Response) {
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return await res.json().catch(() => null);
+  }
+  return await res.text().catch(() => "");
+}
+
 export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
-  const idNum = Number(ctx.params.id);
-  if (!Number.isFinite(idNum) || idNum <= 0) {
+  const idNum = parseSongId(ctx);
+  if (!idNum) {
     return NextResponse.json({ message: "Μη έγκυρο ID τραγουδιού" }, { status: 400 });
+  }
+
+  let API_BASE_URL: string;
+  try {
+    API_BASE_URL = getApiBaseUrl();
+  } catch (e: any) {
+    return NextResponse.json({ message: e?.message || "Server misconfigured" }, { status: 500 });
   }
 
   const cookie = pickForwardHeader(req, "cookie");
@@ -132,31 +169,19 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
       cache: "no-store",
     });
 
-    const contentType = res.headers.get("content-type") || "";
+    const data = await readBodyAsJsonOrText(res);
 
     if (!res.ok) {
-      if (contentType.includes("application/json")) {
-        const data = await res.json().catch(() => null);
-        return NextResponse.json(
-          data ?? { message: `Αποτυχία ανάκτησης (${res.status})` },
-          { status: res.status },
-        );
-      }
-
-      const text = await res.text().catch(() => "");
       return NextResponse.json(
-        { message: text || `Αποτυχία ανάκτησης (${res.status})` },
+        typeof data === "string" ? { message: data || `Αποτυχία ανάκτησης (${res.status})` } : data,
         { status: res.status },
       );
     }
 
-    if (contentType.includes("application/json")) {
-      const data = await res.json();
-      return NextResponse.json(data, { status: 200 });
-    }
-
-    const text = await res.text().catch(() => "");
-    return NextResponse.json({ ok: true, text }, { status: 200 });
+    return NextResponse.json(
+      typeof data === "string" ? { ok: true, text: data } : data,
+      { status: 200 },
+    );
   } catch (err: any) {
     return NextResponse.json(
       { message: err?.message || "Σφάλμα επικοινωνίας με API" },
@@ -166,9 +191,19 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
 }
 
 export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
-  const idNum = Number(ctx.params.id);
-  if (!Number.isFinite(idNum) || idNum <= 0) {
+  const idNum = parseSongId(ctx);
+  if (!idNum) {
     return new NextResponse(buildRedirectHtml("/songs"), {
+      status: 302,
+      headers: { "content-type": "text/html" },
+    });
+  }
+
+  let API_BASE_URL: string;
+  try {
+    API_BASE_URL = getApiBaseUrl();
+  } catch (e: any) {
+    return new NextResponse(buildRedirectHtml(`/songs/${idNum}?error=1`), {
       status: 302,
       headers: { "content-type": "text/html" },
     });
@@ -228,7 +263,9 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
 
   let ok = true;
 
+  // ✅ One canonical endpoint (no guessing): matches your PATCH /songs/:id/full convention
   const upstreamSongUrl = `${API_BASE_URL}/songs/${idNum}/full`;
+
   try {
     const res = await fetch(upstreamSongUrl, {
       method: "PATCH",
@@ -263,15 +300,21 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
 }
 
 /**
- * ✅ NEW: DELETE handler
- * Fixes 405 Method Not Allowed for DELETE /api/songs/:id
- *
- * Προσοχή: επιστρέφει JSON (όχι redirect), γιατί το DeleteSongButton κάνει fetch()
+ * ✅ DELETE handler (no guesses)
+ * - Calls the canonical upstream endpoint only.
+ * - Returns JSON because the client uses fetch().
  */
 export async function DELETE(req: NextRequest, ctx: { params: { id: string } }) {
-  const idNum = Number(ctx.params.id);
-  if (!Number.isFinite(idNum) || idNum <= 0) {
+  const idNum = parseSongId(ctx);
+  if (!idNum) {
     return NextResponse.json({ message: "Μη έγκυρο ID τραγουδιού" }, { status: 400 });
+  }
+
+  let API_BASE_URL: string;
+  try {
+    API_BASE_URL = getApiBaseUrl();
+  } catch (e: any) {
+    return NextResponse.json({ message: e?.message || "Server misconfigured" }, { status: 500 });
   }
 
   const cookie = pickForwardHeader(req, "cookie");
@@ -281,72 +324,33 @@ export async function DELETE(req: NextRequest, ctx: { params: { id: string } }) 
   if (cookie) headers.cookie = cookie;
   if (authorization) headers.authorization = authorization;
 
-  // Δεν μαντεύουμε: δοκιμάζουμε υποψήφιες διαδρομές που "κολλάνε" με την αρχιτεκτονική σου.
-  const candidates = [
-    `${API_BASE_URL}/songs/${idNum}/full`,  // ταιριάζει με PATCH /songs/:id/full
-    `${API_BASE_URL}/songs/${idNum}`,       // κλασικό REST
-    `${API_BASE_URL}/songs/full/${idNum}`,  // εναλλακτικό pattern (μερικές υλοποιήσεις το έχουν έτσι)
-  ];
-
-  const attempts: Array<{ url: string; status: number; statusText: string }> = [];
+  // ✅ Canonical endpoint (same convention as PATCH)
+  const upstreamUrl = `${API_BASE_URL}/songs/${idNum}/full`;
 
   try {
-    for (const upstreamUrl of candidates) {
-      const res = await fetch(upstreamUrl, {
-        method: "DELETE",
-        headers,
-        cache: "no-store",
-      });
+    const res = await fetch(upstreamUrl, {
+      method: "DELETE",
+      headers,
+      cache: "no-store",
+    });
 
-      attempts.push({ url: upstreamUrl, status: res.status, statusText: res.statusText });
+    const data = await readBodyAsJsonOrText(res);
 
-      // Αν δεν είναι 404, σταματάμε και επιστρέφουμε ό,τι είπε το upstream.
-      if (res.status !== 404) {
-        const contentType = res.headers.get("content-type") || "";
-
-        if (!res.ok) {
-          if (contentType.includes("application/json")) {
-            const data = await res.json().catch(() => null);
-            return NextResponse.json(
-              data ?? { message: `Αποτυχία διαγραφής (${res.status})` },
-              { status: res.status },
-            );
-          }
-
-          const text = await res.text().catch(() => "");
-          return NextResponse.json(
-            { message: text || `Αποτυχία διαγραφής (${res.status})` },
-            { status: res.status },
-          );
-        }
-
-        if (contentType.includes("application/json")) {
-          const data = await res.json().catch(() => ({ ok: true }));
-          return NextResponse.json(data, { status: 200 });
-        }
-
-        // 204 ή text response
-        return NextResponse.json({ ok: true }, { status: 200 });
-      }
+    if (!res.ok) {
+      return NextResponse.json(
+        typeof data === "string" ? { message: data || `Αποτυχία διαγραφής (${res.status})` } : data,
+        { status: res.status },
+      );
     }
 
-    // Αν φτάσαμε εδώ, ΟΛΑ ήταν 404 -> upstream δεν έχει route σε καμία από τις διαδρομές.
-    console.error("DELETE song: upstream endpoints not found", { idNum, attempts });
-
-    return NextResponse.json(
-      {
-        message:
-          "Το API δεν βρέθηκε να υποστηρίζει DELETE για αυτό το τραγούδι. Δες τα attempted endpoints.",
-        attempts,
-      },
-      { status: 404 },
-    );
+    // could be 204 or json
+    return NextResponse.json(typeof data === "string" ? { ok: true } : data ?? { ok: true }, {
+      status: 200,
+    });
   } catch (err: any) {
     return NextResponse.json(
-      { message: err?.message || "Σφάλμα επικοινωνίας με API", attempts },
+      { message: err?.message || "Σφάλμα επικοινωνίας με API" },
       { status: 500 },
     );
   }
 }
-
-
