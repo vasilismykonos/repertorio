@@ -59,8 +59,8 @@ const labelStyle: React.CSSProperties = {
 
 const inputReadOnlyStyle: React.CSSProperties = {
   width: "100%",
-  minWidth: 0,          // ✅
-  boxSizing: "border-box", // ✅
+  minWidth: 0,
+  boxSizing: "border-box",
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(255,255,255,0.15)",
@@ -71,8 +71,8 @@ const inputReadOnlyStyle: React.CSSProperties = {
 
 const inputEditableStyle: React.CSSProperties = {
   width: "100%",
-  minWidth: 0,            // ✅
-  boxSizing: "border-box", // ✅
+  minWidth: 0,
+  boxSizing: "border-box",
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.15)",
@@ -87,9 +87,8 @@ const cardStyle: React.CSSProperties = {
   padding: 16,
   border: "1px solid rgba(255,255,255,0.15)",
   borderRadius: 12,
-  minWidth: 0,        // ✅
+  minWidth: 0,
 };
-
 
 function AddressBar({
   title,
@@ -109,18 +108,18 @@ function AddressBar({
         border: "1px solid rgba(255,255,255,0.15)",
         borderRadius: 12,
         background: "rgba(255,255,255,0.06)",
-        flexWrap: "wrap",          // ✅
+        flexWrap: "wrap",
       }}
     >
-      <div style={{ minWidth: 0, flex: "1 1 260px" }}> {/* ✅ */}
+      <div style={{ minWidth: 0, flex: "1 1 260px" }}>
         <div
           style={{
             fontSize: 18,
             fontWeight: 700,
             color: "#ffffff",
-            overflow: "hidden",         // ✅
-            textOverflow: "ellipsis",   // ✅
-            whiteSpace: "nowrap",       // ✅
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
         >
           {title}
@@ -133,8 +132,8 @@ function AddressBar({
           gap: 10,
           alignItems: "center",
           flex: "0 1 auto",
-          minWidth: 0,             // ✅
-          flexWrap: "wrap",        // ✅ (αν στριμώχνει σε mobile)
+          minWidth: 0,
+          flexWrap: "wrap",
           justifyContent: "flex-end",
         }}
       >
@@ -144,24 +143,28 @@ function AddressBar({
   );
 }
 
-
 export default function MePageClient({ user }: { user: MeUser }) {
   const prefs = useMemo(() => readPrefs(user.profile), [user.profile]);
 
-  const [displayName, setDisplayName] = useState(user.displayName ?? "");
-  const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl ?? "");
+  const [displayName, setDisplayName] = useState<string>(user.displayName ?? "");
+  const [avatarUrl, setAvatarUrl] = useState<string>(user.avatarUrl ?? "");
 
+  // ✅ IMPORTANT: initial state must be boolean (not boolean|undefined)
   const [defChords, setDefChords] = useState<boolean>(
-    prefs.songTogglesDefault.chords,
+    prefs.songTogglesDefault.chords ?? true,
   );
   const [defTonicities, setDefTonicities] = useState<boolean>(
-    prefs.songTogglesDefault.tonicities,
+    prefs.songTogglesDefault.tonicities ?? true,
   );
-  const [defInfo, setDefInfo] = useState<boolean>(prefs.songTogglesDefault.info);
-  const [defScores, setDefScores] = useState<boolean>(prefs.songTogglesDefault.scores);
+  const [defInfo, setDefInfo] = useState<boolean>(
+    prefs.songTogglesDefault.info ?? true,
+  );
+  const [defScores, setDefScores] = useState<boolean>(
+    prefs.songTogglesDefault.scores ?? false,
+  );
 
   const [redirectDefault, setRedirectDefault] = useState<RedirectDefault>(
-    prefs.songsRedirectDefault,
+    prefs.songsRedirectDefault ?? "TITLE",
   );
 
   const [saving, setSaving] = useState(false);
@@ -174,16 +177,17 @@ export default function MePageClient({ user }: { user: MeUser }) {
   }, [avatarUrl]);
 
   function onCancel() {
-    // Reset to initial values
+    // reset values
     setDisplayName(user.displayName ?? "");
     setAvatarUrl(user.avatarUrl ?? "");
 
-    setDefChords(prefs.songTogglesDefault.chords);
-    setDefTonicities(prefs.songTogglesDefault.tonicities);
-    setDefInfo(prefs.songTogglesDefault.info);
-    setDefScores(prefs.songTogglesDefault.scores);
+    // reset prefs (always booleans)
+    setDefChords(prefs.songTogglesDefault.chords ?? true);
+    setDefTonicities(prefs.songTogglesDefault.tonicities ?? true);
+    setDefInfo(prefs.songTogglesDefault.info ?? true);
+    setDefScores(prefs.songTogglesDefault.scores ?? false);
 
-    setRedirectDefault(prefs.songsRedirectDefault);
+    setRedirectDefault(prefs.songsRedirectDefault ?? "TITLE");
 
     setError(null);
     setOk(null);
@@ -230,33 +234,20 @@ export default function MePageClient({ user }: { user: MeUser }) {
 
   return (
     <div style={{ display: "grid", gap: 16, color: "#ffffff" }}>
-      {/* ✅ AddressBar (actions εδώ, όχι κάτω) */}
       <AddressBar
         title="Ο λογαριασμός μου"
         right={
-            <>
-            
-
-            {A.cancel({
-                onClick: onCancel,
-                disabled: saving,
-            })}
-
-            {A.save({
-                onClick: onSave,
-                disabled: saving,
-                loading: saving,
-            })}
+          <>
+            {A.cancel({ onClick: onCancel, disabled: saving })}
+            {A.save({ onClick: onSave, disabled: saving, loading: saving })}
             {A.logout({
-                title: "Αποσύνδεση",
-                callbackUrl: "/",   // εδώ θες home μετά το logout
-                variant: "danger",
+              title: "Αποσύνδεση",
+              callbackUrl: "/",
+              variant: "danger",
             })}
-            
-            </>
+          </>
         }
-        />
-
+      />
 
       <div style={cardStyle}>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -291,9 +282,21 @@ export default function MePageClient({ user }: { user: MeUser }) {
             )}
           </div>
 
-          <div style={{ display: "grid", gap: 4 }}>
-            <div style={{ fontSize: 16, fontWeight: 600, color: "#ffffff" }}>
-              {user.displayName || user.username || user.email || `User #${user.id}`}
+          <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 16,
+                fontWeight: 600,
+                color: "#ffffff",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {user.displayName ||
+                user.username ||
+                user.email ||
+                `User #${user.id}`}
             </div>
             <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
               Ρόλος: <b style={{ color: "#ffffff" }}>{user.role}</b>
@@ -306,7 +309,6 @@ export default function MePageClient({ user }: { user: MeUser }) {
           <input value={user.email ?? ""} readOnly style={inputReadOnlyStyle} />
         </div>
 
-        
         <div style={{ display: "grid", gap: 6 }}>
           <label style={labelStyle}>Εμφανιζόμενο όνομα</label>
           <input
@@ -317,7 +319,15 @@ export default function MePageClient({ user }: { user: MeUser }) {
           />
         </div>
 
-        
+        <div style={{ display: "grid", gap: 6 }}>
+          <label style={labelStyle}>Avatar URL</label>
+          <input
+            value={avatarUrl}
+            onChange={(e) => setAvatarUrl(e.target.value)}
+            placeholder="https://..."
+            style={inputEditableStyle}
+          />
+        </div>
       </div>
 
       <div style={cardStyle}>
