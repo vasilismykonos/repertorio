@@ -1,18 +1,22 @@
 // apps/api/src/artists/artists.service.ts
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, VersionArtistRole } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma, VersionArtistRole } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 
 // ✅ NEW imports for upload
-import { promises as fs } from "fs";
-import * as path from "path";
-import * as crypto from "crypto";
+import { promises as fs } from 'fs';
+import * as path from 'path';
+import * as crypto from 'crypto';
 
 type VersionArtistRoleString =
-  | "SINGER_FRONT"
-  | "SINGER_BACK"
-  | "SOLOIST"
-  | "MUSICIAN";
+  | 'SINGER_FRONT'
+  | 'SINGER_BACK'
+  | 'SOLOIST'
+  | 'MUSICIAN';
 
 type ArtistListItem = {
   id: number;
@@ -105,17 +109,22 @@ type UpdateArtistFullArgs = {
 };
 
 function cleanSpaces(s: unknown): string {
-  return String(s ?? "").trim().replace(/\s+/g, " ");
+  return String(s ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 function toUpperNoTonos(input: unknown): string {
   const trimmed = cleanSpaces(input);
-  if (!trimmed) return "";
-  const noMarks = trimmed.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  return noMarks.toLocaleUpperCase("el-GR");
+  if (!trimmed) return '';
+  const noMarks = trimmed.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return noMarks.toLocaleUpperCase('el-GR');
 }
 
-function computeDisplayTitle(firstNameRaw: unknown, lastNameRaw: unknown): string {
+function computeDisplayTitle(
+  firstNameRaw: unknown,
+  lastNameRaw: unknown,
+): string {
   const firstName = toUpperNoTonos(firstNameRaw);
   const lastName = toUpperNoTonos(lastNameRaw);
 
@@ -125,7 +134,7 @@ function computeDisplayTitle(firstNameRaw: unknown, lastNameRaw: unknown): strin
   }
   if (lastName) return lastName;
   if (firstName) return firstName;
-  return "";
+  return '';
 }
 
 function normalizeNullableText(input: unknown): string | null {
@@ -143,15 +152,17 @@ function normalizeRoles(input: unknown): VersionArtistRole[] {
   const seen = new Set<string>();
 
   const allowed: VersionArtistRole[] = [
-    "SINGER_FRONT",
-    "SINGER_BACK",
-    "SOLOIST",
-    "MUSICIAN",
+    'SINGER_FRONT',
+    'SINGER_BACK',
+    'SOLOIST',
+    'MUSICIAN',
   ];
 
   const out: VersionArtistRole[] = [];
   for (const x of arr) {
-    const s = String(x ?? "").trim().toUpperCase();
+    const s = String(x ?? '')
+      .trim()
+      .toUpperCase();
     if (!s) continue;
     if (seen.has(s)) continue;
     if (!allowed.includes(s as any)) continue;
@@ -172,7 +183,7 @@ function mapArtistList(row: {
   return {
     id: row.id,
     legacyArtistId: row.legacyArtistId ?? null,
-    title: row.title ?? "",
+    title: row.title ?? '',
     firstName: row.firstName ?? null,
     lastName: row.lastName ?? null,
     imageUrl: row.imageUrl ?? null,
@@ -200,7 +211,7 @@ function mapArtistForEdit(row: {
   return {
     id: row.id,
     legacyArtistId: row.legacyArtistId ?? null,
-    title: row.title ?? "",
+    title: row.title ?? '',
     firstName: row.firstName ?? null,
     lastName: row.lastName ?? null,
     imageUrl: row.imageUrl ?? null,
@@ -222,22 +233,24 @@ export class ArtistsService {
   private getUploadsConfig() {
     // Server filesystem path
     const uploadsDir =
-      process.env.ARTISTS_UPLOAD_DIR || "/home/reperto/uploads/artist-images";
+      process.env.ARTISTS_UPLOAD_DIR || '/home/reperto/uploads/artist-images';
 
     // Public URL base that serves the uploads (nginx/static mount)
     // IMPORTANT: πρέπει να σερβίρεις τον uploadsDir στο publicBase/artist-images.
     // Χρησιμοποιούμε σχετικό path ως default αντί για production URL, ώστε το
     // backend να μην «διαρρεύσει» σε ζωντανό περιβάλλον όταν το αντίστοιχο env
     // δεν έχει οριστεί.
-    const publicBase =
-      process.env.PUBLIC_UPLOADS_BASE_URL || "/uploads";
+    const publicBase = process.env.PUBLIC_UPLOADS_BASE_URL || '/uploads';
 
     return { uploadsDir, publicBase };
   }
 
   async search(args: SearchArgs) {
-    const q = cleanSpaces(args.q ?? "");
-    const take = Math.min(200, Math.max(1, Math.trunc(Number(args.take || 20))));
+    const q = cleanSpaces(args.q ?? '');
+    const take = Math.min(
+      200,
+      Math.max(1, Math.trunc(Number(args.take || 20))),
+    );
     const skip = Math.max(0, Math.trunc(Number(args.skip || 0)));
 
     // accepts both roles or role (backward compat)
@@ -246,9 +259,9 @@ export class ArtistsService {
     const where: Prisma.ArtistWhereInput = q
       ? {
           OR: [
-            { title: { contains: q, mode: "insensitive" } },
-            { firstName: { contains: q, mode: "insensitive" } },
-            { lastName: { contains: q, mode: "insensitive" } },
+            { title: { contains: q, mode: 'insensitive' } },
+            { firstName: { contains: q, mode: 'insensitive' } },
+            { lastName: { contains: q, mode: 'insensitive' } },
           ],
         }
       : {};
@@ -265,10 +278,10 @@ export class ArtistsService {
       take,
       skip,
       orderBy: [
-        { lastName: "asc" },
-        { firstName: "asc" },
-        { title: "asc" },
-        { id: "asc" },
+        { lastName: 'asc' },
+        { firstName: 'asc' },
+        { title: 'asc' },
+        { id: 'asc' },
       ],
       select: {
         id: true,
@@ -311,7 +324,7 @@ export class ArtistsService {
       },
     });
 
-    if (!row) throw new NotFoundException("Artist not found");
+    if (!row) throw new NotFoundException('Artist not found');
     return mapArtistForEdit(row);
   }
 
@@ -322,13 +335,15 @@ export class ArtistsService {
    */
   async findOrCreate(args: FindOrCreateArgs) {
     const rawTitle = cleanSpaces(args.title);
-    const firstNameNorm = args.firstName != null ? toUpperNoTonos(args.firstName) : "";
-    const lastNameNorm = args.lastName != null ? toUpperNoTonos(args.lastName) : "";
+    const firstNameNorm =
+      args.firstName != null ? toUpperNoTonos(args.firstName) : '';
+    const lastNameNorm =
+      args.lastName != null ? toUpperNoTonos(args.lastName) : '';
 
     const computed = computeDisplayTitle(firstNameNorm, lastNameNorm);
     const title = computed || rawTitle;
 
-    if (!title) throw new BadRequestException("title is required");
+    if (!title) throw new BadRequestException('title is required');
 
     const legacyArtistId =
       args.legacyArtistId == null
@@ -338,7 +353,7 @@ export class ArtistsService {
           : null;
 
     const existing = await this.prisma.artist.findFirst({
-      where: { title: { equals: title, mode: "insensitive" } },
+      where: { title: { equals: title, mode: 'insensitive' } },
       select: {
         id: true,
         legacyArtistId: true,
@@ -347,7 +362,7 @@ export class ArtistsService {
         lastName: true,
         imageUrl: true,
       },
-      orderBy: { id: "asc" },
+      orderBy: { id: 'asc' },
     });
 
     if (existing) return mapArtistList(existing);
@@ -372,9 +387,9 @@ export class ArtistsService {
 
       return mapArtistList(created);
     } catch (e: any) {
-      if (e?.code === "P2002") {
+      if (e?.code === 'P2002') {
         const again = await this.prisma.artist.findFirst({
-          where: { title: { equals: title, mode: "insensitive" } },
+          where: { title: { equals: title, mode: 'insensitive' } },
           select: {
             id: true,
             legacyArtistId: true,
@@ -383,7 +398,7 @@ export class ArtistsService {
             lastName: true,
             imageUrl: true,
           },
-          orderBy: { id: "asc" },
+          orderBy: { id: 'asc' },
         });
         if (again) return mapArtistList(again);
       }
@@ -407,20 +422,24 @@ export class ArtistsService {
         lastName: true,
       },
     });
-    if (!existing) throw new NotFoundException("Artist not found");
+    if (!existing) throw new NotFoundException('Artist not found');
 
     const data: Prisma.ArtistUpdateInput = {};
 
-    const nameTouched = "firstName" in body || "lastName" in body;
+    const nameTouched = 'firstName' in body || 'lastName' in body;
 
     const nextFirstName =
-      "firstName" in body ? toUpperNoTonos(body.firstName) : toUpperNoTonos(existing.firstName);
+      'firstName' in body
+        ? toUpperNoTonos(body.firstName)
+        : toUpperNoTonos(existing.firstName);
 
     const nextLastName =
-      "lastName" in body ? toUpperNoTonos(body.lastName) : toUpperNoTonos(existing.lastName);
+      'lastName' in body
+        ? toUpperNoTonos(body.lastName)
+        : toUpperNoTonos(existing.lastName);
 
-    if ("firstName" in body) (data as any).firstName = nextFirstName || null;
-    if ("lastName" in body) (data as any).lastName = nextLastName || null;
+    if ('firstName' in body) (data as any).firstName = nextFirstName || null;
+    if ('lastName' in body) (data as any).lastName = nextLastName || null;
 
     const computedTitle = computeDisplayTitle(nextFirstName, nextLastName);
 
@@ -429,23 +448,26 @@ export class ArtistsService {
     } else {
       if (nameTouched) {
         throw new BadRequestException(
-          "Συμπλήρωσε τουλάχιστον Επώνυμο (και προαιρετικά Όνομα).",
+          'Συμπλήρωσε τουλάχιστον Επώνυμο (και προαιρετικά Όνομα).',
         );
       }
       if (!existing.title || !String(existing.title).trim()) {
         throw new BadRequestException(
-          "Ο καλλιτέχνης δεν έχει έγκυρο τίτλο. Συμπλήρωσε Επώνυμο/Όνομα.",
+          'Ο καλλιτέχνης δεν έχει έγκυρο τίτλο. Συμπλήρωσε Επώνυμο/Όνομα.',
         );
       }
     }
 
-    if ("sex" in body) (data as any).sex = normalizeNullableText(body.sex);
-    if ("biography" in body) (data as any).biography = normalizeNullableText(body.biography);
-    if ("wikiUrl" in body) (data as any).wikiUrl = normalizeNullableUrl(body.wikiUrl);
-    if ("imageUrl" in body) (data as any).imageUrl = normalizeNullableUrl(body.imageUrl);
+    if ('sex' in body) (data as any).sex = normalizeNullableText(body.sex);
+    if ('biography' in body)
+      (data as any).biography = normalizeNullableText(body.biography);
+    if ('wikiUrl' in body)
+      (data as any).wikiUrl = normalizeNullableUrl(body.wikiUrl);
+    if ('imageUrl' in body)
+      (data as any).imageUrl = normalizeNullableUrl(body.imageUrl);
 
-    if ("bornYear" in body) (data as any).bornYear = body.bornYear ?? null;
-    if ("dieYear" in body) (data as any).dieYear = body.dieYear ?? null;
+    if ('bornYear' in body) (data as any).bornYear = body.bornYear ?? null;
+    if ('dieYear' in body) (data as any).dieYear = body.dieYear ?? null;
 
     await this.prisma.artist.update({
       where: { id },
@@ -461,38 +483,42 @@ export class ArtistsService {
       where: { id },
       select: { id: true },
     });
-    if (!artist) throw new NotFoundException("Artist not found");
+    if (!artist) throw new NotFoundException('Artist not found');
 
-    const mime = String(file?.mimetype || "").toLowerCase();
+    const mime = String(file?.mimetype || '').toLowerCase();
     const ext =
-      mime === "image/jpeg"
-        ? "jpg"
-        : mime === "image/png"
-          ? "png"
-          : mime === "image/webp"
-            ? "webp"
+      mime === 'image/jpeg'
+        ? 'jpg'
+        : mime === 'image/png'
+          ? 'png'
+          : mime === 'image/webp'
+            ? 'webp'
             : null;
 
     if (!ext) {
-      throw new BadRequestException("Μόνο εικόνες JPG/PNG/WebP επιτρέπονται.");
+      throw new BadRequestException('Μόνο εικόνες JPG/PNG/WebP επιτρέπονται.');
     }
 
-    if (!file?.buffer || !Buffer.isBuffer(file.buffer) || file.buffer.length === 0) {
-      throw new BadRequestException("Κενό αρχείο.");
+    if (
+      !file?.buffer ||
+      !Buffer.isBuffer(file.buffer) ||
+      file.buffer.length === 0
+    ) {
+      throw new BadRequestException('Κενό αρχείο.');
     }
 
     const { uploadsDir, publicBase } = this.getUploadsConfig();
 
     await fs.mkdir(uploadsDir, { recursive: true });
 
-    const rand = crypto.randomBytes(8).toString("hex");
+    const rand = crypto.randomBytes(8).toString('hex');
     const filename = `artist-${id}-${Date.now()}-${rand}.${ext}`;
     const fullPath = path.join(uploadsDir, filename);
 
     await fs.writeFile(fullPath, file.buffer);
 
     // ✅ FIX: αν το uploadsDir είναι /.../artist-images, τότε το url πρέπει να σερβίρει /uploads/artist-images/<filename>
-    const imageUrl = `${String(publicBase).replace(/\/$/, "")}/artist-images/${filename}`;
+    const imageUrl = `${String(publicBase).replace(/\/$/, '')}/artist-images/${filename}`;
 
     await this.prisma.artist.update({
       where: { id },
@@ -503,17 +529,22 @@ export class ArtistsService {
   }
 
   // ✅ NEW: create πλήρες σε 1 request + optional file (multipart)
-  async createArtistFull(body: CreateArtistFullArgs, file?: Express.Multer.File) {
-    const firstNameNorm = body.firstName != null ? toUpperNoTonos(body.firstName) : "";
-    const lastNameNorm = body.lastName != null ? toUpperNoTonos(body.lastName) : "";
+  async createArtistFull(
+    body: CreateArtistFullArgs,
+    file?: Express.Multer.File,
+  ) {
+    const firstNameNorm =
+      body.firstName != null ? toUpperNoTonos(body.firstName) : '';
+    const lastNameNorm =
+      body.lastName != null ? toUpperNoTonos(body.lastName) : '';
 
     const computed = computeDisplayTitle(firstNameNorm, lastNameNorm);
-    const rawTitle = cleanSpaces(body.title ?? "");
+    const rawTitle = cleanSpaces(body.title ?? '');
     const title = computed || rawTitle;
 
     if (!title) {
       throw new BadRequestException(
-        "Συμπλήρωσε τουλάχιστον Επώνυμο (και προαιρετικά Όνομα).",
+        'Συμπλήρωσε τουλάχιστον Επώνυμο (και προαιρετικά Όνομα).',
       );
     }
 
@@ -543,7 +574,11 @@ export class ArtistsService {
   }
 
   // ✅ NEW: update πλήρες σε 1 request + optional file (multipart)
-  async updateArtistFull(id: number, body: UpdateArtistFullArgs, file?: Express.Multer.File) {
+  async updateArtistFull(
+    id: number,
+    body: UpdateArtistFullArgs,
+    file?: Express.Multer.File,
+  ) {
     // reuse existing rules for computing title and validating names
     await this.updateArtist(id, {
       ...(body.title !== undefined ? { title: body.title } : {}),
@@ -569,7 +604,7 @@ export class ArtistsService {
       where: { id },
       select: { id: true },
     });
-    if (!exists) throw new NotFoundException("Artist not found");
+    if (!exists) throw new NotFoundException('Artist not found');
 
     const versionRolesCount = await this.prisma.songVersionArtist.count({
       where: { artistId: id },
@@ -581,7 +616,7 @@ export class ArtistsService {
 
     if (versionRolesCount > 0 || songCreditsCount > 0) {
       throw new BadRequestException(
-        "Ο καλλιτέχνης χρησιμοποιείται σε τραγούδια και δεν μπορεί να διαγραφεί.",
+        'Ο καλλιτέχνης χρησιμοποιείται σε τραγούδια και δεν μπορεί να διαγραφεί.',
       );
     }
 

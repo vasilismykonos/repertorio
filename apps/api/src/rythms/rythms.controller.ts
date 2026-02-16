@@ -9,46 +9,43 @@ import {
   Query,
   Patch,
   Delete,
-} from "@nestjs/common";
-import { RythmsService } from "./rythms.service";
+} from '@nestjs/common';
+import { RythmsService } from './rythms.service';
 
-@Controller("rythms")
+@Controller('rythms')
 export class RythmsController {
   constructor(private readonly rythmsService: RythmsService) {}
 
   @Get()
   async getAllRythms(
-    @Query("q") q?: string,
-    @Query("skip") skipStr?: string,
-    @Query("take") takeStr?: string,
+    @Query('q') q?: string,
+    @Query('skip') skipStr?: string,
+    @Query('take') takeStr?: string,
   ) {
     const skip = skipStr ? Number.parseInt(skipStr, 10) : undefined;
     const take = takeStr ? Number.parseInt(takeStr, 10) : undefined;
     return this.rythmsService.findAll({ q: q ?? undefined, skip, take });
   }
 
-  @Get(":id")
-  async getRythm(@Param("id", ParseIntPipe) id: number) {
+  @Get(':id')
+  async getRythm(@Param('id', ParseIntPipe) id: number) {
     return this.rythmsService.findById(id);
   }
 
   @Post()
   async createRythm(@Body() body: any) {
-    if (!body || typeof body !== "object") {
-      throw new BadRequestException("Invalid request body");
+    if (!body || typeof body !== 'object') {
+      throw new BadRequestException('Invalid request body');
     }
-    const title = String(body.title ?? "").trim();
+    const title = String(body.title ?? '').trim();
     const slug = body.slug != null ? String(body.slug).trim() : undefined;
     return this.rythmsService.create({ title, slug });
   }
 
-  @Patch(":id")
-  async updateRythm(
-    @Param("id", ParseIntPipe) id: number,
-    @Body() body: any,
-  ) {
-    if (!body || typeof body !== "object") {
-      throw new BadRequestException("Invalid request body");
+  @Patch(':id')
+  async updateRythm(@Param('id', ParseIntPipe) id: number, @Body() body: any) {
+    if (!body || typeof body !== 'object') {
+      throw new BadRequestException('Invalid request body');
     }
     const title =
       body.title !== undefined && body.title !== null
@@ -61,8 +58,8 @@ export class RythmsController {
     return this.rythmsService.update(id, { title, slug });
   }
 
-  @Delete(":id")
-  async deleteRythm(@Param("id", ParseIntPipe) id: number) {
+  @Delete(':id')
+  async deleteRythm(@Param('id', ParseIntPipe) id: number) {
     return this.rythmsService.remove(id);
   }
 }

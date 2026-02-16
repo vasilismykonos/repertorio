@@ -3,9 +3,9 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
-} from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { slugify } from "../utils/slugify";
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { slugify } from '../utils/slugify';
 
 /**
  * Service providing CRUD and search operations for song categories.
@@ -42,14 +42,14 @@ export class CategoriesService {
     const { q, skip, take } = params ?? {};
     const where: any = {};
     if (q && q.trim()) {
-      where.title = { contains: q.trim(), mode: "insensitive" };
+      where.title = { contains: q.trim(), mode: 'insensitive' };
     }
     const cats = await this.prisma.category.findMany({
       where,
-      orderBy: { title: "asc" },
-      skip: typeof skip === "number" && skip >= 0 ? skip : undefined,
+      orderBy: { title: 'asc' },
+      skip: typeof skip === 'number' && skip >= 0 ? skip : undefined,
       take:
-        typeof take === "number" && Number.isFinite(take)
+        typeof take === 'number' && Number.isFinite(take)
           ? Math.min(200, Math.max(1, take))
           : undefined,
       include: { _count: { select: { songs: true } } },
@@ -65,7 +65,7 @@ export class CategoriesService {
       where: { id },
       include: { _count: { select: { songs: true } } },
     });
-    if (!cat) throw new NotFoundException("Category not found");
+    if (!cat) throw new NotFoundException('Category not found');
     return this.toDto(cat);
   }
 
@@ -74,12 +74,12 @@ export class CategoriesService {
    * generated from the title.  Throws if the title is missing or blank.
    */
   async create(input: { title: string; slug?: string | null }) {
-    const rawTitle = String(input.title ?? "").trim();
+    const rawTitle = String(input.title ?? '').trim();
     if (!rawTitle) {
-      throw new BadRequestException("Title is required");
+      throw new BadRequestException('Title is required');
     }
     // Normalise slug: if provided use it, otherwise derive from title.
-    let slug = String(input.slug ?? "").trim();
+    let slug = String(input.slug ?? '').trim();
     if (!slug) {
       slug = slugify(rawTitle);
     } else {
@@ -100,8 +100,8 @@ export class CategoriesService {
     input: { title?: string | null; slug?: string | null },
   ) {
     const existing = await this.prisma.category.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException("Category not found");
-    let title =
+    if (!existing) throw new NotFoundException('Category not found');
+    const title =
       input.title !== undefined && input.title !== null
         ? String(input.title).trim()
         : existing.title;
@@ -110,7 +110,7 @@ export class CategoriesService {
         ? String(input.slug).trim()
         : existing.slug;
     if (!title) {
-      throw new BadRequestException("Title is required");
+      throw new BadRequestException('Title is required');
     }
     if (!slug) {
       slug = slugify(title);
@@ -138,7 +138,7 @@ export class CategoriesService {
       where: { id },
       include: { _count: { select: { songs: true } } },
     });
-    if (!existing) throw new NotFoundException("Category not found");
+    if (!existing) throw new NotFoundException('Category not found');
 
     const songsCount = existing._count?.songs ?? 0;
     if (songsCount > 0) {

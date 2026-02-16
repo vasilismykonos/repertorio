@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 
 /* =========================
@@ -12,7 +17,7 @@ export type ListSummaryDto = {
   marked: boolean;
   role: "OWNER" | "EDITOR" | "VIEWER";
 
-  // ✅ aliases για συμβατότητα (αν το UI τα περιμένει)
+  // aliases (UI compatibility)
   name?: string;
   listTitle?: string;
   list_title?: string;
@@ -51,10 +56,10 @@ export type ListItemDto = {
 export type ListDetailDto = {
   id: number;
 
-  // ✅ canonical
+  // canonical
   title: string;
 
-  // ✅ aliases για συμβατότητα (αν το UI διαβάζει άλλο κλειδί)
+  // aliases
   name: string;
   listTitle: string;
   list_title: string;
@@ -75,11 +80,13 @@ export type ListItemsResponse = {
   page: number;
   pageSize: number;
 
-  // ✅ χρήσιμο αν το UI φορτώνει μόνο /items αλλά θέλει τίτλο
   listId: number;
   listTitle: string;
   title: string; // canonical
 };
+
+export type DeleteListItemResponse = { ok: true };
+export type ReorderListItemsResponse = { ok: true };
 
 /* =========================
    Service
@@ -122,13 +129,51 @@ export class ListsService {
   }
 
   /**
-   * ✅ “Ανήκει στον χρήστη” = ο χρήστης είναι OWNER στο ListMember.
+   * Index ACL: “ανήκει” = OWNER στο ListMember
    */
   private ownershipAclWhere(userId: number) {
     return { members: { some: { userId, role: "OWNER" as const } } };
   }
 
-  /* ---------- index ---------- */
+  private nonEmptyOrNull(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const t = value.trim();
+    return t.length > 0 ? t : null;
+  }
+
+  /**
+   * Edit ACL:
+   * - ADMIN: ok
+   * - OWNER/EDITOR: ok
+   * - VIEWER: forbidden
+   * - not member: 404
+   */
+  private async assertCanEditListOrThrow(params: {
+    listId: number;
+    userId: number;
+  }): Promise<"OWNER" | "EDITOR" | "ADMIN"> {
+    const { listId, userId } = params;
+    const { isAdmin } = await this.getUserContext(userId);
+    if (isAdmin) return "ADMIN";
+
+    const member = await this.prisma.listMember.findFirst({
+      where: { listId, userId },
+      select: { role: true },
+    });
+
+    if (!member) throw new NotFoundException("Η λίστα δεν βρέθηκε.");
+    if (member.role === "VIEWER") {
+      throw new ForbiddenException(
+        "Δεν έχετε δικαίωμα επεξεργασίας αυτής της λίστας.",
+      );
+    }
+
+    return member.role; // OWNER | EDITOR
+  }
+
+  /* =========================
+     Queries
+  ========================= */
 
   async getListsIndex(params: {
     userId: number;
@@ -156,9 +201,8 @@ export class ListsService {
       filters.groupId = groupId;
     }
 
-    // ✅ Index δείχνει μόνο “δικές μου” (OWNER) — εκτός αν admin.
+    // Index: μόνο OWNER lists εκτός αν admin
     const acl = isAdmin ? {} : this.ownershipAclWhere(userId);
-
     const where =
       Object.keys(filters).length > 0 ? { AND: [acl, filters] } : acl;
 
@@ -221,7 +265,7 @@ export class ListsService {
           marked: r.marked,
           role: isAdmin ? "OWNER" : this.computeRole(r.members),
 
-          // ✅ aliases (δεν ενοχλούν, βοηθούν)
+          // aliases
           name: t,
           listTitle: t,
           list_title: t,
@@ -234,8 +278,6 @@ export class ListsService {
     };
   }
 
-  /* ---------- detail ---------- */
-
   async getListDetail(params: {
     listId: number;
     userId: number;
@@ -247,7 +289,6 @@ export class ListsService {
       where: { id: listId },
       include: {
         group: true,
-        // ✅ εδώ μένει “member access” (shared lists)
         members: isAdmin ? false : { where: { userId }, select: { role: true } },
         items: {
           orderBy: [{ sortId: "asc" }, { id: "asc" }],
@@ -256,7 +297,7 @@ export class ListsService {
       },
     });
 
-    if (!list) throw new NotFoundException("List not found");
+    if (!list) throw new NotFoundException("Η λίστα δεν βρέθηκε.");
 
     const role = isAdmin ? "OWNER" : this.computeRole((list as any).members);
     if (!isAdmin && !(list as any).members?.length) {
@@ -267,11 +308,7 @@ export class ListsService {
 
     return {
       id: list.id,
-
-      // ✅ canonical
       title,
-
-      // ✅ aliases για όποιο κλειδί περιμένει το UI
       name: title,
       listTitle: title,
       list_title: title,
@@ -279,35 +316,49 @@ export class ListsService {
       groupId: list.groupId ?? null,
       groupTitle: list.group?.title ?? null,
       groupFullTitle: list.group?.fullTitle ?? null,
+
       marked: list.marked,
       role,
-      items: (list.items ?? []).map((it: any) => {
-        const songTitle = it.song?.title ?? null;
-        const songChords = it.song?.chords ?? null;
-        const songLyrics = it.song?.lyrics ?? null;
 
-        const listChords = it.chords ?? null;
-        const listLyrics = it.lyrics ?? null;
+      items: (list.items ?? []).map((it: any) => {
+        const songTitle = this.nonEmptyOrNull(it.song?.title);
+        const songChords = this.nonEmptyOrNull(it.song?.chords);
+        const songLyrics = this.nonEmptyOrNull(it.song?.lyrics);
+
+        const listTitleOv = this.nonEmptyOrNull(it.title);
+        const listChordsOv = this.nonEmptyOrNull(it.chords);
+        const listLyricsOv = this.nonEmptyOrNull(it.lyrics);
+
+        const effectiveTitle = listTitleOv ?? songTitle ?? null;
+
+        const effectiveChords = listChordsOv ?? songChords ?? null;
+        const chordsSource: "LIST" | "SONG" | "NONE" = listChordsOv
+          ? "LIST"
+          : songChords
+            ? "SONG"
+            : "NONE";
+
+        const effectiveLyrics = listLyricsOv ?? songLyrics ?? null;
+        const lyricsSource: "LIST" | "SONG" | "NONE" = listLyricsOv
+          ? "LIST"
+          : songLyrics
+            ? "SONG"
+            : "NONE";
 
         return {
           listItemId: it.id,
           listId: it.listId,
           sortId: it.sortId,
-
           songId: it.songId ?? null,
-          title: it.title ?? songTitle,
-
-          chords: listChords ?? songChords ?? null,
-          chordsSource: listChords ? "LIST" : songChords ? "SONG" : "NONE",
-
-          lyrics: listLyrics ?? songLyrics ?? null,
-          lyricsSource: listLyrics ? "LIST" : songLyrics ? "SONG" : "NONE",
+          title: effectiveTitle,
+          chords: effectiveChords,
+          chordsSource,
+          lyrics: effectiveLyrics,
+          lyricsSource,
         };
       }),
     };
   }
-
-  /* ---------- items only ---------- */
 
   async getListItems(params: {
     userId: number;
@@ -318,7 +369,6 @@ export class ListsService {
     const page = this.normalizePage(params.page);
     const pageSize = this.normalizePageSize(params.pageSize);
 
-    // reuse detail (same ACL + ordering)
     const detail = await this.getListDetail({
       listId: params.listId,
       userId: params.userId,
@@ -336,5 +386,173 @@ export class ListsService {
       title: detail.title,
       listTitle: detail.title,
     };
+  }
+
+  /* =========================
+     Mutations
+  ========================= */
+
+  async addListItem(params: {
+    listId: number;
+    userId: number;
+    songId: number;
+    title?: string;
+    chords?: string;
+    lyrics?: string;
+    notes?: string | null;
+    transport?: number;
+  }): Promise<ListItemDto> {
+    const { listId, userId, songId } = params;
+
+    await this.assertCanEditListOrThrow({ listId, userId });
+
+    const song = await this.prisma.song.findUnique({
+      where: { id: songId },
+      select: { id: true, title: true, chords: true, lyrics: true },
+    });
+    if (!song) throw new NotFoundException("Το τραγούδι δεν βρέθηκε.");
+
+    const agg = await this.prisma.listItem.aggregate({
+      where: { listId },
+      _max: { sortId: true },
+    });
+    const nextSortId = (agg._max.sortId ?? 0) + 1;
+
+    const t = typeof params.title === "string" ? params.title.trim() : "";
+    const titleToStore = t.length > 0 ? t : ""; // title is NOT NULL
+
+    const c = typeof params.chords === "string" ? params.chords.trim() : "";
+    const chordsToStore = c.length > 0 ? c : null;
+
+    const l = typeof params.lyrics === "string" ? params.lyrics.trim() : "";
+    const lyricsToStore = l.length > 0 ? l : null;
+
+    const created = await this.prisma.listItem.create({
+      data: {
+        listId,
+        sortId: nextSortId,
+        songId,
+        title: titleToStore,
+        chords: chordsToStore,
+        lyrics: lyricsToStore,
+        notes: params.notes ?? null,
+        transport: Number.isInteger(params.transport)
+          ? (params.transport as number)
+          : 0,
+      },
+      include: { song: true },
+    });
+
+    const songTitle = this.nonEmptyOrNull(created.song?.title);
+    const songChords = this.nonEmptyOrNull(created.song?.chords);
+    const songLyrics = this.nonEmptyOrNull(created.song?.lyrics);
+
+    const listTitleOv = this.nonEmptyOrNull(created.title);
+    const listChordsOv = this.nonEmptyOrNull(created.chords);
+    const listLyricsOv = this.nonEmptyOrNull(created.lyrics);
+
+    const effectiveTitle = listTitleOv ?? songTitle ?? null;
+
+    const effectiveChords = listChordsOv ?? songChords ?? null;
+    const chordsSource: "LIST" | "SONG" | "NONE" = listChordsOv
+      ? "LIST"
+      : songChords
+        ? "SONG"
+        : "NONE";
+
+    const effectiveLyrics = listLyricsOv ?? songLyrics ?? null;
+    const lyricsSource: "LIST" | "SONG" | "NONE" = listLyricsOv
+      ? "LIST"
+      : songLyrics
+        ? "SONG"
+        : "NONE";
+
+    return {
+      listItemId: created.id,
+      listId: created.listId,
+      sortId: created.sortId,
+      songId: created.songId ?? null,
+      title: effectiveTitle,
+      chords: effectiveChords,
+      chordsSource,
+      lyrics: effectiveLyrics,
+      lyricsSource,
+    };
+  }
+
+  async deleteListItem(params: {
+    listId: number;
+    listItemId: number;
+    userId: number;
+  }): Promise<DeleteListItemResponse> {
+    const { listId, listItemId, userId } = params;
+
+    await this.assertCanEditListOrThrow({ listId, userId });
+
+    const existing = await this.prisma.listItem.findFirst({
+      where: { id: listItemId, listId },
+      select: { id: true },
+    });
+
+    if (!existing) throw new NotFoundException("List item not found");
+
+    await this.prisma.listItem.delete({
+      where: { id: listItemId },
+    });
+
+    return { ok: true };
+  }
+
+  /**
+   * Reorder items by listItem ids
+   * - απαιτεί πλήρες order (ίδιο set ids με τα υπάρχοντα items της λίστας)
+   */
+  async reorderListItems(params: {
+    listId: number;
+    userId: number;
+    order: number[];
+  }): Promise<ReorderListItemsResponse> {
+    const { listId, userId, order } = params;
+
+    await this.assertCanEditListOrThrow({ listId, userId });
+
+    const existing = await this.prisma.listItem.findMany({
+      where: { listId },
+      select: { id: true },
+      orderBy: [{ sortId: "asc" }, { id: "asc" }],
+    });
+
+    const existingIds = existing.map((x) => x.id);
+    const existingSet = new Set(existingIds);
+    const orderSet = new Set(order);
+
+    if (existingIds.length !== order.length) {
+      throw new BadRequestException(
+        `Invalid order: expected ${existingIds.length} ids, got ${order.length}.`,
+      );
+    }
+
+    // same set?
+    if (existingSet.size !== orderSet.size) {
+      throw new BadRequestException("Invalid order: duplicates detected.");
+    }
+    for (const id of order) {
+      if (!existingSet.has(id)) {
+        throw new BadRequestException(
+          `Invalid order: item id ${id} does not belong to list ${listId}.`,
+        );
+      }
+    }
+
+    await this.prisma.$transaction(
+      order.map((listItemId, idx) =>
+        this.prisma.listItem.update({
+          where: { id: listItemId },
+          data: { sortId: idx + 1 },
+        }),
+      ),
+    );
+
+    return { ok: true };
   }
 }

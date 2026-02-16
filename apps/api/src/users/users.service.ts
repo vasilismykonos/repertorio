@@ -1,15 +1,19 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { Prisma } from "@prisma/client";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 
-import { UserRole } from "@prisma/client";
+import { UserRole } from '@prisma/client';
 
 export interface ListUsersOptions {
   search?: string;
   page: number;
   pageSize: number;
   sort: string;
-  order: "asc" | "desc";
+  order: 'asc' | 'desc';
 }
 
 export type ListUserItem = {
@@ -37,7 +41,7 @@ export type ListUsersResult = {
 };
 
 function isPlainObject(v: unknown): v is Record<string, any> {
-  return !!v && typeof v === "object" && !Array.isArray(v);
+  return !!v && typeof v === 'object' && !Array.isArray(v);
 }
 
 function deepMerge(a: any, b: any): any {
@@ -65,27 +69,28 @@ export class UsersService {
     return n;
   }
 
-  private normalizeOrder(order?: "asc" | "desc"): "asc" | "desc" {
-    return order === "desc" ? "desc" : "asc";
+  private normalizeOrder(order?: 'asc' | 'desc'): 'asc' | 'desc' {
+    return order === 'desc' ? 'desc' : 'asc';
   }
 
   private buildOrderBy(
     sort: string,
-    order: "asc" | "desc",
+    order: 'asc' | 'desc',
   ): Prisma.UserOrderByWithRelationInput {
     const dir = this.normalizeOrder(order);
 
-    const sortable: Record<string, keyof Prisma.UserOrderByWithRelationInput> = {
-      id: "id",
-      displayName: "displayName",
-      username: "username",
-      email: "email",
-      role: "role",
-      createdAt: "createdAt",
-      updatedAt: "updatedAt",
-    };
+    const sortable: Record<string, keyof Prisma.UserOrderByWithRelationInput> =
+      {
+        id: 'id',
+        displayName: 'displayName',
+        username: 'username',
+        email: 'email',
+        role: 'role',
+        createdAt: 'createdAt',
+        updatedAt: 'updatedAt',
+      };
 
-    const key = sortable[sort] || "displayName";
+    const key = sortable[sort] || 'displayName';
     return { [key]: dir };
   }
 
@@ -94,7 +99,7 @@ export class UsersService {
     if (!userIds.length) return map;
 
     const rows = await this.prisma.song.groupBy({
-      by: ["createdByUserId"],
+      by: ['createdByUserId'],
       where: { createdByUserId: { in: userIds } },
       _count: { _all: true },
     });
@@ -110,7 +115,7 @@ export class UsersService {
     if (!userIds.length) return map;
 
     const rows = await this.prisma.songVersion.groupBy({
-      by: ["createdByUserId"],
+      by: ['createdByUserId'],
       where: { createdByUserId: { in: userIds } },
       _count: { _all: true },
     });
@@ -128,9 +133,9 @@ export class UsersService {
     const where: Prisma.UserWhereInput = options.search
       ? {
           OR: [
-            { displayName: { contains: options.search, mode: "insensitive" } },
-            { email: { contains: options.search, mode: "insensitive" } },
-            { username: { contains: options.search, mode: "insensitive" } },
+            { displayName: { contains: options.search, mode: 'insensitive' } },
+            { email: { contains: options.search, mode: 'insensitive' } },
+            { username: { contains: options.search, mode: 'insensitive' } },
           ],
         }
       : {};
@@ -183,15 +188,15 @@ export class UsersService {
       createdVersionsCount: versionCounts.get(u.id) ?? 0,
     }));
 
-    if (options.sort === "createdSongsCount") {
+    if (options.sort === 'createdSongsCount') {
       items = items.sort((a, b) =>
-        this.normalizeOrder(options.order) === "desc"
+        this.normalizeOrder(options.order) === 'desc'
           ? b.createdSongsCount - a.createdSongsCount
           : a.createdSongsCount - b.createdSongsCount,
       );
-    } else if (options.sort === "createdVersionsCount") {
+    } else if (options.sort === 'createdVersionsCount') {
       items = items.sort((a, b) =>
-        this.normalizeOrder(options.order) === "desc"
+        this.normalizeOrder(options.order) === 'desc'
           ? b.createdVersionsCount - a.createdVersionsCount
           : a.createdVersionsCount - b.createdVersionsCount,
       );
@@ -269,12 +274,11 @@ export class UsersService {
     if (body.profile !== undefined) {
       if (body.profile === null) {
         data.profile = Prisma.DbNull;
-
       } else if (isPlainObject(body.profile)) {
         const merged = deepMerge(exists.profile ?? {}, body.profile);
-        data.profile = merged as any;
+        data.profile = merged;
       } else {
-        throw new BadRequestException("profile must be an object or null");
+        throw new BadRequestException('profile must be an object or null');
       }
     }
 

@@ -1,6 +1,13 @@
 // apps/api/src/songs/song-credits.controller.ts
 
-import { Controller, Get, GoneException, Param, ParseIntPipe, Put } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  GoneException,
+  Param,
+  ParseIntPipe,
+  Put,
+} from '@nestjs/common';
 
 /**
  * ❌ DEPRECATED (legacy split architecture)
@@ -9,17 +16,17 @@ import { Controller, Get, GoneException, Param, ParseIntPipe, Put } from "@nestj
  *   - POST  /songs/full
  *   - PATCH /songs/:id/full
  */
-@Controller("songs")
+@Controller('songs')
 export class SongCreditsController {
-  @Get(":id/credits")
-  async getCredits(@Param("id", ParseIntPipe) _songId: number) {
+  @Get(':id/credits')
+  async getCredits(@Param('id', ParseIntPipe) _songId: number) {
     throw new GoneException(
-      "Deprecated endpoint. Use GET /songs/:id (credits are included) or PATCH /songs/:id/full.",
+      'Deprecated endpoint. Use GET /songs/:id (credits are included) or PATCH /songs/:id/full.',
     );
   }
 
-  @Put(":id/credits")
-  async replaceCredits(@Param("id", ParseIntPipe) _songId: number) {
-    throw new GoneException("Deprecated endpoint. Use PATCH /songs/:id/full.");
+  @Put(':id/credits')
+  async replaceCredits(@Param('id', ParseIntPipe) _songId: number) {
+    throw new GoneException('Deprecated endpoint. Use PATCH /songs/:id/full.');
   }
 }

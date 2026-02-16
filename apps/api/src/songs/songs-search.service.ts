@@ -1,6 +1,6 @@
-import { Injectable } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { Prisma, SongStatus } from "@prisma/client";
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { Prisma, SongStatus } from '@prisma/client';
 
 export type SearchParams = {
   q?: string;
@@ -49,25 +49,25 @@ export class SongsSearchService {
 
   private mapSongToResult(s: any): SearchResultItem {
     const chordsHas =
-      typeof s.chords === "string" && s.chords.trim() !== "" ? 1 : 0;
+      typeof s.chords === 'string' && s.chords.trim() !== '' ? 1 : 0;
 
     const partitureHas = s.scoreFile ? 1 : 0;
 
-    const categoryId = typeof s.categoryId === "number" ? s.categoryId : null;
-    const rythmId = typeof s.rythmId === "number" ? s.rythmId : null;
+    const categoryId = typeof s.categoryId === 'number' ? s.categoryId : null;
+    const rythmId = typeof s.rythmId === 'number' ? s.rythmId : null;
 
     return {
       song_id: s.id,
-      title: s.title ?? "",
-      firstLyrics: s.firstLyrics ?? "",
-      lyrics: s.lyrics ?? "",
-      characteristics: s.characteristics ?? "",
-      originalKey: s.originalKey ?? "",
+      title: s.title ?? '',
+      firstLyrics: s.firstLyrics ?? '',
+      lyrics: s.lyrics ?? '',
+      characteristics: s.characteristics ?? '',
+      originalKey: s.originalKey ?? '',
       chords: chordsHas,
       partiture: partitureHas,
-      status: s.status ? String(s.status) : "",
+      status: s.status ? String(s.status) : '',
       score: 0,
-      views: typeof s.views === "number" ? s.views : null,
+      views: typeof s.views === 'number' ? s.views : null,
 
       category_id: categoryId,
       categoryId,
@@ -94,17 +94,17 @@ export class SongsSearchService {
 
     const where: Prisma.SongWhereInput = {};
 
-    if (typeof createdByUserId === "number") {
+    if (typeof createdByUserId === 'number') {
       where.createdByUserId = createdByUserId;
     }
 
-    if (chords === "1") where.chords = { not: null };
-    else if (chords === "0") where.chords = null;
+    if (chords === '1') where.chords = { not: null };
+    else if (chords === '0') where.chords = null;
 
-    if (partiture === "1") where.scoreFile = { not: null };
-    else if (partiture === "0") where.scoreFile = null;
+    if (partiture === '1') where.scoreFile = { not: null };
+    else if (partiture === '0') where.scoreFile = null;
 
-    if (status && status.trim() !== "") {
+    if (status && status.trim() !== '') {
       const s = status.trim();
       if ((Object.values(SongStatus) as string[]).includes(s)) {
         where.status = s as SongStatus;
@@ -114,27 +114,27 @@ export class SongsSearchService {
     if (categoryIds?.length) where.categoryId = { in: categoryIds };
     if (rythmIds?.length) where.rythmId = { in: rythmIds };
 
-    if (characteristics === "null") {
+    if (characteristics === 'null') {
       where.characteristics = null;
-    } else if (characteristics && characteristics.trim() !== "") {
+    } else if (characteristics && characteristics.trim() !== '') {
       where.characteristics = {
         contains: characteristics.trim(),
-        mode: "insensitive",
+        mode: 'insensitive',
       };
     }
 
-    if (lyricsFlag === "null") {
+    if (lyricsFlag === 'null') {
       where.lyrics = null;
     }
 
     // q
-    if (q && q.trim() !== "") {
+    if (q && q.trim() !== '') {
       const term = q.trim();
       where.OR = [
-        { title: { contains: term, mode: "insensitive" } },
-        { firstLyrics: { contains: term, mode: "insensitive" } },
-        { lyrics: { contains: term, mode: "insensitive" } },
-        { characteristics: { contains: term, mode: "insensitive" } },
+        { title: { contains: term, mode: 'insensitive' } },
+        { firstLyrics: { contains: term, mode: 'insensitive' } },
+        { lyrics: { contains: term, mode: 'insensitive' } },
+        { characteristics: { contains: term, mode: 'insensitive' } },
       ];
     }
 
@@ -151,12 +151,16 @@ export class SongsSearchService {
       return skip;
     })();
 
-    const sortByPopular = popular === "1";
+    const sortByPopular = popular === '1';
 
     // ✅ FIX: SortOrder literals (as const)
     const orderBy: Prisma.SongOrderByWithRelationInput[] = sortByPopular
-      ? [{ views: "desc" as const }, { title: "asc" as const }, { id: "asc" as const }]
-      : [{ title: "asc" as const }, { id: "asc" as const }];
+      ? [
+          { views: 'desc' as const },
+          { title: 'asc' as const },
+          { id: 'asc' as const },
+        ]
+      : [{ title: 'asc' as const }, { id: 'asc' as const }];
 
     const [songs, total] = await this.prisma.$transaction([
       this.prisma.song.findMany({

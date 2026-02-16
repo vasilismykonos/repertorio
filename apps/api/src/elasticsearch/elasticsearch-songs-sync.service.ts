@@ -1,33 +1,36 @@
 // apps/api/src/elasticsearch/elasticsearch-songs-sync.service.ts
 
-import { Injectable, Logger } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
+import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class ElasticsearchSongsSyncService {
   private readonly logger = new Logger(ElasticsearchSongsSyncService.name);
 
-  private readonly ES_BASE = (process.env.ES_BASE_URL ?? "http://127.0.0.1:9200").replace(/\/$/, "");
-  private readonly INDEX = process.env.ES_SONGS_INDEX ?? "app_songs";
+  private readonly ES_BASE = (
+    process.env.ES_BASE_URL ?? 'http://127.0.0.1:9200'
+  ).replace(/\/$/, '');
+  private readonly INDEX = process.env.ES_SONGS_INDEX ?? 'app_songs';
 
   /**
    * Αν ES_SYNC_STRICT=1 => αν αποτύχει το ES, κάνουμε throw.
    * Default: best-effort (log error, αλλά το save δεν χαλάει).
    */
-  private readonly strict = String(process.env.ES_SYNC_STRICT ?? "").trim() === "1";
+  private readonly strict =
+    String(process.env.ES_SYNC_STRICT ?? '').trim() === '1';
 
   constructor(private readonly prisma: PrismaService) {}
 
   private async es(path: string, init?: RequestInit) {
-    const url = `${this.ES_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+    const url = `${this.ES_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
 
     const headers = new Headers(init?.headers ?? {});
-    if (!headers.has("content-type")) {
-      headers.set("content-type", "application/json");
+    if (!headers.has('content-type')) {
+      headers.set('content-type', 'application/json');
     }
 
     const res = await fetch(url, { ...init, headers });
-    const text = await res.text().catch(() => "");
+    const text = await res.text().catch(() => '');
 
     let json: any = null;
     if (text) {
@@ -42,17 +45,17 @@ export class ElasticsearchSongsSyncService {
   }
 
   private normalizeName(artist: any): string | null {
-    const title = String(artist?.title ?? "").trim();
+    const title = String(artist?.title ?? '').trim();
     if (title) return title;
 
-    const name = String(artist?.name ?? "").trim();
+    const name = String(artist?.name ?? '').trim();
     if (name) return name;
 
-    const fullName = String(artist?.fullName ?? "").trim();
+    const fullName = String(artist?.fullName ?? '').trim();
     if (fullName) return fullName;
 
-    const first = String(artist?.firstName ?? "").trim();
-    const last = String(artist?.lastName ?? "").trim();
+    const first = String(artist?.firstName ?? '').trim();
+    const last = String(artist?.lastName ?? '').trim();
     const fl = `${first} ${last}`.trim();
     if (fl) return fl;
 
@@ -64,10 +67,10 @@ export class ElasticsearchSongsSyncService {
   }
 
   private computeFirstLyrics(song: any): string | null {
-    const fl = String(song?.firstLyrics ?? "").trim();
+    const fl = String(song?.firstLyrics ?? '').trim();
     if (fl) return fl;
 
-    const lyrics = String(song?.lyrics ?? "").trim();
+    const lyrics = String(song?.lyrics ?? '').trim();
     if (!lyrics) return null;
 
     const firstLine = lyrics
@@ -86,19 +89,19 @@ export class ElasticsearchSongsSyncService {
     let lyricistId: number | null = null;
 
     for (const c of credits ?? []) {
-      const role = String(c?.role ?? "");
+      const role = String(c?.role ?? '');
       const artist = c?.artist ?? null;
       if (!artist) continue;
 
       const name = this.normalizeName(artist);
       const id = Number(artist?.id);
 
-      if (role === "COMPOSER" && !composerName) {
+      if (role === 'COMPOSER' && !composerName) {
         composerName = name || null;
         if (Number.isFinite(id) && id > 0) composerId = id;
       }
 
-      if (role === "LYRICIST" && !lyricistName) {
+      if (role === 'LYRICIST' && !lyricistName) {
         lyricistName = name || null;
         if (Number.isFinite(id) && id > 0) lyricistId = id;
       }
@@ -123,18 +126,18 @@ export class ElasticsearchSongsSyncService {
       const vBack: string[] = [];
 
       for (const va of v?.artists ?? []) {
-        const role = String(va?.role ?? "");
+        const role = String(va?.role ?? '');
         const artist = va?.artist ?? null;
         if (!artist) continue;
 
         const name = this.normalizeName(artist);
         if (!name) continue;
 
-        if (role === "SINGER_FRONT") {
+        if (role === 'SINGER_FRONT') {
           vFront.push(name);
           allFront.push(name);
         }
-        if (role === "SINGER_BACK") {
+        if (role === 'SINGER_BACK') {
           vBack.push(name);
           allBack.push(name);
         }
@@ -146,7 +149,7 @@ export class ElasticsearchSongsSyncService {
       if (frontUniq.length || backUniq.length) {
         discographies.push({
           versionId: Number(v?.id) || null,
-          year: typeof v?.year === "number" ? v.year : null,
+          year: typeof v?.year === 'number' ? v.year : null,
           singerFrontNames: frontUniq,
           singerBackNames: backUniq,
         });
@@ -165,19 +168,19 @@ export class ElasticsearchSongsSyncService {
     const pairs: any[] = [];
 
     for (const v of versions ?? []) {
-      const year = typeof v?.year === "number" ? v.year : null;
+      const year = typeof v?.year === 'number' ? v.year : null;
       if (year && Number.isFinite(year)) years.push(year);
 
       const frontArtists: any[] = [];
       const backArtists: any[] = [];
 
       for (const va of v?.artists ?? []) {
-        const role = String(va?.role ?? "");
+        const role = String(va?.role ?? '');
         const artist = va?.artist ?? null;
         if (!artist) continue;
 
-        if (role === "SINGER_FRONT") frontArtists.push(artist);
-        if (role === "SINGER_BACK") backArtists.push(artist);
+        if (role === 'SINGER_FRONT') frontArtists.push(artist);
+        if (role === 'SINGER_BACK') backArtists.push(artist);
       }
 
       for (const fa of frontArtists) {
@@ -198,7 +201,9 @@ export class ElasticsearchSongsSyncService {
       }
     }
 
-    const yearsUniq = Array.from(new Set(years.filter((y) => Number.isFinite(y)))).sort((a, b) => a - b);
+    const yearsUniq = Array.from(
+      new Set(years.filter((y) => Number.isFinite(y))),
+    ).sort((a, b) => a - b);
     const minYear = yearsUniq.length ? yearsUniq[0] : null;
     const maxYear = yearsUniq.length ? yearsUniq[yearsUniq.length - 1] : null;
 
@@ -209,7 +214,13 @@ export class ElasticsearchSongsSyncService {
           ? String(yearsUniq[0])
           : `${yearsUniq[0]}-${yearsUniq[yearsUniq.length - 1]}`;
 
-    return { years: yearsUniq, minYear, maxYear, yearText, versionSingerPairs: pairs };
+    return {
+      years: yearsUniq,
+      minYear,
+      maxYear,
+      yearText,
+      versionSingerPairs: pairs,
+    };
   }
 
   private async buildEsDoc(songId: number) {
@@ -226,37 +237,45 @@ export class ElasticsearchSongsSyncService {
 
         SongTag: {
           include: { Tag: { select: { id: true, title: true, slug: true } } },
-          orderBy: [{ tagId: "asc" }],
+          orderBy: [{ tagId: 'asc' }],
         },
       },
     });
 
     if (!s) return null;
 
-    const lyrics = Object.prototype.hasOwnProperty.call(s, "lyrics")
-      ? String((s as any).lyrics ?? "").trim() || null
+    const lyrics = Object.prototype.hasOwnProperty.call(s, 'lyrics')
+      ? String((s as any).lyrics ?? '').trim() || null
       : null;
 
     const computedFirstLyrics = this.computeFirstLyrics(s);
 
-    const hasChords = !!String((s as any).chords ?? "").trim();
-    const hasLyrics = !!String((s as any).lyrics ?? "").trim();
-    const hasScore = Boolean((s as any).hasScore) || !!String((s as any).scoreFile ?? "").trim();
+    const hasChords = !!String((s as any).chords ?? '').trim();
+    const hasLyrics = !!String((s as any).lyrics ?? '').trim();
+    const hasScore =
+      Boolean((s as any).hasScore) ||
+      !!String((s as any).scoreFile ?? '').trim();
 
-    const categoryTitle = String(s?.category?.title ?? "").trim() || null;
-    const rythmTitle = String(s?.rythm?.title ?? "").trim() || null;
+    const categoryTitle = String(s?.category?.title ?? '').trim() || null;
+    const rythmTitle = String(s?.rythm?.title ?? '').trim() || null;
 
-    const { composerName, lyricistName, composerId, lyricistId } = this.computeCredits(s.credits);
+    const { composerName, lyricistName, composerId, lyricistId } =
+      this.computeCredits(s.credits);
 
     const { singerFrontNames, singerBackNames, discographies } =
       this.computeDiscographySingersFromVersions(s.versions);
 
-    const { years, minYear, maxYear, yearText, versionSingerPairs } = this.computeVersionMeta(s.versions);
+    const { years, minYear, maxYear, yearText, versionSingerPairs } =
+      this.computeVersionMeta(s.versions);
 
     const createdById =
-      typeof (s as any).createdByUserId === "number" ? (s as any).createdByUserId : null;
+      typeof (s as any).createdByUserId === 'number'
+        ? (s as any).createdByUserId
+        : null;
 
-    const createdByNameRaw = String((s as any)?.createdBy?.displayName ?? "").trim();
+    const createdByNameRaw = String(
+      (s as any)?.createdBy?.displayName ?? '',
+    ).trim();
     const createdByName = createdByNameRaw ? createdByNameRaw : null;
 
     return {
@@ -270,13 +289,19 @@ export class ElasticsearchSongsSyncService {
       characteristics: (s as any).characteristics ?? null,
 
       tagIds: Array.isArray((s as any).SongTag)
-        ? (s as any).SongTag.map((st: any) => Number(st?.tagId)).filter((n: any) => Number.isFinite(n) && n > 0)
+        ? (s as any).SongTag.map((st: any) => Number(st?.tagId)).filter(
+            (n: any) => Number.isFinite(n) && n > 0,
+          )
         : [],
       tagTitles: Array.isArray((s as any).SongTag)
-        ? (s as any).SongTag.map((st: any) => String(st?.Tag?.title ?? "").trim()).filter((t: any) => t)
+        ? (s as any).SongTag.map((st: any) =>
+            String(st?.Tag?.title ?? '').trim(),
+          ).filter((t: any) => t)
         : [],
       tagSlugs: Array.isArray((s as any).SongTag)
-        ? (s as any).SongTag.map((st: any) => String(st?.Tag?.slug ?? "").trim()).filter((t: any) => t)
+        ? (s as any).SongTag.map((st: any) =>
+            String(st?.Tag?.slug ?? '').trim(),
+          ).filter((t: any) => t)
         : [],
 
       categoryId: (s as any).categoryId ?? null,
@@ -304,10 +329,10 @@ export class ElasticsearchSongsSyncService {
       yearText,
       versionSingerPairs,
 
-      status: ((s as any).status ?? null) as any,
+      status: (s as any).status ?? null,
       scoreFile: (s as any).scoreFile ?? null,
       originalKey: (s as any).originalKey ?? null,
-      views: typeof (s as any).views === "number" ? (s as any).views : 0,
+      views: typeof (s as any).views === 'number' ? (s as any).views : 0,
 
       hasChords,
       hasLyrics,
@@ -328,7 +353,7 @@ export class ElasticsearchSongsSyncService {
     const { res, text } = await this.es(
       `/${encodeURIComponent(this.INDEX)}/_doc/${encodeURIComponent(String(songId))}`,
       {
-        method: "PUT",
+        method: 'PUT',
         body: JSON.stringify(doc),
       },
     );
@@ -346,7 +371,7 @@ export class ElasticsearchSongsSyncService {
   async deleteSong(songId: number): Promise<void> {
     const { res, text } = await this.es(
       `/${encodeURIComponent(this.INDEX)}/_doc/${encodeURIComponent(String(songId))}`,
-      { method: "DELETE" },
+      { method: 'DELETE' },
     );
 
     if (res.ok || res.status === 404) return;

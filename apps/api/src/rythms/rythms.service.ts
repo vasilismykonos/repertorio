@@ -3,9 +3,9 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-} from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { slugify } from "../utils/slugify";
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { slugify } from '../utils/slugify';
 
 @Injectable()
 export class RythmsService {
@@ -34,14 +34,14 @@ export class RythmsService {
     const { q, skip, take } = params ?? {};
     const where: any = {};
     if (q && q.trim()) {
-      where.title = { contains: q.trim(), mode: "insensitive" };
+      where.title = { contains: q.trim(), mode: 'insensitive' };
     }
     const rythms = await this.prisma.rythm.findMany({
       where,
-      orderBy: { title: "asc" },
-      skip: typeof skip === "number" && skip >= 0 ? skip : undefined,
+      orderBy: { title: 'asc' },
+      skip: typeof skip === 'number' && skip >= 0 ? skip : undefined,
       take:
-        typeof take === "number" && Number.isFinite(take)
+        typeof take === 'number' && Number.isFinite(take)
           ? Math.min(200, Math.max(1, take))
           : undefined,
       include: { _count: { select: { songs: true } } },
@@ -57,7 +57,7 @@ export class RythmsService {
       where: { id },
       include: { _count: { select: { songs: true } } },
     });
-    if (!r) throw new NotFoundException("Rythm not found");
+    if (!r) throw new NotFoundException('Rythm not found');
     return this.toDto(r);
   }
 
@@ -66,23 +66,25 @@ export class RythmsService {
    * generated from the title.  Throws if the title is missing or blank.
    */
   async create(input: { title: string; slug?: string | null }) {
-    const rawTitle = String(input.title ?? "").trim();
+    const rawTitle = String(input.title ?? '').trim();
     if (!rawTitle) {
-      throw new BadRequestException("Title is required");
+      throw new BadRequestException('Title is required');
     }
     // Normalise slug: if provided use it, otherwise derive from title.
-    let slug = String(input.slug ?? "").trim();
+    let slug = String(input.slug ?? '').trim();
     if (!slug) {
       slug = slugify(rawTitle);
     } else {
       slug = slugify(slug);
     }
     try {
-      const r = await this.prisma.rythm.create({ data: { title: rawTitle, slug } });
+      const r = await this.prisma.rythm.create({
+        data: { title: rawTitle, slug },
+      });
       return this.toDto({ ...r, _count: { songs: 0 } });
     } catch (e: any) {
-      if (e?.code === "P2002") {
-        throw new ConflictException("Rythm title or slug already exists");
+      if (e?.code === 'P2002') {
+        throw new ConflictException('Rythm title or slug already exists');
       }
       throw e;
     }
@@ -97,8 +99,8 @@ export class RythmsService {
     input: { title?: string | null; slug?: string | null },
   ) {
     const existing = await this.prisma.rythm.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException("Rythm not found");
-    let title =
+    if (!existing) throw new NotFoundException('Rythm not found');
+    const title =
       input.title !== undefined && input.title !== null
         ? String(input.title).trim()
         : existing.title;
@@ -107,7 +109,7 @@ export class RythmsService {
         ? String(input.slug).trim()
         : existing.slug;
     if (!title) {
-      throw new BadRequestException("Title is required");
+      throw new BadRequestException('Title is required');
     }
     if (!slug) {
       slug = slugify(title);
@@ -122,8 +124,8 @@ export class RythmsService {
       });
       return this.toDto(updated);
     } catch (e: any) {
-      if (e?.code === "P2002") {
-        throw new ConflictException("Rythm title or slug already exists");
+      if (e?.code === 'P2002') {
+        throw new ConflictException('Rythm title or slug already exists');
       }
       throw e;
     }
@@ -139,7 +141,7 @@ export class RythmsService {
       where: { id },
       include: { _count: { select: { songs: true } } },
     });
-    if (!existing) throw new NotFoundException("Rythm not found");
+    if (!existing) throw new NotFoundException('Rythm not found');
 
     const songsCount = existing._count?.songs ?? 0;
     if (songsCount > 0) {

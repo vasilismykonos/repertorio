@@ -10,8 +10,8 @@ import {
   Patch,
   Post,
   Query,
-} from "@nestjs/common";
-import { CategoriesService } from "./categories.service";
+} from '@nestjs/common';
+import { CategoriesService } from './categories.service';
 
 /**
  * REST controller for managing song categories.  Provides endpoints for
@@ -19,7 +19,7 @@ import { CategoriesService } from "./categories.service";
  * business logic lives in the service; the controller performs minimal
  * validation and parameter parsing.
  */
-@Controller("categories")
+@Controller('categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
@@ -31,12 +31,12 @@ export class CategoriesController {
    */
   @Get()
   async listCategories(
-    @Query("q") q?: string,
-    @Query("skip") skipRaw?: string,
-    @Query("take") takeRaw?: string,
+    @Query('q') q?: string,
+    @Query('skip') skipRaw?: string,
+    @Query('take') takeRaw?: string,
   ) {
-    const skip = Number.parseInt(skipRaw ?? "");
-    const take = Number.parseInt(takeRaw ?? "");
+    const skip = Number.parseInt(skipRaw ?? '');
+    const take = Number.parseInt(takeRaw ?? '');
     return this.categoriesService.findAll({
       q: q?.trim() || undefined,
       skip: Number.isFinite(skip) && skip >= 0 ? skip : undefined,
@@ -47,8 +47,8 @@ export class CategoriesController {
   /**
    * Retrieves a single category by id.
    */
-  @Get(":id")
-  async getCategoryById(@Param("id", ParseIntPipe) id: number) {
+  @Get(':id')
+  async getCategoryById(@Param('id', ParseIntPipe) id: number) {
     return this.categoriesService.findById(id);
   }
 
@@ -59,11 +59,12 @@ export class CategoriesController {
    */
   @Post()
   async createCategory(@Body() body: any) {
-    if (!body || typeof body !== "object") {
-      throw new BadRequestException("Invalid request body");
+    if (!body || typeof body !== 'object') {
+      throw new BadRequestException('Invalid request body');
     }
-    const title = String(body.title ?? "").trim();
-    const slug = body.slug !== undefined ? String(body.slug ?? "").trim() : undefined;
+    const title = String(body.title ?? '').trim();
+    const slug =
+      body.slug !== undefined ? String(body.slug ?? '').trim() : undefined;
     return this.categoriesService.create({ title, slug });
   }
 
@@ -72,16 +73,18 @@ export class CategoriesController {
    * `title` and `slug`.  If the slug is omitted or blank it will be
    * regenerated from the new or existing title.
    */
-  @Patch(":id")
+  @Patch(':id')
   async updateCategory(
-    @Param("id", ParseIntPipe) id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: any,
   ) {
-    if (!body || typeof body !== "object") {
-      throw new BadRequestException("Invalid request body");
+    if (!body || typeof body !== 'object') {
+      throw new BadRequestException('Invalid request body');
     }
-    const title = body.title !== undefined ? String(body.title ?? "").trim() : undefined;
-    const slug = body.slug !== undefined ? String(body.slug ?? "").trim() : undefined;
+    const title =
+      body.title !== undefined ? String(body.title ?? '').trim() : undefined;
+    const slug =
+      body.slug !== undefined ? String(body.slug ?? '').trim() : undefined;
     return this.categoriesService.update(id, { title, slug });
   }
 
@@ -91,8 +94,8 @@ export class CategoriesController {
    * Policy: if the category is used by songs, deletion is rejected with 400
    * (so we avoid accidental FK breaks). Adjust to your desired behavior.
    */
-  @Delete(":id")
-  async deleteCategory(@Param("id", ParseIntPipe) id: number) {
+  @Delete(':id')
+  async deleteCategory(@Param('id', ParseIntPipe) id: number) {
     return this.categoriesService.remove(id);
   }
 }

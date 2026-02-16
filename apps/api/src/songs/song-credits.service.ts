@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { SongCreditRole } from "@prisma/client";
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { SongCreditRole } from '@prisma/client';
 
 type ReplaceCreditsInput = {
   composerArtistIds: number[];
@@ -35,12 +35,12 @@ export class SongCreditsService {
 
     const credits = await this.prisma.songCredit.findMany({
       where: { songId },
-      orderBy: [{ role: "asc" }, { id: "asc" }],
+      orderBy: [{ role: 'asc' }, { id: 'asc' }],
       include: { artist: true },
     });
 
     const composers = credits
-      .filter((c) => c.role === "COMPOSER")
+      .filter((c) => c.role === 'COMPOSER')
       .map((c) => ({
         creditId: c.id,
         artistId: c.artistId,
@@ -50,7 +50,7 @@ export class SongCreditsService {
       }));
 
     const lyricists = credits
-      .filter((c) => c.role === "LYRICIST")
+      .filter((c) => c.role === 'LYRICIST')
       .map((c) => ({
         creditId: c.id,
         artistId: c.artistId,
@@ -87,7 +87,7 @@ export class SongCreditsService {
       const existsSet = new Set(existing.map((a) => a.id));
       const missing = allIds.filter((id) => !existsSet.has(id));
       if (missing.length) {
-        throw new NotFoundException(`Artists not found: ${missing.join(", ")}`);
+        throw new NotFoundException(`Artists not found: ${missing.join(', ')}`);
       }
     }
 

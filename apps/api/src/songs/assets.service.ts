@@ -1,8 +1,8 @@
 // apps/api/src/songs/assets.service.ts
 
-import { Injectable } from "@nestjs/common";
-import { AssetKind, AssetType } from "@prisma/client";
-import { SongsService } from "./songs.service";
+import { Injectable } from '@nestjs/common';
+import { AssetKind, AssetType } from '@prisma/client';
+import { SongsService } from './songs.service';
 
 export type SongAssetInput = {
   id?: number;

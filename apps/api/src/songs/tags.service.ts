@@ -4,8 +4,8 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
-} from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 export type TagDto = {
   id: number;
@@ -24,17 +24,17 @@ function normalizeTitleForSlug(input: string): string {
   return input
     .trim()
     .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 function slugify(input: string): string {
   const s = normalizeTitleForSlug(input);
 
   return s
-    .replace(/[^a-z0-9\u0370-\u03ff\u1f00-\u1fff]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(/[^a-z0-9\u0370-\u03ff\u1f00-\u1fff]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 function clampInt(v: number, min: number, max: number): number {
@@ -62,7 +62,7 @@ export class SongTagsService {
   }
 
   async listTags(args: ListTagsArgs): Promise<TagDto[]> {
-    const rawSearch = (args.search ?? "").toString().trim();
+    const rawSearch = (args.search ?? '').toString().trim();
     const take = clampInt(args.take ?? 25, 1, 500);
     const skip = clampInt(args.skip ?? 0, 0, 1_000_000);
 
@@ -70,12 +70,12 @@ export class SongTagsService {
       rawSearch.length > 0
         ? {
             OR: [
-              { title: { contains: rawSearch, mode: "insensitive" as const } },
+              { title: { contains: rawSearch, mode: 'insensitive' as const } },
               {
                 // ✅ κρατάμε το παλιό behaviour: ψάχνουμε σε slug με slugify(rawSearch)
                 slug: {
                   contains: slugify(rawSearch),
-                  mode: "insensitive" as const,
+                  mode: 'insensitive' as const,
                 },
               },
             ],
@@ -84,7 +84,7 @@ export class SongTagsService {
 
     const rows = await this.prisma.tag.findMany({
       where,
-      orderBy: [{ title: "asc" }],
+      orderBy: [{ title: 'asc' }],
       take,
       skip,
       select: {
@@ -99,11 +99,11 @@ export class SongTagsService {
   }
 
   async createTag(body: { title: string }): Promise<TagDto> {
-    const title = String(body?.title ?? "").trim();
-    if (!title) throw new BadRequestException("title is required");
+    const title = String(body?.title ?? '').trim();
+    if (!title) throw new BadRequestException('title is required');
 
     const slug = slugify(title);
-    if (!slug) throw new BadRequestException("invalid title");
+    if (!slug) throw new BadRequestException('invalid title');
 
     const row = await this.prisma.tag.upsert({
       where: { slug },
@@ -123,17 +123,17 @@ export class SongTagsService {
   // EDIT: αλλάζουμε ΜΟΝΟ title (slug σταθερό)
   async updateTag(id: number, body: { title: string }): Promise<TagDto> {
     if (!Number.isFinite(id) || id <= 0) {
-      throw new BadRequestException("invalid id");
+      throw new BadRequestException('invalid id');
     }
 
-    const title = String(body?.title ?? "").trim();
-    if (!title) throw new BadRequestException("title is required");
+    const title = String(body?.title ?? '').trim();
+    if (!title) throw new BadRequestException('title is required');
 
     const exists = await this.prisma.tag.findUnique({
       where: { id },
       select: { id: true },
     });
-    if (!exists) throw new NotFoundException("tag not found");
+    if (!exists) throw new NotFoundException('tag not found');
 
     const row = await this.prisma.tag.update({
       where: { id },
@@ -151,7 +151,7 @@ export class SongTagsService {
 
   async deleteTag(id: number): Promise<{ ok: true }> {
     if (!Number.isFinite(id) || id <= 0) {
-      throw new BadRequestException("invalid id");
+      throw new BadRequestException('invalid id');
     }
 
     // ✅ ΜΠΛΟΚΑΡΟΥΜΕ ΔΙΑΓΡΑΦΗ ΑΝ ΧΡΗΣΙΜΟΠΟΙΕΙΤΑΙ
@@ -169,7 +169,7 @@ export class SongTagsService {
       await this.prisma.tag.delete({ where: { id } });
       return { ok: true };
     } catch {
-      throw new NotFoundException("tag not found");
+      throw new NotFoundException('tag not found');
     }
   }
 }

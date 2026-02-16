@@ -1,6 +1,6 @@
 // apps/api/src/songs/SongSingerTuneAccess.service.ts
-import { Injectable } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class SongSingerTuneAccessService {
@@ -19,7 +19,7 @@ export class SongSingerTuneAccessService {
     // unrelated information from the Prisma model.
     const rows = await this.prisma.userSingerTuneAccess.findMany({
       where: { viewerUserId },
-      orderBy: { creatorUserId: "asc" },
+      orderBy: { creatorUserId: 'asc' },
       select: {
         creatorUserId: true,
         canView: true,
@@ -46,7 +46,7 @@ export class SongSingerTuneAccessService {
       .filter((r) => r.canView)
       .map((r) => r.creatorUserId);
 
-    const mode = creatorUserIds.length > 0 ? "ONLY_SELECTED" : "ALL";
+    const mode = creatorUserIds.length > 0 ? 'ONLY_SELECTED' : 'ALL';
 
     return {
       viewerUserId,
@@ -88,7 +88,9 @@ export class SongSingerTuneAccessService {
       // grants.
       for (const creatorUserId of desiredSet) {
         await tx.userSingerTuneAccess.upsert({
-          where: { UserSingerTuneAccess_unique: { viewerUserId, creatorUserId } },
+          where: {
+            UserSingerTuneAccess_unique: { viewerUserId, creatorUserId },
+          },
           create: { viewerUserId, creatorUserId, canView: true },
           update: { canView: true },
         });
@@ -100,7 +102,9 @@ export class SongSingerTuneAccessService {
       for (const creatorUserId of existingSet) {
         if (!desiredSet.has(creatorUserId)) {
           await tx.userSingerTuneAccess.update({
-            where: { UserSingerTuneAccess_unique: { viewerUserId, creatorUserId } },
+            where: {
+              UserSingerTuneAccess_unique: { viewerUserId, creatorUserId },
+            },
             data: { canView: false },
           });
         }
@@ -110,7 +114,7 @@ export class SongSingerTuneAccessService {
       // selected creator IDs and the mode consistently with getMyAccess().
       const rows = await tx.userSingerTuneAccess.findMany({
         where: { viewerUserId },
-        orderBy: { creatorUserId: "asc" },
+        orderBy: { creatorUserId: 'asc' },
         select: {
           creatorUserId: true,
           canView: true,
@@ -131,7 +135,7 @@ export class SongSingerTuneAccessService {
         .filter((r) => r.canView)
         .map((r) => r.creatorUserId);
 
-      const mode = selected.length > 0 ? "ONLY_SELECTED" : "ALL";
+      const mode = selected.length > 0 ? 'ONLY_SELECTED' : 'ALL';
 
       return {
         viewerUserId,

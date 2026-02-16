@@ -1,27 +1,27 @@
 // apps/api/src/elasticsearch/elasticsearch-admin.controller.ts
 
-import { Controller, Get, Post, Query } from "@nestjs/common";
-import { ElasticsearchReindexService } from "./elasticsearch-reindex.service";
+import { Controller, Get, Post, Query } from '@nestjs/common';
+import { ElasticsearchReindexService } from './elasticsearch-reindex.service';
 
-@Controller("admin/es")
+@Controller('admin/es')
 export class ElasticsearchAdminController {
   constructor(private readonly reindex: ElasticsearchReindexService) {}
 
-  @Get("status")
+  @Get('status')
   status() {
     return this.reindex.getStatus();
   }
 
-  @Get("preview")
-  preview(@Query("take") takeStr?: string) {
-    const take = Number(takeStr ?? "25");
+  @Get('preview')
+  preview(@Query('take') takeStr?: string) {
+    const take = Number(takeStr ?? '25');
     return this.reindex.preview(Number.isFinite(take) ? take : 25);
   }
 
-  @Post("reindex")
-  reindexNow(@Query("recreate") recreate?: string) {
+  @Post('reindex')
+  reindexNow(@Query('recreate') recreate?: string) {
     return this.reindex.startReindexNow({
-      recreate: recreate === "1" || recreate === "true",
+      recreate: recreate === '1' || recreate === 'true',
     });
   }
 }

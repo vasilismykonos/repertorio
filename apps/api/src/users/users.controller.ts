@@ -8,26 +8,26 @@ import {
   ParseIntPipe,
   Patch,
   Query,
-} from "@nestjs/common";
-import { UserRole } from "@prisma/client";
+} from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 
-import { UsersService, type ListUsersOptions } from "./users.service";
+import { UsersService, type ListUsersOptions } from './users.service';
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === "object" && !Array.isArray(v);
+  return !!v && typeof v === 'object' && !Array.isArray(v);
 }
 
-@Controller("users")
+@Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
   async listUsers(
-    @Query("search") search?: string,
-    @Query("page") page = "1",
-    @Query("pageSize") pageSize = "10",
-    @Query("sort") sort = "displayName",
-    @Query("order") order: "asc" | "desc" = "asc",
+    @Query('search') search?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '10',
+    @Query('sort') sort = 'displayName',
+    @Query('order') order: 'asc' | 'desc' = 'asc',
   ) {
     const pageNum = Number(page);
     const pageSizeNum = Number(pageSize);
@@ -35,22 +35,23 @@ export class UsersController {
     const options: ListUsersOptions = {
       search: search?.trim() || undefined,
       page: Number.isFinite(pageNum) && pageNum > 0 ? pageNum : 1,
-      pageSize: Number.isFinite(pageSizeNum) && pageSizeNum > 0 ? pageSizeNum : 10,
+      pageSize:
+        Number.isFinite(pageSizeNum) && pageSizeNum > 0 ? pageSizeNum : 10,
       sort,
-      order: order === "desc" ? "desc" : "asc",
+      order: order === 'desc' ? 'desc' : 'asc',
     };
 
     return this.usersService.listUsers(options);
   }
 
-  @Get(":id")
-  async getUser(@Param("id", ParseIntPipe) id: number) {
+  @Get(':id')
+  async getUser(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.getUserById(id);
   }
 
-  @Patch(":id")
+  @Patch(':id')
   async updateUser(
-    @Param("id", ParseIntPipe) id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body()
     body: {
       displayName?: string | null;
@@ -65,27 +66,31 @@ export class UsersController {
     if (
       body.displayName !== undefined &&
       body.displayName !== null &&
-      typeof body.displayName !== "string"
+      typeof body.displayName !== 'string'
     ) {
-      throw new BadRequestException("displayName must be string or null");
+      throw new BadRequestException('displayName must be string or null');
     }
 
-    if (body.avatarUrl !== undefined && body.avatarUrl !== null && typeof body.avatarUrl !== "string") {
-      throw new BadRequestException("avatarUrl must be string or null");
+    if (
+      body.avatarUrl !== undefined &&
+      body.avatarUrl !== null &&
+      typeof body.avatarUrl !== 'string'
+    ) {
+      throw new BadRequestException('avatarUrl must be string or null');
     }
 
     // ✅ NEW: profile must be object or null (όχι array/string/number)
     if (body.profile !== undefined) {
       if (body.profile !== null && !isPlainObject(body.profile)) {
-        throw new BadRequestException("profile must be an object or null");
+        throw new BadRequestException('profile must be an object or null');
       }
     }
 
     return this.usersService.updateUser(id, body);
   }
 
-  @Delete(":id")
-  async deleteUser(@Param("id", ParseIntPipe) id: number) {
+  @Delete(':id')
+  async deleteUser(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.deleteUser(id);
   }
 }

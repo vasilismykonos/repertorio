@@ -1,5 +1,5 @@
-import { Injectable, HttpException, HttpStatus } from "@nestjs/common";
-import { PrismaService } from "../../prisma/prisma.service";
+import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
 
 type ReindexState = {
   running: boolean;
@@ -22,9 +22,11 @@ type EsBulkResponse = {
 
 @Injectable()
 export class ElasticsearchReindexService {
-  private readonly ES_BASE = process.env.ES_BASE_URL ?? "http://localhost:9200";
-  private readonly INDEX = process.env.ES_SONGS_INDEX ?? "app_songs";
-  private readonly BATCH_SIZE = Number(process.env.ES_REINDEX_BATCH_SIZE ?? "500");
+  private readonly ES_BASE = process.env.ES_BASE_URL ?? 'http://localhost:9200';
+  private readonly INDEX = process.env.ES_SONGS_INDEX ?? 'app_songs';
+  private readonly BATCH_SIZE = Number(
+    process.env.ES_REINDEX_BATCH_SIZE ?? '500',
+  );
 
   private state: ReindexState = {
     running: false,
@@ -50,16 +52,19 @@ export class ElasticsearchReindexService {
 
   private normalizeText(s: string) {
     // Κρατάμε \n για σταθερότητα (ES/preview/UI)
-    return s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    return s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   }
 
   /**
    * Αν το stored firstLyrics είναι λάθος (δεν είναι prefix των lyrics),
    * ή είναι άδειο, παράγουμε νέο από την αρχή των lyrics.
    */
-  private computeFirstLyrics(firstLyrics: string | null, lyrics: string | null) {
-    const fl = (firstLyrics ?? "").trim();
-    const ly = (lyrics ?? "").trim();
+  private computeFirstLyrics(
+    firstLyrics: string | null,
+    lyrics: string | null,
+  ) {
+    const fl = (firstLyrics ?? '').trim();
+    const ly = (lyrics ?? '').trim();
 
     if (!ly) return fl || null;
 
@@ -70,8 +75,13 @@ export class ElasticsearchReindexService {
     if (flN && lyN.startsWith(flN)) return flN;
 
     // Αλλιώς παράγουμε: πρώτες 2 γραμμές ή μέχρι 120 chars
-    const lines = lyN.split("\n").map((x) => x.trim()).filter(Boolean);
-    const candidate = (lines.slice(0, 2).join("\n") || lyN).slice(0, 120).trim();
+    const lines = lyN
+      .split('\n')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const candidate = (lines.slice(0, 2).join('\n') || lyN)
+      .slice(0, 120)
+      .trim();
 
     return candidate || null;
   }
@@ -81,25 +91,25 @@ export class ElasticsearchReindexService {
       settings: {
         number_of_shards: 1,
         number_of_replicas: 0,
-        refresh_interval: "1s",
+        refresh_interval: '1s',
       },
       mappings: {
         dynamic: true,
         properties: {
-          id: { type: "integer" },
-          legacySongId: { type: "integer" },
+          id: { type: 'integer' },
+          legacySongId: { type: 'integer' },
 
-          title: { type: "text" },
-          firstLyrics: { type: "text" },
-          lyrics: { type: "text" },
+          title: { type: 'text' },
+          firstLyrics: { type: 'text' },
+          lyrics: { type: 'text' },
 
-          characteristics: { type: "text" },
-          categoryId: { type: "integer" },
-          rythmId: { type: "integer" },
+          characteristics: { type: 'text' },
+          categoryId: { type: 'integer' },
+          rythmId: { type: 'integer' },
 
-          status: { type: "keyword" },
-          scoreFile: { type: "keyword" },
-          views: { type: "integer" },
+          status: { type: 'keyword' },
+          scoreFile: { type: 'keyword' },
+          views: { type: 'integer' },
         },
       },
     };
@@ -125,7 +135,7 @@ export class ElasticsearchReindexService {
   }
 
   private async indexExists(index: string) {
-    const res = await fetch(`${this.ES_BASE}/${index}`, { method: "HEAD" });
+    const res = await fetch(`${this.ES_BASE}/${index}`, { method: 'HEAD' });
     return res.ok;
   }
 
@@ -134,8 +144,8 @@ export class ElasticsearchReindexService {
     if (exists) return;
 
     await this.esFetch(`/${index}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(this.buildIndexBody()),
     });
   }
@@ -143,23 +153,26 @@ export class ElasticsearchReindexService {
   private async recreateIndex(index: string) {
     const exists = await this.indexExists(index);
     if (exists) {
-      await this.esFetch(`/${index}`, { method: "DELETE" });
+      await this.esFetch(`/${index}`, { method: 'DELETE' });
     }
 
     await this.esFetch(`/${index}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(this.buildIndexBody()),
     });
   }
 
   private async clearIndexDocs(index: string) {
     // Διαγράφει ΜΟΝΟ τα docs, όχι το index/mappings
-    await this.esFetch(`/${index}/_delete_by_query?refresh=true&conflicts=proceed`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query: { match_all: {} } }),
-    });
+    await this.esFetch(
+      `/${index}/_delete_by_query?refresh=true&conflicts=proceed`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: { match_all: {} } }),
+      },
+    );
   }
 
   private async bulkIndexBatch(index: string, rows: any[]) {
@@ -167,9 +180,14 @@ export class ElasticsearchReindexService {
 
     for (const s of rows) {
       const lyrics = s.lyrics ?? null;
-      const computedFirstLyrics = this.computeFirstLyrics(s.firstLyrics ?? null, lyrics);
+      const computedFirstLyrics = this.computeFirstLyrics(
+        s.firstLyrics ?? null,
+        lyrics,
+      );
 
-      lines.push(JSON.stringify({ index: { _index: index, _id: String(s.id) } }));
+      lines.push(
+        JSON.stringify({ index: { _index: index, _id: String(s.id) } }),
+      );
       lines.push(
         JSON.stringify({
           id: s.id,
@@ -177,21 +195,21 @@ export class ElasticsearchReindexService {
           title: s.title ?? null,
           firstLyrics: computedFirstLyrics,
           lyrics: lyrics ? this.normalizeText(lyrics) : null,
-          characteristics: (s.characteristics ?? "").toString(),
+          characteristics: (s.characteristics ?? '').toString(),
           categoryId: s.categoryId ?? null,
           rythmId: s.rythmId ?? null,
-          views: typeof s.views === "number" ? s.views : 0,
+          views: typeof s.views === 'number' ? s.views : 0,
           scoreFile: s.scoreFile ?? null,
           status: s.status ?? null,
         }),
       );
     }
 
-    const ndjson = lines.join("\n") + "\n";
+    const ndjson = lines.join('\n') + '\n';
 
     const res = await fetch(`${this.ES_BASE}/_bulk?refresh=false`, {
-      method: "POST",
-      headers: { "content-type": "application/x-ndjson" },
+      method: 'POST',
+      headers: { 'content-type': 'application/x-ndjson' },
       body: ndjson,
     });
 
@@ -231,7 +249,11 @@ export class ElasticsearchReindexService {
    */
   async startReindexNow(opts?: { recreate?: boolean }) {
     if (this.state.running) {
-      return { ok: false, message: "Reindex already running", status: this.state };
+      return {
+        ok: false,
+        message: 'Reindex already running',
+        status: this.state,
+      };
     }
 
     this.state = {
@@ -243,7 +265,7 @@ export class ElasticsearchReindexService {
       indexed: 0,
       errors: 0,
       lastId: null,
-      message: "Starting reindex...",
+      message: 'Starting reindex...',
     };
 
     void this.runReindex({ recreate: !!opts?.recreate }).catch((e) => {
@@ -252,33 +274,35 @@ export class ElasticsearchReindexService {
       this.state.message = `FAILED: ${e?.message ?? String(e)}`;
     });
 
-    return { ok: true, message: "Reindex started", status: this.state };
+    return { ok: true, message: 'Reindex started', status: this.state };
   }
 
   private async runReindex(opts: { recreate: boolean }) {
     const index = this.INDEX;
 
     // 1) index create/ensure
-    this.state.message = opts.recreate ? "Recreating index..." : "Ensuring index exists...";
+    this.state.message = opts.recreate
+      ? 'Recreating index...'
+      : 'Ensuring index exists...';
     if (opts.recreate) await this.recreateIndex(index);
     else await this.ensureIndexExists(index);
 
     // 2) clear docs
-    this.state.message = "Clearing documents...";
+    this.state.message = 'Clearing documents...';
     await this.clearIndexDocs(index);
 
     // 3) count
-    this.state.message = "Counting songs in Postgres...";
+    this.state.message = 'Counting songs in Postgres...';
     this.state.total = await this.prisma.song.count();
 
     // 4) batches
-    this.state.message = "Indexing...";
+    this.state.message = 'Indexing...';
     let lastId = 0;
 
     while (true) {
       const rows = await this.prisma.song.findMany({
         where: { id: { gt: lastId } },
-        orderBy: { id: "asc" },
+        orderBy: { id: 'asc' },
         take: this.BATCH_SIZE,
         select: {
           id: true,
@@ -312,33 +336,33 @@ export class ElasticsearchReindexService {
     }
 
     // 5) refresh
-    this.state.message = "Refreshing index...";
-    await this.esFetch(`/${index}/_refresh`, { method: "POST" });
+    this.state.message = 'Refreshing index...';
+    await this.esFetch(`/${index}/_refresh`, { method: 'POST' });
 
     this.state.running = false;
     this.state.finishedAt = this.nowIso();
-    this.state.message = "DONE";
+    this.state.message = 'DONE';
   }
 
   async preview(take = 25) {
     const size = Math.min(Math.max(Number(take) || 25, 1), 200);
 
     const json = await this.esFetch(`/${this.INDEX}/_search`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         size,
-        sort: [{ id: { order: "asc" } }],
+        sort: [{ id: { order: 'asc' } }],
         _source: [
-          "id",
-          "legacySongId",
-          "title",
-          "firstLyrics",
-          "categoryId",
-          "rythmId",
-          "views",
-          "status",
-          "scoreFile",
+          'id',
+          'legacySongId',
+          'title',
+          'firstLyrics',
+          'categoryId',
+          'rythmId',
+          'views',
+          'status',
+          'scoreFile',
         ],
         query: { match_all: {} },
       }),

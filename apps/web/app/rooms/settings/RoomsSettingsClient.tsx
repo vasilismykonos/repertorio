@@ -412,7 +412,8 @@ export default function RoomsSettingsClient() {
                     {lastUrl ? (
                       <>
                         🎵 Τελευταίο:{" "}
-                        <a href={lastUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#4af" }}>
+                        <a href={lastUrl}>
+
                           {lastUrl}
                         </a>
                         {timeSuffix}

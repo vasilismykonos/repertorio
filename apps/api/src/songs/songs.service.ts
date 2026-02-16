@@ -6,9 +6,9 @@ import {
   BadRequestException,
   ConflictException,
   Optional,
-} from "@nestjs/common";
+} from '@nestjs/common';
 
-import { PrismaService } from "../prisma/prisma.service";
+import { PrismaService } from '../prisma/prisma.service';
 import {
   Prisma,
   AssetKind,
@@ -16,10 +16,10 @@ import {
   SongCreditRole,
   SongStatus,
   VersionArtistRole,
-} from "@prisma/client";
+} from '@prisma/client';
 
 // ✅ NEW
-import { ElasticsearchSongsSyncService } from "../elasticsearch/elasticsearch-songs-sync.service";
+import { ElasticsearchSongsSyncService } from '../elasticsearch/elasticsearch-songs-sync.service';
 
 type TagDto = {
   id: number;
@@ -74,7 +74,7 @@ type SongDetailDto = {
   assets: SongAssetDto[];
 
   originalKey: string | null;
-  originalKeySign: "+" | "-" | null;
+  originalKeySign: '+' | '-' | null;
   chords: string | null;
   status: string | null;
 
@@ -121,7 +121,7 @@ function buildArtistDisplayName(a: {
   firstName: string | null;
   lastName: string | null;
 }): string {
-  const full = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim();
+  const full = `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim();
   return full || a.title;
 }
 
@@ -131,10 +131,12 @@ function buildArtistDisplayName(a: {
  * - κάνει trim
  * - επιστρέφει null αν δεν υπάρχει περιεχόμενο
  */
-function extractFirstLyricsFromLyrics(lyrics: string | null | undefined): string | null {
+function extractFirstLyricsFromLyrics(
+  lyrics: string | null | undefined,
+): string | null {
   if (lyrics === null || lyrics === undefined) return null;
   const text = String(lyrics);
-  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   for (const line of lines) {
     const t = line.trim();
     if (t) return t.length > 300 ? t.slice(0, 300) : t;
@@ -145,9 +147,11 @@ function extractFirstLyricsFromLyrics(lyrics: string | null | undefined): string
 function toNullableBigIntString(v: unknown): string | null {
   if (v === null || v === undefined) return null;
   try {
-    if (typeof v === "bigint") return v.toString();
-    if (typeof v === "number" && Number.isFinite(v)) return BigInt(v).toString();
-    if (typeof v === "string" && v.trim() !== "") return BigInt(v.trim()).toString();
+    if (typeof v === 'bigint') return v.toString();
+    if (typeof v === 'number' && Number.isFinite(v))
+      return BigInt(v).toString();
+    if (typeof v === 'string' && v.trim() !== '')
+      return BigInt(v.trim()).toString();
     return null;
   } catch {
     return null;
@@ -157,19 +161,19 @@ function toNullableBigIntString(v: unknown): string | null {
 function toNullableBigInt(v: unknown): bigint | null {
   if (v === null || v === undefined) return null;
   try {
-    if (typeof v === "bigint") return v;
-    if (typeof v === "number" && Number.isFinite(v)) return BigInt(v);
-    if (typeof v === "string" && v.trim() !== "") return BigInt(v.trim());
+    if (typeof v === 'bigint') return v;
+    if (typeof v === 'number' && Number.isFinite(v)) return BigInt(v);
+    if (typeof v === 'string' && v.trim() !== '') return BigInt(v.trim());
     return null;
   } catch {
-    throw new BadRequestException("Invalid sizeBytes (must be integer/bigint)");
+    throw new BadRequestException('Invalid sizeBytes (must be integer/bigint)');
   }
 }
 
 function parseCsvNames(input: unknown): string[] {
-  const s = (input ?? "").toString();
+  const s = (input ?? '').toString();
   const parts = s
-    .split(",")
+    .split(',')
     .map((x) => x.trim())
     .filter(Boolean);
 
@@ -191,9 +195,9 @@ function normalizeArtistIds(input: unknown): number[] {
 
   const raw: unknown[] = Array.isArray(input)
     ? input
-    : typeof input === "string"
+    : typeof input === 'string'
       ? input
-          .split(",")
+          .split(',')
           .map((x) => x.trim())
           .filter(Boolean)
       : [input];
@@ -202,7 +206,7 @@ function normalizeArtistIds(input: unknown): number[] {
   const seen = new Set<number>();
 
   for (const r of raw) {
-    const n = typeof r === "number" ? r : Number(String(r).trim());
+    const n = typeof r === 'number' ? r : Number(String(r).trim());
     if (!Number.isFinite(n)) continue;
     const id = Math.trunc(n);
     if (id <= 0) continue;
@@ -223,7 +227,7 @@ type UpdateSongBody = {
   characteristics?: string | null;
 
   originalKey?: string | null;
-  originalKeySign?: "+" | "-" | null;
+  originalKeySign?: '+' | '-' | null;
   chords?: string | null;
 
   status?: SongStatus;
@@ -240,60 +244,56 @@ type UpdateSongBody = {
   tagIds?: number[] | null;
 
   // ✅ NEW (assets replace-all)
-  assets?:
-    | Array<{
-        id?: number;
-        kind: AssetKind;
-        type?: AssetType;
-        title?: string | null;
-        url?: string | null;
-        filePath?: string | null;
-        mimeType?: string | null;
-        sizeBytes?: string | number | bigint | null;
+  assets?: Array<{
+    id?: number;
+    kind: AssetKind;
+    type?: AssetType;
+    title?: string | null;
+    url?: string | null;
+    filePath?: string | null;
+    mimeType?: string | null;
+    sizeBytes?: string | number | bigint | null;
 
-        // relation metadata
-        label?: string | null;
-        sort?: number | null;
-        isPrimary?: boolean | null;
-      }>
-    | null;
+    // relation metadata
+    label?: string | null;
+    sort?: number | null;
+    isPrimary?: boolean | null;
+  }> | null;
 
   // ✅ NEW (discographies/versions replace-all)
-  versions?:
-    | Array<{
-        id?: number | null;
-        year?: number | string | null;
-        youtubeSearch?: string | null;
+  versions?: Array<{
+    id?: number | null;
+    year?: number | string | null;
+    youtubeSearch?: string | null;
 
-        // backward compatible: comma-separated names
-        singerFrontNames?: string | null;
-        singerBackNames?: string | null;
-        solistNames?: string | null;
+    // backward compatible: comma-separated names
+    singerFrontNames?: string | null;
+    singerBackNames?: string | null;
+    solistNames?: string | null;
 
-        // ✅ preferred: ids (array or CSV string)
-        singerFrontIds?: number[] | string | null;
-        singerBackIds?: number[] | string | null;
-        solistIds?: number[] | string | null;
-      }>
-    | null;
+    // ✅ preferred: ids (array or CSV string)
+    singerFrontIds?: number[] | string | null;
+    singerBackIds?: number[] | string | null;
+    solistIds?: number[] | string | null;
+  }> | null;
 };
 
 function slugifySongTitle(input: string): string {
-  const trimmed = input.replace(/\s+/g, " ").trim();
-  if (!trimmed) return "song";
+  const trimmed = input.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return 'song';
 
   // remove tonos/diacritics
-  const noMarks = trimmed.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const noMarks = trimmed.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
   // keep greek+latin+digits+space+dash
   const slug = noMarks
-    .toLocaleLowerCase("el-GR")
-    .replace(/[^a-z0-9\u0370-\u03ff\u1f00-\u1fff\s-]/gi, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+    .toLocaleLowerCase('el-GR')
+    .replace(/[^a-z0-9\u0370-\u03ff\u1f00-\u1fff\s-]/gi, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
 
-  return slug || "song";
+  return slug || 'song';
 }
 
 async function ensureUniqueSongSlugTx(tx: any, base: string): Promise<string> {
@@ -312,8 +312,8 @@ async function ensureUniqueSongSlugTx(tx: any, base: string): Promise<string> {
   return candidate;
 }
 
-function inferOriginalKeySignFromChords(chords: unknown): "+" | "-" | null {
-  if (typeof chords !== "string" || chords.trim() === "") return null;
+function inferOriginalKeySignFromChords(chords: unknown): '+' | '-' | null {
+  if (typeof chords !== 'string' || chords.trim() === '') return null;
 
   const re =
     /([Νν][το]|[Ρρ][ε]|[Μμ][ι]|[Φφ][α]|[Σσ][ολ]|[Λλ][α]|[Σσ][ι])(#?)([+\-])?/g;
@@ -328,11 +328,10 @@ function inferOriginalKeySignFromChords(chords: unknown): "+" | "-" | null {
 
   // αν το τελευταίο match δεν είχε ρητό πρόσημο, πάλι NULL
   // (γιατί είπες "NULL όταν δεν προκύπτει πρόσημο")
-  if (last[3] !== "+" && last[3] !== "-") return null;
+  if (last[3] !== '+' && last[3] !== '-') return null;
 
-  return last[3] === "-" ? "-" : "+";
+  return last[3] === '-' ? '-' : '+';
 }
-
 
 @Injectable()
 export class SongsService {
@@ -359,12 +358,12 @@ export class SongsService {
 
         SongTag: {
           include: { Tag: { select: { id: true, title: true, slug: true } } },
-          orderBy: [{ tagId: "asc" }],
+          orderBy: [{ tagId: 'asc' }],
         },
 
         SongAsset: {
           include: { Asset: true },
-          orderBy: [{ sort: "asc" }, { assetId: "asc" }],
+          orderBy: [{ sort: 'asc' }, { assetId: 'asc' }],
         },
       },
     });
@@ -391,12 +390,12 @@ export class SongsService {
 
     const composerName =
       composerArtists.length > 0
-        ? composerArtists.map((a) => buildArtistDisplayName(a)).join(", ")
+        ? composerArtists.map((a) => buildArtistDisplayName(a)).join(', ')
         : null;
 
     const lyricistName =
       lyricistArtists.length > 0
-        ? lyricistArtists.map((a) => buildArtistDisplayName(a)).join(", ")
+        ? lyricistArtists.map((a) => buildArtistDisplayName(a)).join(', ')
         : null;
 
     const creditsDto = {
@@ -405,18 +404,18 @@ export class SongsService {
         .map((c) => ({
           creditId: c.id,
           artistId: c.artistId,
-          title: c.artist!.title,
-          firstName: c.artist!.firstName ?? null,
-          lastName: c.artist!.lastName ?? null,
+          title: c.artist.title,
+          firstName: c.artist.firstName ?? null,
+          lastName: c.artist.lastName ?? null,
         })),
       lyricists: (song.credits ?? [])
         .filter((c) => c.role === SongCreditRole.LYRICIST && c.artist)
         .map((c) => ({
           creditId: c.id,
           artistId: c.artistId,
-          title: c.artist!.title,
-          firstName: c.artist!.firstName ?? null,
-          lastName: c.artist!.lastName ?? null,
+          title: c.artist.title,
+          firstName: c.artist.firstName ?? null,
+          lastName: c.artist.lastName ?? null,
         })),
     };
 
@@ -441,7 +440,7 @@ export class SongsService {
                 .map((x) => x.artist)
                 .filter((a): a is NonNullable<typeof a> => !!a)
                 .map((a) => buildArtistDisplayName(a))
-                .join(", ")
+                .join(', ')
             : null;
 
         const singerBack =
@@ -450,7 +449,7 @@ export class SongsService {
                 .map((x) => x.artist)
                 .filter((a): a is NonNullable<typeof a> => !!a)
                 .map((a) => buildArtistDisplayName(a))
-                .join(", ")
+                .join(', ')
             : null;
 
         const solist =
@@ -459,20 +458,20 @@ export class SongsService {
                 .map((x) => x.artist)
                 .filter((a): a is NonNullable<typeof a> => !!a)
                 .map((a) => buildArtistDisplayName(a))
-                .join(", ")
+                .join(', ')
             : null;
 
         const singerFrontIds = frontArray
           .map((x) => x.artistId)
-          .filter((x): x is number => typeof x === "number");
+          .filter((x): x is number => typeof x === 'number');
 
         const singerBackIds = backArray
           .map((x) => x.artistId)
-          .filter((x): x is number => typeof x === "number");
+          .filter((x): x is number => typeof x === 'number');
 
         const solistIds = soloArray
           .map((x) => x.artistId)
-          .filter((x): x is number => typeof x === "number");
+          .filter((x): x is number => typeof x === 'number');
 
         return {
           id: v.id,
@@ -530,9 +529,11 @@ export class SongsService {
 
       originalKey: song.originalKey ?? null,
       originalKeySign:
-        song.originalKeySign === "-" ? "-" :
-        song.originalKeySign === "+" ? "+" :
-        null,
+        song.originalKeySign === '-'
+          ? '-'
+          : song.originalKeySign === '+'
+            ? '+'
+            : null,
 
       chords: song.chords ?? null,
       status: song.status ?? null,
@@ -565,16 +566,19 @@ export class SongsService {
     filePath?: string | null;
   }) {
     if (input.kind === AssetKind.LINK) {
-      const url = (input.url ?? "").trim();
-      if (!url) throw new BadRequestException("Asset LINK requires url");
+      const url = (input.url ?? '').trim();
+      if (!url) throw new BadRequestException('Asset LINK requires url');
     }
     if (input.kind === AssetKind.FILE) {
-      const fp = (input.filePath ?? "").trim();
-      if (!fp) throw new BadRequestException("Asset FILE requires filePath");
+      const fp = (input.filePath ?? '').trim();
+      if (!fp) throw new BadRequestException('Asset FILE requires filePath');
     }
   }
 
-  private async upsertArtistsByTitlesTx(tx: any, titles: string[]): Promise<number[]> {
+  private async upsertArtistsByTitlesTx(
+    tx: any,
+    titles: string[],
+  ): Promise<number[]> {
     const ids: number[] = [];
     for (const title of titles) {
       const t = title.trim();
@@ -601,7 +605,7 @@ export class SongsService {
 
   private normalizeYear(v: unknown): number | null {
     if (v === null || v === undefined) return null;
-    if (typeof v === "number" && Number.isFinite(v)) {
+    if (typeof v === 'number' && Number.isFinite(v)) {
       const n = Math.trunc(v);
       return n > 0 ? n : null;
     }
@@ -624,7 +628,7 @@ export class SongsService {
     const missing = uniq.filter((x) => !ok.has(x));
     if (missing.length) {
       throw new BadRequestException(
-        `${context}: missing Artist.id(s) = ${missing.join(",")}`,
+        `${context}: missing Artist.id(s) = ${missing.join(',')}`,
       );
     }
   }
@@ -642,29 +646,29 @@ export class SongsService {
     const data: any = {};
 
     // --- core fields ---
-    if (typeof body.title === "string") data.title = body.title;
+    if (typeof body.title === 'string') data.title = body.title;
 
     // ✅ lyrics -> firstLyrics (only if lyrics is provided)
-    if (Object.prototype.hasOwnProperty.call(body, "lyrics")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'lyrics')) {
       data.lyrics = body.lyrics;
       data.firstLyrics = extractFirstLyricsFromLyrics(body.lyrics);
-    } else if (Object.prototype.hasOwnProperty.call(body, "firstLyrics")) {
+    } else if (Object.prototype.hasOwnProperty.call(body, 'firstLyrics')) {
       data.firstLyrics = body.firstLyrics;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "characteristics")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'characteristics')) {
       data.characteristics = body.characteristics;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "originalKey")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'originalKey')) {
       data.originalKey = body.originalKey;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "highestVocalNote")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'highestVocalNote')) {
       data.highestVocalNote = body.highestVocalNote;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "scoreFile")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'scoreFile')) {
       data.scoreFile = body.scoreFile;
     }
 
@@ -672,33 +676,38 @@ export class SongsService {
       data.status = body.status;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "categoryId")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'categoryId')) {
       data.categoryId = body.categoryId;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "rythmId")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'rythmId')) {
       data.rythmId = body.rythmId;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "basedOnSongId")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'basedOnSongId')) {
       data.basedOnSongId = body.basedOnSongId;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "createdByUserId")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'createdByUserId')) {
       data.createdByUserId = body.createdByUserId;
     }
 
     // --- originalKeySign + chords (canonical, safe) ---
-    const hasOriginalKeySign = Object.prototype.hasOwnProperty.call(body, "originalKeySign");
-    const hasChords = Object.prototype.hasOwnProperty.call(body, "chords");
+    const hasOriginalKeySign = Object.prototype.hasOwnProperty.call(
+      body,
+      'originalKeySign',
+    );
+    const hasChords = Object.prototype.hasOwnProperty.call(body, 'chords');
 
     // 1) Αν στάλθηκε ρητά sign, αυτό κερδίζει πάντα
     if (hasOriginalKeySign) {
       data.originalKeySign =
-        body.originalKeySign === "-" ? "-" :
-        body.originalKeySign === "+" ? "+" :
-        null;
-    } else if (typeof body.chords === "string") {
+        body.originalKeySign === '-'
+          ? '-'
+          : body.originalKeySign === '+'
+            ? '+'
+            : null;
+    } else if (typeof body.chords === 'string') {
       data.originalKeySign = inferOriginalKeySignFromChords(body.chords);
     }
 
@@ -712,11 +721,16 @@ export class SongsService {
       }
     }
 
-    const hasTagIds = Object.prototype.hasOwnProperty.call(body, "tagIds");
-    const hasAssets = Object.prototype.hasOwnProperty.call(body, "assets");
-    const hasVersions = Object.prototype.hasOwnProperty.call(body, "versions");
+    const hasTagIds = Object.prototype.hasOwnProperty.call(body, 'tagIds');
+    const hasAssets = Object.prototype.hasOwnProperty.call(body, 'assets');
+    const hasVersions = Object.prototype.hasOwnProperty.call(body, 'versions');
 
-    if (Object.keys(data).length === 0 && !hasTagIds && !hasAssets && !hasVersions) {
+    if (
+      Object.keys(data).length === 0 &&
+      !hasTagIds &&
+      !hasAssets &&
+      !hasVersions
+    ) {
       return this.findOne(id, true);
     }
 
@@ -732,7 +746,9 @@ export class SongsService {
       // 2) Tags replace-all
       if (hasTagIds) {
         const ids = Array.isArray(body.tagIds)
-          ? body.tagIds.filter((x) => typeof x === "number" && Number.isFinite(x))
+          ? body.tagIds.filter(
+              (x) => typeof x === 'number' && Number.isFinite(x),
+            )
           : [];
 
         await tx.songTag.deleteMany({ where: { songId: id } });
@@ -764,27 +780,29 @@ export class SongsService {
           });
 
           const sort =
-            typeof a.sort === "number" && Number.isFinite(a.sort) ? a.sort : i * 10;
+            typeof a.sort === 'number' && Number.isFinite(a.sort)
+              ? a.sort
+              : i * 10;
 
           const isPrimary = a.isPrimary === true;
 
           let assetId: number;
 
-          if (typeof a.id === "number" && Number.isFinite(a.id)) {
+          if (typeof a.id === 'number' && Number.isFinite(a.id)) {
             const updated = await tx.asset.update({
               where: { id: a.id },
               data: {
                 kind,
                 type,
-                title: Object.prototype.hasOwnProperty.call(a, "title")
+                title: Object.prototype.hasOwnProperty.call(a, 'title')
                   ? (a.title ?? null)
                   : undefined,
                 url: kind === AssetKind.LINK ? (a.url ?? null) : null,
                 filePath: kind === AssetKind.FILE ? (a.filePath ?? null) : null,
-                mimeType: Object.prototype.hasOwnProperty.call(a, "mimeType")
+                mimeType: Object.prototype.hasOwnProperty.call(a, 'mimeType')
                   ? (a.mimeType ?? null)
                   : undefined,
-                sizeBytes: Object.prototype.hasOwnProperty.call(a, "sizeBytes")
+                sizeBytes: Object.prototype.hasOwnProperty.call(a, 'sizeBytes')
                   ? toNullableBigInt(a.sizeBytes ?? null)
                   : undefined,
               },
@@ -826,20 +844,22 @@ export class SongsService {
         const norm = incoming
           .map((v) => {
             const vid =
-              typeof v?.id === "number" && Number.isFinite(v.id)
+              typeof v?.id === 'number' && Number.isFinite(v.id)
                 ? Math.trunc(v.id)
                 : null;
 
             const year = this.normalizeYear(v?.year);
 
-            const youtubeSearch =
-              Object.prototype.hasOwnProperty.call(v ?? {}, "youtubeSearch")
-                ? (v?.youtubeSearch ?? null)
-                : null;
+            const youtubeSearch = Object.prototype.hasOwnProperty.call(
+              v ?? {},
+              'youtubeSearch',
+            )
+              ? (v?.youtubeSearch ?? null)
+              : null;
 
-            const singerFrontNames = parseCsvNames(v?.singerFrontNames ?? "");
-            const singerBackNames = parseCsvNames(v?.singerBackNames ?? "");
-            const solistNames = parseCsvNames(v?.solistNames ?? "");
+            const singerFrontNames = parseCsvNames(v?.singerFrontNames ?? '');
+            const singerBackNames = parseCsvNames(v?.singerBackNames ?? '');
+            const solistNames = parseCsvNames(v?.solistNames ?? '');
 
             const singerFrontIds = normalizeArtistIds(v?.singerFrontIds);
             const singerBackIds = normalizeArtistIds(v?.singerBackIds);
@@ -847,7 +867,8 @@ export class SongsService {
 
             const hasAny =
               year !== null ||
-              (typeof youtubeSearch === "string" && youtubeSearch.trim() !== "") ||
+              (typeof youtubeSearch === 'string' &&
+                youtubeSearch.trim() !== '') ||
               singerFrontIds.length > 0 ||
               singerBackIds.length > 0 ||
               solistIds.length > 0 ||
@@ -862,7 +883,7 @@ export class SongsService {
               id: vid,
               year,
               youtubeSearch:
-                typeof youtubeSearch === "string" && youtubeSearch.trim() !== ""
+                typeof youtubeSearch === 'string' && youtubeSearch.trim() !== ''
                   ? youtubeSearch
                   : null,
               singerFrontNames,
@@ -878,7 +899,7 @@ export class SongsService {
         const existingVersions = await tx.songVersion.findMany({
           where: { songId: id },
           select: { id: true },
-          orderBy: [{ id: "asc" }],
+          orderBy: [{ id: 'asc' }],
         });
 
         const existingIds = new Set(existingVersions.map((x) => x.id));
@@ -896,7 +917,11 @@ export class SongsService {
             versionId = updated.id;
           } else {
             const created = await tx.songVersion.create({
-              data: { songId: id, year: v.year, youtubeSearch: v.youtubeSearch },
+              data: {
+                songId: id,
+                year: v.year,
+                youtubeSearch: v.youtubeSearch,
+              },
               select: { id: true },
             });
             versionId = created.id;
@@ -927,21 +952,35 @@ export class SongsService {
             `versionsJson(versionId=${versionId})`,
           );
 
-          const rows: Array<{ versionId: number; artistId: number; role: VersionArtistRole }> =
-            [];
+          const rows: Array<{
+            versionId: number;
+            artistId: number;
+            role: VersionArtistRole;
+          }> = [];
 
           for (const artistId of finalSingerFrontIds) {
-            rows.push({ versionId, artistId, role: VersionArtistRole.SINGER_FRONT });
+            rows.push({
+              versionId,
+              artistId,
+              role: VersionArtistRole.SINGER_FRONT,
+            });
           }
           for (const artistId of finalSingerBackIds) {
-            rows.push({ versionId, artistId, role: VersionArtistRole.SINGER_BACK });
+            rows.push({
+              versionId,
+              artistId,
+              role: VersionArtistRole.SINGER_BACK,
+            });
           }
           for (const artistId of finalSolistIds) {
             rows.push({ versionId, artistId, role: VersionArtistRole.SOLOIST });
           }
 
           if (rows.length) {
-            await tx.songVersionArtist.createMany({ data: rows, skipDuplicates: true });
+            await tx.songVersionArtist.createMany({
+              data: rows,
+              skipDuplicates: true,
+            });
           }
         }
 
@@ -951,7 +990,9 @@ export class SongsService {
           .filter((vid) => !keepSet.has(vid));
 
         if (toDelete.length) {
-          await tx.songVersionArtist.deleteMany({ where: { versionId: { in: toDelete } } });
+          await tx.songVersionArtist.deleteMany({
+            where: { versionId: { in: toDelete } },
+          });
           await tx.songVersion.deleteMany({ where: { id: { in: toDelete } } });
         }
       }
@@ -961,7 +1002,7 @@ export class SongsService {
     try {
       await this.esSync?.upsertSong(id);
     } catch (e) {
-      console.error("[SongsService] ES upsert failed", e);
+      console.error('[SongsService] ES upsert failed', e);
     }
 
     return this.findOne(id, true);
@@ -1017,18 +1058,24 @@ export class SongsService {
       try {
         await (this.esSync as any)?.deleteSong?.(id);
       } catch (e) {
-        console.error("[SongsService] ES delete failed", e);
+        console.error('[SongsService] ES delete failed', e);
       }
 
       return deleted;
     } catch (err: any) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2003'
+      ) {
         throw new ConflictException(
-          "Δεν μπορεί να διαγραφεί το τραγούδι επειδή υπάρχουν συσχετισμένα δεδομένα που το αναφέρουν (FK constraint).",
+          'Δεν μπορεί να διαγραφεί το τραγούδι επειδή υπάρχουν συσχετισμένα δεδομένα που το αναφέρουν (FK constraint).',
         );
       }
 
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2025'
+      ) {
         throw new NotFoundException(`Song with id=${id} not found`);
       }
 
@@ -1042,32 +1089,32 @@ export class SongsService {
   async createSong(body: UpdateSongBody) {
     const data: any = {};
 
-    if (typeof body.title === "string" && body.title.trim() !== "") {
+    if (typeof body.title === 'string' && body.title.trim() !== '') {
       data.title = body.title.trim();
     } else {
-      throw new BadRequestException("title is required for new song");
+      throw new BadRequestException('title is required for new song');
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "lyrics")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'lyrics')) {
       data.lyrics = body.lyrics ?? null;
       data.firstLyrics = extractFirstLyricsFromLyrics(body.lyrics);
-    } else if (Object.prototype.hasOwnProperty.call(body, "firstLyrics")) {
+    } else if (Object.prototype.hasOwnProperty.call(body, 'firstLyrics')) {
       data.firstLyrics = body.firstLyrics;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "characteristics")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'characteristics')) {
       data.characteristics = body.characteristics;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "originalKey")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'originalKey')) {
       data.originalKey = body.originalKey;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "highestVocalNote")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'highestVocalNote')) {
       data.highestVocalNote = body.highestVocalNote;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "scoreFile")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'scoreFile')) {
       data.scoreFile = body.scoreFile;
     }
 
@@ -1075,35 +1122,39 @@ export class SongsService {
       data.status = body.status;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "categoryId")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'categoryId')) {
       data.categoryId = body.categoryId;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "rythmId")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'rythmId')) {
       data.rythmId = body.rythmId;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "basedOnSongId")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'basedOnSongId')) {
       data.basedOnSongId = body.basedOnSongId;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "createdByUserId")) {
+    if (Object.prototype.hasOwnProperty.call(body, 'createdByUserId')) {
       data.createdByUserId = body.createdByUserId;
     }
 
     // --- originalKeySign + chords (canonical, safe) ---
-    const hasOriginalKeySign = Object.prototype.hasOwnProperty.call(body, "originalKeySign");
-    const hasChords = Object.prototype.hasOwnProperty.call(body, "chords");
+    const hasOriginalKeySign = Object.prototype.hasOwnProperty.call(
+      body,
+      'originalKeySign',
+    );
+    const hasChords = Object.prototype.hasOwnProperty.call(body, 'chords');
 
     if (hasOriginalKeySign) {
       data.originalKeySign =
-        body.originalKeySign === "-" ? "-" :
-        body.originalKeySign === "+" ? "+" :
-        null;
-    } else if (typeof body.chords === "string") {
+        body.originalKeySign === '-'
+          ? '-'
+          : body.originalKeySign === '+'
+            ? '+'
+            : null;
+    } else if (typeof body.chords === 'string') {
       data.originalKeySign = inferOriginalKeySignFromChords(body.chords);
     }
-
 
     if (hasChords) {
       data.chords = body.chords ?? null;
@@ -1113,9 +1164,9 @@ export class SongsService {
       }
     }
 
-    const hasTagIds = Object.prototype.hasOwnProperty.call(body, "tagIds");
-    const hasAssets = Object.prototype.hasOwnProperty.call(body, "assets");
-    const hasVersions = Object.prototype.hasOwnProperty.call(body, "versions");
+    const hasTagIds = Object.prototype.hasOwnProperty.call(body, 'tagIds');
+    const hasAssets = Object.prototype.hasOwnProperty.call(body, 'assets');
+    const hasVersions = Object.prototype.hasOwnProperty.call(body, 'versions');
 
     const songId = await this.prisma.$transaction(async (tx) => {
       const baseSlug = slugifySongTitle(data.title);
@@ -1131,7 +1182,9 @@ export class SongsService {
       // Tags
       if (hasTagIds) {
         const ids = Array.isArray(body.tagIds)
-          ? body.tagIds.filter((x) => typeof x === "number" && Number.isFinite(x))
+          ? body.tagIds.filter(
+              (x) => typeof x === 'number' && Number.isFinite(x),
+            )
           : [];
 
         if (ids.length > 0) {
@@ -1159,27 +1212,29 @@ export class SongsService {
           });
 
           const sort =
-            typeof a.sort === "number" && Number.isFinite(a.sort) ? a.sort : i * 10;
+            typeof a.sort === 'number' && Number.isFinite(a.sort)
+              ? a.sort
+              : i * 10;
 
           const isPrimary = a.isPrimary === true;
 
           let assetId: number;
 
-          if (typeof a.id === "number" && Number.isFinite(a.id)) {
+          if (typeof a.id === 'number' && Number.isFinite(a.id)) {
             const updated = await tx.asset.update({
               where: { id: a.id },
               data: {
                 kind,
                 type,
-                title: Object.prototype.hasOwnProperty.call(a, "title")
+                title: Object.prototype.hasOwnProperty.call(a, 'title')
                   ? (a.title ?? null)
                   : undefined,
                 url: kind === AssetKind.LINK ? (a.url ?? null) : null,
                 filePath: kind === AssetKind.FILE ? (a.filePath ?? null) : null,
-                mimeType: Object.prototype.hasOwnProperty.call(a, "mimeType")
+                mimeType: Object.prototype.hasOwnProperty.call(a, 'mimeType')
                   ? (a.mimeType ?? null)
                   : undefined,
-                sizeBytes: Object.prototype.hasOwnProperty.call(a, "sizeBytes")
+                sizeBytes: Object.prototype.hasOwnProperty.call(a, 'sizeBytes')
                   ? toNullableBigInt(a.sizeBytes ?? null)
                   : undefined,
               },
@@ -1216,14 +1271,16 @@ export class SongsService {
           .map((v) => {
             const year = this.normalizeYear(v?.year);
 
-            const youtubeSearch =
-              Object.prototype.hasOwnProperty.call(v ?? {}, "youtubeSearch")
-                ? (v?.youtubeSearch ?? null)
-                : null;
+            const youtubeSearch = Object.prototype.hasOwnProperty.call(
+              v ?? {},
+              'youtubeSearch',
+            )
+              ? (v?.youtubeSearch ?? null)
+              : null;
 
-            const singerFrontNames = parseCsvNames(v?.singerFrontNames ?? "");
-            const singerBackNames = parseCsvNames(v?.singerBackNames ?? "");
-            const solistNames = parseCsvNames(v?.solistNames ?? "");
+            const singerFrontNames = parseCsvNames(v?.singerFrontNames ?? '');
+            const singerBackNames = parseCsvNames(v?.singerBackNames ?? '');
+            const solistNames = parseCsvNames(v?.solistNames ?? '');
 
             const singerFrontIds = normalizeArtistIds(v?.singerFrontIds);
             const singerBackIds = normalizeArtistIds(v?.singerBackIds);
@@ -1231,7 +1288,8 @@ export class SongsService {
 
             const hasAny =
               year !== null ||
-              (typeof youtubeSearch === "string" && youtubeSearch.trim() !== "") ||
+              (typeof youtubeSearch === 'string' &&
+                youtubeSearch.trim() !== '') ||
               singerFrontIds.length > 0 ||
               singerBackIds.length > 0 ||
               solistIds.length > 0 ||
@@ -1244,7 +1302,7 @@ export class SongsService {
             return {
               year,
               youtubeSearch:
-                typeof youtubeSearch === "string" && youtubeSearch.trim() !== ""
+                typeof youtubeSearch === 'string' && youtubeSearch.trim() !== ''
                   ? youtubeSearch
                   : null,
               singerFrontNames,
@@ -1285,21 +1343,35 @@ export class SongsService {
             `versionsJson(songId=${songId})`,
           );
 
-          const rows: Array<{ versionId: number; artistId: number; role: VersionArtistRole }> =
-            [];
+          const rows: Array<{
+            versionId: number;
+            artistId: number;
+            role: VersionArtistRole;
+          }> = [];
 
           for (const artistId of finalSingerFrontIds) {
-            rows.push({ versionId, artistId, role: VersionArtistRole.SINGER_FRONT });
+            rows.push({
+              versionId,
+              artistId,
+              role: VersionArtistRole.SINGER_FRONT,
+            });
           }
           for (const artistId of finalSingerBackIds) {
-            rows.push({ versionId, artistId, role: VersionArtistRole.SINGER_BACK });
+            rows.push({
+              versionId,
+              artistId,
+              role: VersionArtistRole.SINGER_BACK,
+            });
           }
           for (const artistId of finalSolistIds) {
             rows.push({ versionId, artistId, role: VersionArtistRole.SOLOIST });
           }
 
           if (rows.length) {
-            await tx.songVersionArtist.createMany({ data: rows, skipDuplicates: true });
+            await tx.songVersionArtist.createMany({
+              data: rows,
+              skipDuplicates: true,
+            });
           }
         }
       }
@@ -1311,7 +1383,7 @@ export class SongsService {
     try {
       await this.esSync?.upsertSong(songId);
     } catch (e) {
-      console.error("[SongsService] ES upsert failed", e);
+      console.error('[SongsService] ES upsert failed', e);
     }
 
     return this.findOne(songId, true);
