@@ -89,6 +89,9 @@ a:hover {
   color: #fff;
   flex-wrap: wrap;
 }
+html[data-env="dev"] .header-container {
+  background-color: #2d0000;   /* dev κόκκινο */
+}
 
 @media (max-width: 768px) {
   .header-search {

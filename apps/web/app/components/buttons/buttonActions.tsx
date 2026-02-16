@@ -64,6 +64,7 @@ function resolveVisibilityProps(p: CommonProps) {
   const showLabel = iconOnly ? false : p.showLabel ?? true;
   return { iconOnly, showLabel };
 }
+
 function getSameOriginCallbackUrl(fallback = "/") {
   if (typeof window === "undefined") return fallback;
   const path = window.location.pathname + window.location.search;
@@ -190,6 +191,7 @@ export const A = {
       showLabel: props.showLabel,
     });
   },
+
   search(props: ClickProps & { action?: ButtonAction; label?: string }) {
     const {
       onClick,
@@ -208,6 +210,83 @@ export const A = {
         variant="primary"
         size="md"
         action={props.action ?? "search"}
+        disabled={disabled}
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+        className={className}
+        style={style}
+        iconOnly={iconOnly}
+        showLabel={showLabel}
+      >
+        {label}
+      </Button>
+    );
+  },
+
+  // ---------- Share ----------
+  // Απλό share: native share αν υπάρχει, αλλιώς αντιγραφή link.
+  share(
+    props: CommonProps & {
+      label?: string;
+      url?: string; // αν θες να δώσεις canonical url, αλλιώς παίρνει window.location.href
+      shareTitle?: string; // τίτλος που θα πάει στο native share
+      onCopied?: () => void; // για toast αν έχεις
+    },
+  ) {
+    const {
+      disabled,
+      title = "Κοινοποίηση",
+      className,
+      style,
+      label = "Share",
+      url,
+      shareTitle,
+      onCopied,
+    } = props;
+
+    const { iconOnly, showLabel } = resolveVisibilityProps(props);
+
+    const onClick = async () => {
+      const shareUrl =
+        url ?? (typeof window !== "undefined" ? window.location.href : "");
+      const shareT =
+        shareTitle ??
+        (typeof document !== "undefined" ? document.title : "Share");
+
+      if (!shareUrl) return;
+
+      try {
+        // Native share (κυρίως mobile)
+        if (typeof navigator !== "undefined" && "share" in navigator) {
+          await (navigator as any).share({ title: shareT, url: shareUrl });
+          return;
+        }
+
+        // Clipboard fallback
+        if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+          onCopied?.();
+          // Αν δεν έχεις toast, κράτα ένα απλό feedback:
+          alert("Το link αντιγράφηκε!");
+          return;
+        }
+
+        // Last resort
+        if (typeof window !== "undefined") {
+          window.prompt("Αντιγραφή link:", shareUrl);
+        }
+      } catch (e) {
+        console.error("Share failed:", e);
+      }
+    };
+
+    return (
+      <Button
+        type="button"
+        variant="secondary"
+        size="md"
+        action="share"
         disabled={disabled}
         onClick={onClick}
         title={title}
@@ -269,6 +348,7 @@ export const A = {
       showLabel: props.showLabel,
     });
   },
+
   edit(props: ClickProps & { action?: ButtonAction; label?: string }) {
     const {
       onClick,
@@ -489,6 +569,7 @@ export const A = {
       </Button>
     );
   },
+
   refresh(props: ClickProps & { label?: string }) {
     const {
       onClick,
@@ -506,7 +587,7 @@ export const A = {
         type="button"
         variant="secondary"
         size="md"
-        action="refresh"          // ✅ σωστό action
+        action="refresh" // ✅ σωστό action
         disabled={disabled}
         onClick={onClick}
         title={title}
@@ -520,8 +601,10 @@ export const A = {
       </Button>
     );
   },
- 
-  login(props: CommonProps & { label?: string; provider?: string; callbackUrl?: string }) {
+
+  login(
+    props: CommonProps & { label?: string; provider?: string; callbackUrl?: string },
+  ) {
     const {
       disabled,
       title = "Σύνδεση",
@@ -557,7 +640,13 @@ export const A = {
     );
   },
 
-  logout(props: CommonProps & { label?: string; callbackUrl?: string; variant?: React.ComponentProps<typeof Button>["variant"] }) {
+  logout(
+    props: CommonProps & {
+      label?: string;
+      callbackUrl?: string;
+      variant?: React.ComponentProps<typeof Button>["variant"];
+    },
+  ) {
     const {
       disabled,
       title = "Αποσύνδεση",
@@ -592,5 +681,4 @@ export const A = {
       </Button>
     );
   },
-
 };

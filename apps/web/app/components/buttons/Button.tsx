@@ -18,8 +18,8 @@ import {
   RefreshCw,
   LogIn,
   LogOut,
+  Share2,
 } from "lucide-react";
-
 
 export type ButtonVariant =
   | "primary"
@@ -34,6 +34,7 @@ export type ButtonSize = "sm" | "md" | "lg";
 
 export type ButtonAction =
   | "none"
+  | "share"
   | "save"
   | "delete"
   | "cancel"
@@ -49,7 +50,6 @@ export type ButtonAction =
   | "refresh"
   | "login"
   | "logout";
-
 
 type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
@@ -97,6 +97,8 @@ function useIsSmallScreen(maxWidth = 640) {
 
 function actionToIcon(action: ButtonAction | undefined): LucideIcon | null {
   switch (action) {
+    case "share":
+      return Share2;
     case "save":
       return Save;
     case "delete":
@@ -119,7 +121,7 @@ function actionToIcon(action: ButtonAction | undefined): LucideIcon | null {
       return ArrowUpDown;
     case "room":
       return Recycle;
-    case "settings": 
+    case "settings":
       return Settings;
     case "refresh":
       return RefreshCw;

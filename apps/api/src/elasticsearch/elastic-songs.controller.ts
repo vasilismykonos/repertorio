@@ -5,6 +5,7 @@ import { Controller, Get, HttpException, HttpStatus, Query } from "@nestjs/commo
 type EsHit<T> = {
   _id: string;
   _source: T;
+  _score?: number;
 };
 
 type EsSearchResponse<T> = {
@@ -21,14 +22,107 @@ export class ElasticSongsController {
   private readonly INDEX = process.env.ES_SONGS_INDEX ?? "app_songs";
 
   /**
-   * Αν στο mapping το status είναι keyword, άστο "status".
-   * Αν είναι text, θα χρειαστεί να το κάνεις "status.keyword".
+   * ΠΡΟΣΟΧΗ:
+   * - Αν το mapping είναι keyword: use "status"
+   * - Αν είναι text με subfield keyword: use "status.keyword"
+   *
+   * Δεν μπορώ να μαντέψω το mapping από εδώ. Βάζω default "status.keyword"
+   * όπως είχες, αλλά αν δεις περίεργα counts στο aggs.status, άλλαξέ το σε "status".
    */
-  private readonly STATUS_FIELD = "status.keyword";
+  private readonly STATUS_FIELD = process.env.ES_STATUS_FIELD ?? "status.keyword";
+
+  /**
+   * Normalization συμβατή με ελληνικό analyzer:
+   * - αφαιρεί τόνους/διακριτικά
+   * - lower
+   * - κάνει punctuation -> spaces
+   */
+  private normalizeForEs(input: string): string {
+    const s = String(input ?? "");
+    const noMarks = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    const cleaned = noMarks
+      .replace(/[’'`´]/g, "")
+      .replace(/[\u2010-\u2015\u2212\-_/]+/g, " ")
+      .replace(/[^0-9A-Za-z\u0370-\u03FF\u1F00-\u1FFF]+/g, " ");
+
+    return cleaned.toLowerCase().replace(/\s+/g, " ").trim();
+  }
+
+  private tokenizeForPhrase(input: string): string[] {
+    const norm = this.normalizeForEs(input);
+    return norm ? norm.split(" ").map((t) => t.trim()).filter(Boolean) : [];
+  }
+
+  /**
+   * Stopwords / πολύ μικρά tokens (π.χ. "η", "α", "κι") σε phrase-search
+   * κάνουν θόρυβο και μπορούν να βαραίνουν πολύ.
+   *
+   * Κρατάμε:
+   * - head tokens: >= 2 chars
+   * - last token: >= 1 (για να δουλεύει incomplete prefix) αλλά προστατεύουμε τα βαριά πεδία (lyrics)
+   */
+  private sanitizePhraseTokens(tokens: string[]): { head: string[]; last: string | null } {
+    const toks = (tokens ?? []).map((t) => String(t ?? "").trim()).filter(Boolean);
+    if (!toks.length) return { head: [], last: null };
+    if (toks.length === 1) return { head: [], last: toks[0] };
+
+    const last = toks[toks.length - 1];
+    const head = toks.slice(0, -1).filter((t) => t.length >= 2);
+    return { head, last: last || null };
+  }
+
+  /**
+   * Φτιάχνει "συνεχόμενη φράση" (in_order + slop=0).
+   * - head tokens: span_term (όχι fuzzy) για να μένει ελαφρύ και deterministic
+   * - last token: prefix (για incomplete)
+   *
+   * Για typo tolerance, ΔΕΝ κάνουμε brute-force prefix variants (risk: maxClauseCount).
+   * Αν θες typos, το κάνουμε στο fallback multi_match, όχι στο phrase layer.
+   */
+  private buildStrictSpanPhrase(field: string, tokens: string[], boost: number, opts?: { minLastPrefixLen?: number }) {
+    const { head, last } = this.sanitizePhraseTokens(tokens);
+    const minLastPrefixLen = opts?.minLastPrefixLen ?? 1;
+
+    if (!last) return null;
+    if (last.length < minLastPrefixLen) return null;
+
+    // single token => prefix query
+    if (!head.length) {
+      // Μην κάνεις prefix για 1 γράμμα σε "βαριά" πεδία (θα το ελέγξουμε από caller)
+      return { prefix: { [field]: { value: last, boost } } };
+    }
+
+    const clauses: any[] = [];
+
+    // head: span_term (αναλυμένο field -> term-level spans)
+    for (const t of head) {
+      clauses.push({ span_term: { [field]: t } });
+    }
+
+    // last: prefix
+    clauses.push({
+      span_multi: {
+        match: {
+          prefix: {
+            [field]: { value: last },
+          },
+        },
+      },
+    });
+
+    return {
+      span_near: {
+        in_order: true,
+        slop: 0,
+        clauses,
+        boost,
+      },
+    };
+  }
 
   private async esSearch<T>(body: any): Promise<EsSearchResponse<T>> {
     const url = `${this.ES_BASE}/${this.INDEX}/_search`;
-
     const res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -37,15 +131,13 @@ export class ElasticSongsController {
 
     const text = await res.text().catch(() => "");
     if (!res.ok) {
-      throw new Error(
-        `ES _search failed HTTP ${res.status} ${res.statusText} – body: ${text.slice(0, 800)}`,
-      );
+      throw new Error(`ES _search failed HTTP ${res.status} ${res.statusText} – body: ${text.slice(0, 1200)}`);
     }
 
     try {
       return JSON.parse(text) as EsSearchResponse<T>;
     } catch {
-      throw new Error(`ES _search returned non-JSON: ${text.slice(0, 500)}`);
+      throw new Error(`ES _search returned non-JSON: ${text.slice(0, 800)}`);
     }
   }
 
@@ -74,13 +166,9 @@ export class ElasticSongsController {
 
   private parseBoolLike(value?: string, opts?: { nullMeansFalse?: boolean }): boolean | undefined {
     if (value === undefined) return undefined;
-
     const s = String(value).trim().toLowerCase();
 
-    if (opts?.nullMeansFalse) {
-      // lyrics=null => hasLyrics=false
-      if (s === "null") return false;
-    }
+    if (opts?.nullMeansFalse && s === "null") return false;
 
     if (s === "1" || s === "true" || s === "yes" || s === "on") return true;
     if (s === "0" || s === "false" || s === "no" || s === "off") return false;
@@ -88,7 +176,6 @@ export class ElasticSongsController {
     return undefined;
   }
 
-  // ✅ CSV flags (π.χ. lyrics=0,1) ώστε να δουλεύουν σωστά τα checkboxes.
   private parseBoolCsv(
     value?: string,
     opts?: { nullMeansFalse?: boolean },
@@ -121,7 +208,6 @@ export class ElasticSongsController {
       .split(",")
       .map((x) => String(x ?? "").trim())
       .filter(Boolean);
-
     return parts.length ? parts : undefined;
   }
 
@@ -139,7 +225,6 @@ export class ElasticSongsController {
       .split(",")
       .map((x) => Number(String(x ?? "").trim()))
       .filter((n) => Number.isFinite(n) && n > 0);
-
     return nums.length ? nums : undefined;
   }
 
@@ -169,7 +254,7 @@ export class ElasticSongsController {
     @Query("categoryId") categoryIdAlt?: string,
     @Query("rythmId") rythmIdAlt?: string,
 
-    // flags (CSV from UI)
+    // flags (CSV)
     @Query("chords") chordsStr?: string,
     @Query("lyrics") lyricsStr?: string,
     @Query("partiture") partitureStr?: string,
@@ -185,7 +270,7 @@ export class ElasticSongsController {
     @Query("composer") composerStr?: string,
     @Query("lyricist") lyricistStr?: string,
 
-    // ✅ IDs (CSV) για composer/lyricist
+    // IDs (CSV) for composer/lyricist
     @Query("composerIds") composerIdsStr?: string,
     @Query("lyricistIds") lyricistIdsStr?: string,
     @Query("composerId") composerIdAlt?: string,
@@ -194,25 +279,25 @@ export class ElasticSongsController {
     // sorting toggle
     @Query("popular") popular?: string,
 
-    // legacy dependent filtering A↔B
+    // legacy single singer filters
     @Query("singerFrontId") singerFrontIdStr?: string,
     @Query("singerBackId") singerBackIdStr?: string,
 
-    // ✅ ΝΕΟ: multi-select (CSV) για singers/year (modal)
+    // multi-select singers
     @Query("singerFrontIds") singerFrontIdsStr?: string,
     @Query("singerBackIds") singerBackIdsStr?: string,
 
-    // ✅ legacy (multi-select) years (CSV)
+    // years
     @Query("years") yearsStr?: string,
 
-    // ✅ ΝΕΟ: year range
+    // year range
     @Query("yearFrom") yearFromStr?: string,
     @Query("yearTo") yearToStr?: string,
 
-    // ✅ NEW: creator multi-select (CSV)
+    // creator multi-select
     @Query("createdByUserId") createdByUserIdStr?: string,
 
-    // ✅ optional: tagId του "Οργανικό"
+    // optional: tagId "Οργανικό"
     @Query("organikoTagId") organikoTagIdStr?: string,
   ) {
     try {
@@ -220,6 +305,9 @@ export class ElasticSongsController {
       const skip = this.parseNumber(skipStr, 0, 0, 1_000_000);
 
       const term = this.pickFirstNonEmpty(searchTerm, q);
+      const trimmedTerm = term ? String(term).trim() : "";
+      const normTokens = trimmedTerm ? this.tokenizeForPhrase(trimmedTerm) : [];
+      const hasQuery = normTokens.length > 0;
 
       const categoryIds = this.parseIdsFromAliases(categoryIdsStr, categoryIdLegacy, categoryIdAlt);
       const rythmIds = this.parseIdsFromAliases(rythmIdsStr, rythmIdLegacy, rythmIdAlt);
@@ -232,39 +320,26 @@ export class ElasticSongsController {
 
       const tagsIds = this.parseIdsFromAliases(tagsStr, tagIdsStr);
 
-      // ✅ ids (CSV)
       const composerIds = this.parseIdsFromAliases(composerIdsStr, composerIdAlt);
       const lyricistIds = this.parseIdsFromAliases(lyricistIdsStr, lyricistIdAlt);
 
-      // ✅ NEW: createdBy ids (CSV)
       const createdByIds = this.parseIdList(createdByUserIdStr);
 
-      // legacy: names (CSV)
       const composerList = this.parseStringCsv(composerStr);
       const lyricistList = this.parseStringCsv(lyricistStr);
 
       const singerFrontId = this.parseNumber(singerFrontIdStr, 0, 0, 2_000_000) || null;
       const singerBackId = this.parseNumber(singerBackIdStr, 0, 0, 2_000_000) || null;
 
-      // ✅ multi-select singers (CSV) + legacy single
       const singerFrontIds = Array.from(
-        new Set<number>([
-          ...(this.parseIdList(singerFrontIdsStr) ?? []),
-          ...(singerFrontId ? [singerFrontId] : []),
-        ]),
+        new Set<number>([...(this.parseIdList(singerFrontIdsStr) ?? []), ...(singerFrontId ? [singerFrontId] : [])]),
       );
 
       const singerBackIds = Array.from(
-        new Set<number>([
-          ...(this.parseIdList(singerBackIdsStr) ?? []),
-          ...(singerBackId ? [singerBackId] : []),
-        ]),
+        new Set<number>([...(this.parseIdList(singerBackIdsStr) ?? []), ...(singerBackId ? [singerBackId] : [])]),
       );
 
-      // years (CSV) multi-select
       const years = Array.from(new Set<number>(this.parseIdList(yearsStr) ?? []));
-
-      // year range
       const yearFrom = this.parsePositiveIntOrNull(yearFromStr, 1, 3000);
       const yearTo = this.parsePositiveIntOrNull(yearToStr, 1, 3000);
 
@@ -273,13 +348,10 @@ export class ElasticSongsController {
       if (categoryIds?.length) filters.push({ terms: { categoryId: categoryIds } });
       if (rythmIds?.length) filters.push({ terms: { rythmId: rythmIds } });
 
-      // ✅ NEW: createdBy filter
       if (createdByIds?.length) filters.push({ terms: { createdById: createdByIds } });
 
-      // ✅ status CSV: PUBLISHED,DRAFT
       const statusList = this.parseStringCsv(status);
       if (statusList?.length) {
-        // terms καλύπτει και length=1, αλλά κρατάω το term για σαφήνεια/debuggability.
         if (statusList.length === 1) filters.push({ term: { [this.STATUS_FIELD]: statusList[0] } });
         else filters.push({ terms: { [this.STATUS_FIELD]: statusList } });
       }
@@ -296,14 +368,13 @@ export class ElasticSongsController {
         const wantLyrics = lyricsWanted.wantTrue;
         filters.push({ term: { hasLyrics: wantLyrics } });
 
-        // "Χωρίς στίχους" να ΜΗΝ περιλαμβάνει τα "Οργανικό"
+        // "Χωρίς στίχους" να μην περιλαμβάνει "Οργανικό"
         if (!wantLyrics && organikoTagId) {
           filters.push({ bool: { must_not: [{ term: { tagIds: organikoTagId } }] } });
         }
       }
 
       if (tagsIds?.length) filters.push({ terms: { tagIds: tagsIds } });
-
       if (years.length) filters.push({ terms: { years } });
 
       // overlap range: [minYear,maxYear] intersects [yearFrom,yearTo]
@@ -319,70 +390,41 @@ export class ElasticSongsController {
 
       // legacy fallback: names
       if (!composerIds?.length && composerList?.length) {
-        if (composerList.length === 1) {
-          filters.push({
-            bool: {
-              should: [
-                { term: { "composerName.keyword": composerList[0] } },
-                { match: { composerName: composerList[0] } },
-              ],
-              minimum_should_match: 1,
-            },
-          });
-        } else {
-          filters.push({
-            bool: {
-              should: composerList.map((c) => ({
-                bool: {
-                  should: [{ term: { "composerName.keyword": c } }, { match: { composerName: c } }],
-                  minimum_should_match: 1,
-                },
-              })),
-              minimum_should_match: 1,
-            },
-          });
-        }
+        filters.push({
+          bool: {
+            should: composerList.map((c) => ({
+              bool: {
+                should: [{ term: { "composerName.keyword": c } }, { match: { composerName: c } }],
+                minimum_should_match: 1,
+              },
+            })),
+            minimum_should_match: 1,
+          },
+        });
       }
 
       if (!lyricistIds?.length && lyricistList?.length) {
-        if (lyricistList.length === 1) {
-          filters.push({
-            bool: {
-              should: [
-                { term: { "lyricistName.keyword": lyricistList[0] } },
-                { match: { lyricistName: lyricistList[0] } },
-              ],
-              minimum_should_match: 1,
-            },
-          });
-        } else {
-          filters.push({
-            bool: {
-              should: lyricistList.map((c) => ({
-                bool: {
-                  should: [{ term: { "lyricistName.keyword": c } }, { match: { lyricistName: c } }],
-                  minimum_should_match: 1,
-                },
-              })),
-              minimum_should_match: 1,
-            },
-          });
-        }
+        filters.push({
+          bool: {
+            should: lyricistList.map((c) => ({
+              bool: {
+                should: [{ term: { "lyricistName.keyword": c } }, { match: { lyricistName: c } }],
+                minimum_should_match: 1,
+              },
+            })),
+            minimum_should_match: 1,
+          },
+        });
       }
 
-      // singers filter (nested) AND λογική
+      // singers nested filter (AND logic)
       if (singerFrontIds.length || singerBackIds.length) {
         const nestedMust: any[] = [];
+        if (singerFrontIds.length === 1) nestedMust.push({ term: { "versionSingerPairs.frontId": singerFrontIds[0] } });
+        else if (singerFrontIds.length > 1) nestedMust.push({ terms: { "versionSingerPairs.frontId": singerFrontIds } });
 
-        if (singerFrontIds.length === 1)
-          nestedMust.push({ term: { "versionSingerPairs.frontId": singerFrontIds[0] } });
-        else if (singerFrontIds.length > 1)
-          nestedMust.push({ terms: { "versionSingerPairs.frontId": singerFrontIds } });
-
-        if (singerBackIds.length === 1)
-          nestedMust.push({ term: { "versionSingerPairs.backId": singerBackIds[0] } });
-        else if (singerBackIds.length > 1)
-          nestedMust.push({ terms: { "versionSingerPairs.backId": singerBackIds } });
+        if (singerBackIds.length === 1) nestedMust.push({ term: { "versionSingerPairs.backId": singerBackIds[0] } });
+        else if (singerBackIds.length > 1) nestedMust.push({ terms: { "versionSingerPairs.backId": singerBackIds } });
 
         filters.push({
           nested: {
@@ -392,29 +434,72 @@ export class ElasticSongsController {
         });
       }
 
-      const query =
-        term && String(term).trim()
-          ? {
-              bool: {
-                filter: filters,
-                must: [
-                  {
-                    multi_match: {
-                      query: term.trim(),
-                      fields: ["title^3", "firstLyrics^2", "lyrics", "composerName^2", "lyricistName^2", "tagTitles"],
-                      type: "best_fields",
-                      operator: "and",
-                    },
-                  },
-                ],
-              },
-            }
-          : { bool: { filter: filters } };
+      /**
+       * SEARCH STRATEGY
+       *
+       * Στόχος που ζήτησες:
+       * - ΜΟΝΟ συνεχόμενες λέξεις (phrase, adjacency, order)
+       * - last token incomplete => prefix
+       * - πολύ μεγάλη βαρύτητα σε title, μετά firstLyrics
+       * - προστασία από maxClauseCount σε lyrics
+       *
+       * ΠΡΑΚΤΙΚΟ:
+       * - κύρια signal: strict span phrase σε title & firstLyrics
+       * - δευτερεύον: strict span phrase σε lyrics ΜΟΝΟ όταν το last token έχει >= 3 chars
+       * - fallback: multi_match (για typos), αλλά με χαμηλότερη βαρύτητα και operator=and
+       */
+      let query: any;
 
+      if (hasQuery) {
+        const should: any[] = [];
+
+        // Title: strongest, επιτρέπει last prefix από 1 char (π.χ. "ξεκ")
+        const qTitle = this.buildStrictSpanPhrase("title", normTokens, 30, { minLastPrefixLen: 1 });
+        if (qTitle) should.push(qTitle);
+
+        // First lyrics: strong
+        const qFirst = this.buildStrictSpanPhrase("firstLyrics", normTokens, 15, { minLastPrefixLen: 1 });
+        if (qFirst) should.push(qFirst);
+
+        // Lyrics: guard against explosions -> require last prefix len >= 3
+        const qLyrics = this.buildStrictSpanPhrase("lyrics", normTokens, 3, { minLastPrefixLen: 3 });
+        if (qLyrics) should.push(qLyrics);
+
+        // Fallback (typos): χαμηλότερο boost, αλλά βοηθά όταν analyzer/spacing κάνει περίεργα
+        should.push({
+          multi_match: {
+            query: trimmedTerm,
+            fields: ["title^4", "firstLyrics^2", "lyrics", "composerName^1.5", "lyricistName^1.5", "tagTitles"],
+            type: "best_fields",
+            operator: "and",
+            fuzziness: "AUTO",
+          },
+        });
+
+        query = {
+          bool: {
+            filter: filters,
+            should,
+            minimum_should_match: 1,
+          },
+        };
+      } else {
+        query = { bool: { filter: filters } };
+      }
+
+      /**
+       * SORT (ΚΡΙΣΙΜΟ)
+       * - popular=1: views desc
+       * - αλλιώς:
+       *   - αν υπάρχει query: _score desc (relevance), tie-break id desc
+       *   - αν δεν υπάρχει query: id desc
+       */
       const sort =
         popular === "1"
           ? [{ views: { order: "desc" as const } }, { id: { order: "desc" as const } }]
-          : [{ id: { order: "desc" as const } }];
+          : hasQuery
+            ? [{ _score: { order: "desc" as const } }, { id: { order: "desc" as const } }]
+            : [{ id: { order: "desc" as const } }];
 
       const body = {
         from: skip,
@@ -459,7 +544,6 @@ export class ElasticSongsController {
           rythmId: { terms: { field: "rythmId", size: 200 } },
           tagIds: { terms: { field: "tagIds", size: 500 } },
 
-          // ✅ ΚΡΙΣΙΜΟ: Status aggregation (για σωστά counts στο modal)
           status: { terms: { field: this.STATUS_FIELD, size: 20 } },
 
           hasChords: { terms: { field: "hasChords", size: 2 } },
@@ -476,7 +560,6 @@ export class ElasticSongsController {
 
           hasScore: { terms: { field: "hasScore", size: 2 } },
 
-          // ✅ NEW: creators aggregation (για options + counts στο modal)
           createdById: {
             terms: { field: "createdById", size: 500 },
             aggs: { topName: { top_hits: { size: 1, _source: { includes: ["createdByName"] } } } },
@@ -497,7 +580,9 @@ export class ElasticSongsController {
               byId: {
                 terms: { field: "versionSingerPairs.frontId", size: 1000 },
                 aggs: {
-                  topName: { top_hits: { size: 1, _source: { includes: ["versionSingerPairs.frontName"] } } },
+                  topName: {
+                    top_hits: { size: 1, _source: { includes: ["versionSingerPairs.frontName"] } },
+                  },
                 },
               },
             },
@@ -508,7 +593,9 @@ export class ElasticSongsController {
               byId: {
                 terms: { field: "versionSingerPairs.backId", size: 1000 },
                 aggs: {
-                  topName: { top_hits: { size: 1, _source: { includes: ["versionSingerPairs.backName"] } } },
+                  topName: {
+                    top_hits: { size: 1, _source: { includes: ["versionSingerPairs.backName"] } },
+                  },
                 },
               },
             },
@@ -516,7 +603,6 @@ export class ElasticSongsController {
 
           years: { terms: { field: "years", size: 300 } },
 
-          // legacy (αν ζητηθούν ακόμα ως strings)
           composerName: { terms: { field: "composerName.keyword", size: 500 } },
           lyricistName: { terms: { field: "lyricistName.keyword", size: 500 } },
         },
@@ -553,9 +639,7 @@ export class ElasticSongsController {
   async artistRoleCounts(@Query("artistId") artistIdStr?: string) {
     try {
       const artistId = this.parseNumber(artistIdStr, 0, 1, 2_000_000);
-      if (!artistId) {
-        throw new Error("artistId is required");
-      }
+      if (!artistId) throw new Error("artistId is required");
 
       const body = {
         size: 0,

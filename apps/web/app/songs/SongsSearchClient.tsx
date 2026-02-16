@@ -91,13 +91,11 @@ type EsAggs = {
 
   years?: EsTermsAgg;
 
-  composerName?: EsTermsAgg;
-  lyricistName?: EsTermsAgg;
-
   hasChords?: EsTermsAgg;
   hasLyrics?: EsTermsAgg;
   hasScore?: EsTermsAgg;
   organikoHasLyrics?: any;
+
   createdById?: EsTermsAgg;
   status?: EsTermsAgg;
 
@@ -213,23 +211,6 @@ type FiltersState = {
   createdByUserId: string;
 };
 
-type CountsResult = {
-  chordsCounts: Record<string, number>;
-  partitureCounts: Record<string, number>;
-  lyricsCounts: Record<string, number>;
-  statusCounts: Record<string, number>;
-
-  tagCountById: Record<string, number>;
-
-  categoryCountById: Record<string, number>;
-  categoryCountByTitle: Record<string, number>;
-  categoryIdByTitle: Record<string, number | null>;
-
-  rythmCountById: Record<string, number>;
-  rythmCountByTitle: Record<string, number>;
-  rythmIdByTitle: Record<string, number | null>;
-};
-
 type Props = {
   searchParams?: SongsPageSearchParams;
 };
@@ -254,10 +235,7 @@ function getSingleParam(p: string | string[] | undefined): string {
   return Array.isArray(p) ? String(p[0] ?? "") : String(p ?? "");
 }
 
-function filtersFromSearchParams(
-  sp: SongsPageSearchParams | undefined,
-  fallback: FiltersState,
-): FiltersState {
+function filtersFromSearchParams(sp: SongsPageSearchParams | undefined, fallback: FiltersState): FiltersState {
   const take = Number(normalizeParam(sp?.take) || String(fallback.take || 50));
   const skip = Number(normalizeParam(sp?.skip) || "0");
 
@@ -397,6 +375,25 @@ function getCanonicalSongId(song: SongSearchItem): number | null {
   return null;
 }
 
+function parseCsv(csv: string): string[] {
+  return (csv || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function uniqCsv(csv: string): string {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of parseCsv(csv)) {
+    if (!seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out.join(",");
+}
+
 function parseCsvToIdSet(csv: string): Set<string> {
   const set = new Set<string>();
   for (const raw of (csv || "").split(",")) {
@@ -421,135 +418,6 @@ function toggleIdInCsv(csv: string, id: string): string {
   else set.add(cleanId);
 
   return Array.from(set).join(",");
-}
-
-function computeCountsFromSongs(songs: SongSearchItem[]): CountsResult {
-  const chordsCounts: Record<string, number> = { "1": 0, "0": 0, null: 0 } as any;
-  const partitureCounts: Record<string, number> = { "1": 0, "0": 0, null: 0 } as any;
-  const lyricsCounts: Record<string, number> = { null: 0 } as any;
-  const statusCounts: Record<string, number> = {};
-
-  const tagCountById: Record<string, number> = {};
-
-  const categoryCountById: Record<string, number> = {};
-  const categoryCountByTitle: Record<string, number> = {};
-  const categoryIdByTitle: Record<string, number | null> = {};
-
-  const rythmCountById: Record<string, number> = {};
-  const rythmCountByTitle: Record<string, number> = {};
-  const rythmIdByTitle: Record<string, number | null> = {};
-
-  for (const song of songs) {
-    const chordsVal = song.chords;
-    if (chordsVal === 1 || chordsVal === "1" || chordsVal === true) chordsCounts["1"]++;
-    else if (chordsVal === 0 || chordsVal === "0" || chordsVal === false) chordsCounts["0"]++;
-    else chordsCounts["null"] = (chordsCounts["null"] || 0) + 1;
-
-    const partVal = song.partiture;
-    if (partVal === 1 || partVal === "1" || partVal === true) partitureCounts["1"]++;
-    else if (partVal === 0 || partVal === "0" || partVal === false) partitureCounts["0"]++;
-    else partitureCounts["null"] = (partitureCounts["null"] || 0) + 1;
-
-    const hasLyrics = !!(song.lyrics && song.lyrics.trim().length > 0);
-    if (!hasLyrics) lyricsCounts["null"] = (lyricsCounts["null"] || 0) + 1;
-
-    const st = song.status || "";
-    if (st) statusCounts[st] = (statusCounts[st] || 0) + 1;
-
-    const rawCategoryId =
-      song.category_id ??
-      song.categoryId ??
-      (song as any).category_id ??
-      (song as any).categoryId ??
-      null;
-
-    const rawCategoryTitleField =
-      song.categoryTitle ??
-      song.category ??
-      song.category_title ??
-      (song as any).categoryTitle ??
-      (song as any).category ??
-      (song as any).category_title ??
-      "";
-
-    let catTitleFromId: string | null = null;
-    let numericCategoryId: number | null = null;
-
-    if (rawCategoryId !== null && rawCategoryId !== undefined) {
-      const cidStr = String(rawCategoryId).trim();
-      if (/^\d+$/.test(cidStr)) {
-        numericCategoryId = Number(cidStr);
-        categoryCountById[cidStr] = (categoryCountById[cidStr] || 0) + 1;
-      } else if (cidStr) {
-        catTitleFromId = cidStr;
-      }
-    }
-
-    const finalCategoryTitle = (catTitleFromId || rawCategoryTitleField || "").trim();
-
-    if (finalCategoryTitle) {
-      categoryCountByTitle[finalCategoryTitle] = (categoryCountByTitle[finalCategoryTitle] || 0) + 1;
-      if (numericCategoryId !== null) categoryIdByTitle[finalCategoryTitle] = numericCategoryId;
-      else if (!(finalCategoryTitle in categoryIdByTitle)) categoryIdByTitle[finalCategoryTitle] = null;
-    }
-
-    const rawRythmId =
-      song.rythm_id ??
-      song.rythmId ??
-      song.rhythm_id ??
-      song.rhythmId ??
-      (song as any).rythm_id ??
-      (song as any).rythmId ??
-      (song as any).rhythm_id ??
-      (song as any).rhythmId ??
-      null;
-
-    const rawRythmTitleField =
-      song.rythmTitle ??
-      song.rythm ??
-      song.rhythmTitle ??
-      (song as any).rhythm ??
-      (song as any).rythmTitle ??
-      (song as any).rythm ??
-      (song as any).rhythmTitle ??
-      (song as any).rhythm ??
-      "";
-
-    let rTitleFromId: string | null = null;
-    let numericRythmId: number | null = null;
-
-    if (rawRythmId !== null && rawRythmId !== undefined) {
-      const ridStr = String(rawRythmId).trim();
-      if (/^\d+$/.test(ridStr)) {
-        numericRythmId = Number(ridStr);
-        rythmCountById[ridStr] = (rythmCountById[ridStr] || 0) + 1;
-      } else if (ridStr) {
-        rTitleFromId = ridStr;
-      }
-    }
-
-    const finalRythmTitle = (rTitleFromId || rawRythmTitleField || "").trim();
-
-    if (finalRythmTitle) {
-      rythmCountByTitle[finalRythmTitle] = (rythmCountByTitle[finalRythmTitle] || 0) + 1;
-      if (numericRythmId !== null) rythmIdByTitle[finalRythmTitle] = numericRythmId;
-      else if (!(finalRythmTitle in rythmIdByTitle)) rythmIdByTitle[finalRythmTitle] = null;
-    }
-  }
-
-  return {
-    chordsCounts,
-    partitureCounts,
-    lyricsCounts,
-    statusCounts,
-    tagCountById,
-    categoryCountById,
-    categoryCountByTitle,
-    categoryIdByTitle,
-    rythmCountById,
-    rythmCountByTitle,
-    rythmIdByTitle,
-  };
 }
 
 function buildLyricsPreview(song: SongSearchItem): string {
@@ -674,13 +542,46 @@ function safeReturnTo(input: string): string | null {
 
 function appendPickedSongId(returnTo: string, pickedSongId: number): string {
   const base = safeReturnTo(returnTo) || "/songs";
-  // note: called only on click, so window exists in practice
   const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
   const url = new URL(base, origin);
 
   url.searchParams.set("pickedSongId", String(pickedSongId));
   return url.pathname + (url.search || "") + (url.hash || "");
 }
+
+// -------------------- Selected chips helpers --------------------
+
+function firstLabelByValue(opts: Option[], value: string): string {
+  const v = String(value ?? "").trim();
+  if (!v) return "";
+  const o = (Array.isArray(opts) ? opts : []).find((x) => String(x.value) === v);
+  return String(o?.label ?? v).trim();
+}
+
+function labelsFromCsv(opts: Option[], csv: string, max = 2): string {
+  const ids = parseCsv(csv);
+  if (ids.length === 0) return "";
+  const labels = ids.map((id) => firstLabelByValue(opts, id)).filter(Boolean);
+  if (labels.length === 0) return "";
+  if (labels.length <= max) return labels.join(", ");
+  return `${labels.slice(0, max).join(", ")} +${labels.length - max}`;
+}
+
+function triYesNoSummary(csv: string, yesLabel: string, noLabel: string): string {
+  const set = new Set(parseCsv(csv));
+  const hasYes = set.has("1") || set.has("true");
+  const hasNo = set.has("0") || set.has("false");
+  if (hasYes && hasNo) return `${yesLabel}, ${noLabel}`;
+  if (hasYes) return yesLabel;
+  if (hasNo) return noLabel;
+  return "";
+}
+
+type Chip = {
+  key: string;
+  label: string;
+  onRemove: () => void;
+};
 
 // -------------------- MAIN --------------------
 
@@ -689,7 +590,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const pickerMode = String(mode || "").trim() === "pick";
 
   const returnToRaw = getSingleParam(searchParams?.return_to);
-  const returnTo = safeReturnTo(returnToRaw || "") || ""; // deterministic (SSR=CSR)
+  const returnTo = safeReturnTo(returnToRaw || "") || "";
   const listId = getSingleParam(searchParams?.listId);
 
   const [filters, setFilters] = useState<FiltersState>(() => {
@@ -699,6 +600,9 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
     const qRaw = normalizeParam(sp.q) || normalizeParam(sp.search_term) || "";
     const q = qRaw.toString().trim();
+
+    const yearFrom = normalizeParam((sp as any).yearFrom);
+    const yearTo = normalizeParam((sp as any).yearTo);
 
     return {
       take,
@@ -716,33 +620,8 @@ export default function SongsSearchClient({ searchParams }: Props) {
       singerFrontIds: normalizeParam(sp.singerFrontIds),
       singerBackIds: normalizeParam(sp.singerBackIds),
 
-      yearFrom: (() => {
-        const yf = normalizeParam((sp as any).yearFrom);
-        if (yf) return yf;
-
-        const legacy = normalizeParam((sp as any).years);
-        const nums = legacy
-          ? legacy
-              .split(",")
-              .map((x) => Number(String(x).trim()))
-              .filter((n) => Number.isFinite(n) && n > 0)
-          : [];
-        return nums.length ? String(Math.min(...nums)) : "";
-      })(),
-
-      yearTo: (() => {
-        const yt = normalizeParam((sp as any).yearTo);
-        if (yt) return yt;
-
-        const legacy = normalizeParam((sp as any).years);
-        const nums = legacy
-          ? legacy
-              .split(",")
-              .map((x) => Number(String(x).trim()))
-              .filter((n) => Number.isFinite(n) && n > 0)
-          : [];
-        return nums.length ? String(Math.max(...nums)) : "";
-      })(),
+      yearFrom,
+      yearTo,
 
       lyrics: normalizeParam(sp.lyrics),
       status: normalizeParam(sp.status),
@@ -892,7 +771,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
         }
 
         const data = await parseJsonSafe<SongsSearchResponse>(resEs);
-
         let items = data.items ?? [];
 
         if (filters.popular === "1") {
@@ -928,10 +806,10 @@ export default function SongsSearchClient({ searchParams }: Props) {
         if (cancelled) return;
 
         setSongs(items);
+
         const totalAll = typeof data.total === "number" ? data.total : items.length;
         setTotal(totalAll);
 
-        const counts = computeCountsFromSongs(items);
         const aggs = data.aggs || {};
 
         const toNum = (v: any): number => {
@@ -952,9 +830,9 @@ export default function SongsSearchClient({ searchParams }: Props) {
           return { "1": yes, "0": no, null: missing } as any;
         };
 
-        counts.tagCountById = buildCountByIdFromAgg(aggs.tagIds);
-        counts.categoryCountById = buildCountByIdFromAgg(aggs.categoryId);
-        counts.rythmCountById = buildCountByIdFromAgg(aggs.rythmId);
+        const tagCountById = buildCountByIdFromAgg(aggs.tagIds);
+        const categoryCountById = buildCountByIdFromAgg(aggs.categoryId);
+        const rythmCountById = buildCountByIdFromAgg(aggs.rythmId);
 
         setChordsCounts(boolAggToTriCounts(aggs.hasChords, totalAll));
         setPartitureCounts(boolAggToTriCounts(aggs.hasScore, totalAll));
@@ -965,7 +843,9 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
           if (organikoTagId && aggs.organikoHasLyrics) {
             const organikoTotal =
-              typeof (aggs.organikoHasLyrics as any)?.doc_count === "number" ? (aggs.organikoHasLyrics as any).doc_count : 0;
+              typeof (aggs.organikoHasLyrics as any)?.doc_count === "number"
+                ? (aggs.organikoHasLyrics as any).doc_count
+                : 0;
 
             const organikoWithLyrics =
               pickBucketCount((aggs.organikoHasLyrics as any)?.hasLyrics, "1") +
@@ -987,55 +867,59 @@ export default function SongsSearchClient({ searchParams }: Props) {
           }
           setStatusCounts(st);
         } else {
-          setStatusCounts(counts.statusCounts);
+          // fallback best-effort from current page
+          const st: Record<string, number> = {};
+          for (const s of items) {
+            const k = String(s.status || "").trim();
+            if (!k) continue;
+            st[k] = (st[k] || 0) + 1;
+          }
+          setStatusCounts(st);
         }
 
-        // Categories
-        let catOpts: Option[] = [];
+        // ✅ Categories options: NEVER from titles (avoids duplicate values with different labels)
         if (categories.length > 0) {
-          catOpts = categories.map((c) => {
+          const catOpts: Option[] = categories.map((c) => {
             const idKey = String(c.id);
-            const fromId = counts.categoryCountById[idKey];
-            const fromTitle = counts.categoryCountByTitle[String(c.title)];
-            const count = fromId !== undefined ? fromId : fromTitle !== undefined ? fromTitle : 0;
+            const count = categoryCountById[idKey] ?? 0;
             return { value: idKey, label: String(c.title), count };
           });
+          setCategoryOptions(catOpts);
         } else {
-          catOpts = Object.keys(counts.categoryCountByTitle).map((title) => {
-            const count = counts.categoryCountByTitle[title];
-            const id = counts.categoryIdByTitle[title];
-            const value = id != null ? String(id) : title;
-            return { value, label: title, count };
-          });
+          // temporary: only ids from agg, label=id until categories load
+          const ids = Object.keys(categoryCountById);
+          const catOpts: Option[] = ids.map((idKey) => ({
+            value: idKey,
+            label: idKey,
+            count: categoryCountById[idKey] ?? 0,
+          }));
+          setCategoryOptions(catOpts);
         }
-        setCategoryOptions(catOpts);
 
-        // Rythms
-        let rOpts: Option[] = [];
+        // ✅ Rythms options: same rule
         if (rythms.length > 0) {
-          rOpts = rythms.map((r) => {
+          const rOpts: Option[] = rythms.map((r) => {
             const idKey = String(r.id);
-            const fromId = counts.rythmCountById[idKey];
-            const fromTitle = counts.rythmCountByTitle[String(r.title)];
-            const count = fromId !== undefined ? fromId : fromTitle !== undefined ? fromTitle : 0;
+            const count = rythmCountById[idKey] ?? 0;
             return { value: idKey, label: String(r.title), count };
           });
+          setRythmOptions(rOpts);
         } else {
-          rOpts = Object.keys(counts.rythmCountByTitle).map((title) => {
-            const count = counts.rythmCountByTitle[title];
-            const id = counts.rythmIdByTitle[title];
-            const value = id != null ? String(id) : title;
-            return { value, label: title, count };
-          });
+          const ids = Object.keys(rythmCountById);
+          const rOpts: Option[] = ids.map((idKey) => ({
+            value: idKey,
+            label: idKey,
+            count: rythmCountById[idKey] ?? 0,
+          }));
+          setRythmOptions(rOpts);
         }
-        setRythmOptions(rOpts);
 
-        // Tags (counts from aggs)
+        // Tags (counts from aggs) — show 0 too
         const tagOpts: Option[] =
           tags.length > 0
             ? tags.map((t) => {
                 const idKey = String(t.id);
-                const count = counts.tagCountById[idKey] ?? 0;
+                const count = tagCountById[idKey] ?? 0;
                 return { value: idKey, label: String(t.title ?? "").trim() || idKey, count };
               })
             : [];
@@ -1057,7 +941,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
           setYearMax(nums.length ? Math.max(...nums) : null);
         }
 
-        // ✅ Preserve mode=pick + return_to + listId in URL (because base is current window.search)
+        // ✅ Preserve mode=pick + return_to + listId in URL
         const base = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : undefined;
         const urlQs = buildUrlQueryFromFilters(filters, base);
         const url = urlQs ? `/songs?${urlQs}` : "/songs";
@@ -1100,7 +984,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
   const hasPrev = filters.skip > 0;
   const hasNext = filters.skip + filters.take < total;
-
   const goToPage = (newSkip: number) => patchFilters({ skip: newSkip });
 
   const maxScore = useMemo(() => {
@@ -1175,6 +1058,189 @@ export default function SongsSearchClient({ searchParams }: Props) {
         ? "Picker mode ενεργό, αλλά λείπει/δεν επιτρέπεται το return_to."
         : "";
 
+  // ---------------- Selected filters chips (ABOVE LIST) ----------------
+
+  const selectedChips: Chip[] = useMemo(() => {
+    const chips: Chip[] = [];
+
+    const addCsvChips = (keyPrefix: string, title: string, csv: string, opts: Option[], onRemoveOne: (id: string) => void) => {
+      const ids = parseCsv(csv);
+      for (const id of ids) {
+        const label = firstLabelByValue(opts, id);
+        chips.push({
+          key: `${keyPrefix}:${id}`,
+          label: `${title}: ${label}`,
+          onRemove: () => onRemoveOne(id),
+        });
+      }
+    };
+
+    // q (search term)
+    if ((filters.q || "").trim()) {
+      chips.push({
+        key: "q",
+        label: `Αναζήτηση: ${filters.q.trim()}`,
+        onRemove: () => patchFilters({ q: "" }),
+      });
+    }
+
+    // category (single/multi CSV)
+    if (filters.category_id) {
+      addCsvChips("category", "Κατηγορία", filters.category_id, categoryOptions, (id) =>
+        patchFilters({ category_id: uniqCsv(filters.category_id.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
+      );
+    }
+
+    // rythm
+    if (filters.rythm_id) {
+      addCsvChips("rythm", "Ρυθμός", filters.rythm_id, rythmOptions, (id) =>
+        patchFilters({ rythm_id: uniqCsv(filters.rythm_id.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
+      );
+    }
+
+    // tags
+    if (filters.tagIds) {
+      addCsvChips("tag", "Tag", filters.tagIds, tagOptions, (id) =>
+        patchFilters({ tagIds: uniqCsv(filters.tagIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
+      );
+    }
+
+    // composers/lyricists
+    if (filters.composerIds) {
+      addCsvChips("composer", "Συνθέτης", filters.composerIds, composerOptions, (id) =>
+        patchFilters({ composerIds: uniqCsv(filters.composerIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
+      );
+    }
+    if (filters.lyricistIds) {
+      addCsvChips("lyricist", "Στιχουργός", filters.lyricistIds, lyricistOptions, (id) =>
+        patchFilters({ lyricistIds: uniqCsv(filters.lyricistIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
+      );
+    }
+
+    // singers
+    if (filters.singerFrontIds) {
+      addCsvChips("singerFront", "Ερμηνευτής (Front)", filters.singerFrontIds, singerFrontOptions, (id) =>
+        patchFilters({ singerFrontIds: uniqCsv(filters.singerFrontIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
+      );
+    }
+    if (filters.singerBackIds) {
+      addCsvChips("singerBack", "Ερμηνευτής (Back)", filters.singerBackIds, singerBackOptions, (id) =>
+        patchFilters({ singerBackIds: uniqCsv(filters.singerBackIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
+      );
+    }
+
+    // year range
+    if ((filters.yearFrom || "").trim() || (filters.yearTo || "").trim()) {
+      const y = `${filters.yearFrom || "…"}–${filters.yearTo || "…"}`;
+      chips.push({
+        key: "year",
+        label: `Έτος: ${y}`,
+        onRemove: () => patchFilters({ yearFrom: "", yearTo: "" }),
+      });
+    }
+
+    // lyrics / chords / partiture summaries as single chips
+    const lyricsSum = triYesNoSummary(filters.lyrics, "Έχει στίχους", "Χωρίς στίχους");
+    if (lyricsSum) {
+      chips.push({ key: "lyrics", label: `Στίχοι: ${lyricsSum}`, onRemove: () => patchFilters({ lyrics: "" }) });
+    }
+
+    const chordsSum = triYesNoSummary(filters.chords, "Με συγχορδίες", "Χωρίς συγχορδίες");
+    if (chordsSum) {
+      chips.push({ key: "chords", label: `Συγχορδίες: ${chordsSum}`, onRemove: () => patchFilters({ chords: "" }) });
+    }
+
+    const partSum = triYesNoSummary(filters.partiture, "Με παρτιτούρα", "Χωρίς παρτιτούρα");
+    if (partSum) {
+      chips.push({ key: "partiture", label: `Παρτιτούρα: ${partSum}`, onRemove: () => patchFilters({ partiture: "" }) });
+    }
+
+    // status multi
+    if (filters.status) {
+      const statusIds = parseCsv(filters.status);
+      for (const st of statusIds) {
+        const label = st === "PUBLISHED" ? "Δημοσιευμένο" : st === "DRAFT" ? "Πρόχειρο" : st;
+        chips.push({
+          key: `status:${st}`,
+          label: `Κατάσταση: ${label}`,
+          onRemove: () =>
+            patchFilters({
+              status: uniqCsv(filters.status.replace(new RegExp(`(^|,)${st}(,|$)`), (m, a, b) => (a && b ? "," : ""))),
+            }),
+        });
+      }
+    }
+
+    // createdBy
+    if ((filters.createdByUserId || "").trim()) {
+      chips.push({
+        key: "createdBy",
+        label: `Δημιουργός: ${firstLabelByValue(createdByOptions, filters.createdByUserId)}`,
+        onRemove: () => patchFilters({ createdByUserId: "" }),
+      });
+    }
+
+    // popular sort flag
+    if (filters.popular === "1") {
+      chips.push({
+        key: "popular",
+        label: "Ταξινόμηση: Δημοφιλή (views)",
+        onRemove: () => patchFilters({ popular: "" }),
+      });
+    }
+
+    return chips;
+  }, [
+    filters,
+    categoryOptions,
+    rythmOptions,
+    tagOptions,
+    composerOptions,
+    lyricistOptions,
+    singerFrontOptions,
+    singerBackOptions,
+    createdByOptions,
+  ]);
+
+  const chipStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid #444",
+    background: "#111",
+    color: "#fff",
+    fontSize: 12,
+    lineHeight: "14px",
+    maxWidth: "100%",
+  };
+
+  const chipXStyle: React.CSSProperties = {
+    border: "none",
+    background: "transparent",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: 16,
+    lineHeight: 1,
+    padding: 0,
+    marginLeft: 2,
+    fontWeight: 800,
+    opacity: 0.9,
+  };
+
+  const clearAllStyle: React.CSSProperties = {
+    padding: "6px 10px",
+    borderRadius: 10,
+    border: "1px solid #666",
+    background: "#151515",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+  };
+
   return (
     <section style={{ padding: "16px 24px" }}>
       <h1 style={{ fontSize: "1.6rem", marginBottom: 8 }}>
@@ -1182,9 +1248,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
       </h1>
 
       {pickerMode ? (
-        <div style={{ marginBottom: 10, color: "#fff", opacity: 0.85, fontSize: 13 }}>
-          {pickerHint}
-        </div>
+        <div style={{ marginBottom: 10, color: "#fff", opacity: 0.85, fontSize: 13 }}>{pickerHint}</div>
       ) : null}
 
       <header style={{ marginBottom: 12 }}>
@@ -1301,6 +1365,66 @@ export default function SongsSearchClient({ searchParams }: Props) {
             </div>
           </div>
 
+          {/* ✅ Selected filters ABOVE list */}
+          {selectedChips.length > 0 && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: 10,
+                borderRadius: 12,
+                border: "1px solid #333",
+                background: "#070707",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                alignItems: "center",
+              }}
+            >
+              <div style={{ color: "#bbb", fontSize: 12, fontWeight: 700, marginRight: 6 }}>Επιλεγμένα φίλτρα:</div>
+
+              {selectedChips.map((c) => (
+                <span key={c.key} style={chipStyle} title={c.label}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>
+                    {c.label}
+                  </span>
+                  <button type="button" onClick={c.onRemove} aria-label="Αφαίρεση φίλτρου" style={chipXStyle}>
+                    ×
+                  </button>
+                </span>
+              ))}
+
+              <div style={{ marginLeft: "auto" }}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    patchFilters({
+                      q: "",
+                      chords: "",
+                      partiture: "",
+                      category_id: "",
+                      rythm_id: "",
+                      tagIds: "",
+                      composerIds: "",
+                      lyricistIds: "",
+                      singerFrontIds: "",
+                      singerBackIds: "",
+                      yearFrom: "",
+                      yearTo: "",
+                      lyrics: "",
+                      status: "",
+                      popular: "",
+                      createdByUserId: "",
+                      skip: 0,
+                    })
+                  }
+                  style={clearAllStyle}
+                >
+                  Καθαρισμός όλων
+                </button>
+              </div>
+            </div>
+          )}
+
           {loading && <p>Φόρτωση…</p>}
           {error && <p style={{ color: "red" }}>{error}</p>}
 
@@ -1314,22 +1438,15 @@ export default function SongsSearchClient({ searchParams }: Props) {
                   const youtubeUrl = buildYoutubeUrl(song);
                   const lyricsPreview = buildLyricsPreview(song);
 
-                  const hasViews =
-                    song.views !== null && song.views !== undefined && !Number.isNaN(song.views);
+                  const hasViews = song.views !== null && song.views !== undefined && !Number.isNaN(song.views);
 
-                  const rawScore =
-                    typeof song.score === "number" && !Number.isNaN(song.score) ? song.score : null;
-
-                  const displayScore =
-                    rawScore !== null && maxScore > 0 ? (rawScore / maxScore) * 100 : rawScore;
-
+                  const rawScore = typeof song.score === "number" && !Number.isNaN(song.score) ? song.score : null;
+                  const displayScore = rawScore !== null && maxScore > 0 ? (rawScore / maxScore) * 100 : rawScore;
                   const hasScore = displayScore !== null && typeof displayScore === "number";
 
                   const onPick = () => {
                     if (!songId) return;
-                    const dest = returnTo
-                      ? appendPickedSongId(returnTo, songId)
-                      : `/songs?pickedSongId=${songId}`;
+                    const dest = returnTo ? appendPickedSongId(returnTo, songId) : `/songs?pickedSongId=${songId}`;
                     window.location.href = dest;
                   };
 
@@ -1462,8 +1579,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
           >
             <div>
               Εμφάνιση από <strong>{filters.skip + 1}</strong> έως{" "}
-              <strong>{Math.min(filters.skip + filters.take, total)}</strong> από{" "}
-              <strong>{total}</strong> τραγούδια.
+              <strong>{Math.min(filters.skip + filters.take, total)}</strong> από <strong>{total}</strong> τραγούδια.
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {hasPrev && (

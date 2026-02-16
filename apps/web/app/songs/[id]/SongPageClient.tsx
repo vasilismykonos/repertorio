@@ -351,8 +351,9 @@ export default function SongPageClient(props: Props) {
     >
       <ActionBar
         left={<>{A.backLink({ href: backHref, title: backTitle, label: backLabel })}</>}
-        right={
+         right={
           <>
+           {A.share({ shareTitle: song.title, label: "Share" })}
             {canEdit
               ? A.editLink({
                   href: `/songs/${song.id}/edit`,
@@ -363,6 +364,7 @@ export default function SongPageClient(props: Props) {
             {roomAction}
           </>
         }
+
       />
 
       <header id="song-title" style={{ marginBottom: 16 }}>
