@@ -264,13 +264,14 @@ export const A = {
         }
 
         // Clipboard fallback
-        if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(shareUrl);
+        const nav: Navigator | undefined =
+        typeof window !== "undefined" ? window.navigator : undefined;
+
+        if (nav?.clipboard?.writeText) {
+          await nav.clipboard.writeText(shareUrl);
           onCopied?.();
-          // Αν δεν έχεις toast, κράτα ένα απλό feedback:
-          alert("Το link αντιγράφηκε!");
-          return;
         }
+
 
         // Last resort
         if (typeof window !== "undefined") {
