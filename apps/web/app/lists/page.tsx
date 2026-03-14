@@ -5,6 +5,7 @@ import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi } from "@/lib/currentUser";
 
 import ListsPageClient from "./ListsPageClient";
+import type { ListGroupWithRole } from "./ListsGroupsBlock";
 
 export const dynamic = "force-dynamic";
 
@@ -13,12 +14,19 @@ export const metadata: Metadata = {
   description: "Λίστες τραγουδιών του χρήστη από το παλιό Repertorio.",
 };
 
-// Πρέπει να ταιριάζει με αυτά που επιστρέφει το /lists API (ListsService.getListsIndex)
 export type ListSummary = {
   id: number;
   title: string;
   groupId: number | null;
   marked: boolean;
+
+  // ✅ από backend (/lists)
+  role:
+    | "OWNER"
+    | "LIST_EDITOR"
+    | "SONGS_EDITOR"
+    | "VIEWER";
+  itemsCount: number;
 };
 
 export type ListGroupSummary = {
@@ -36,9 +44,13 @@ export type ListsIndexResponse = {
   groups: ListGroupSummary[];
 };
 
+export type ListGroupsIndexResponse = {
+  items: ListGroupWithRole[];
+};
+
 type ListsPageSearchParams = {
   search?: string;
-  groupId?: string; // "", "null" ή αριθμητικό groupId
+  groupId?: string;
   page?: string;
 };
 
@@ -47,25 +59,16 @@ export default async function ListsPage({
 }: {
   searchParams: ListsPageSearchParams;
 }) {
-  // -----------------------------
-  // Ανάγνωση query params
-  // -----------------------------
   const rawSearch = searchParams.search ?? "";
   const search = rawSearch.trim();
 
-  const rawGroupId = searchParams.groupId ?? "";
-  // "", "null" ή αριθμός ως string
-  const groupId = rawGroupId;
+  const groupId = searchParams.groupId ?? "";
 
   const rawPage = searchParams.page ?? "1";
   const page = Number(rawPage) > 0 ? Number(rawPage) : 1;
 
-  // Match backend default (ListsService.getListsIndex)
   const pageSize = 50;
 
-  // -----------------------------
-  // Current user
-  // -----------------------------
   const currentUser = await getCurrentUserFromApi();
   if (!currentUser) {
     return (
@@ -76,39 +79,40 @@ export default async function ListsPage({
     );
   }
 
-  // -----------------------------
-  // 1) DATA: items με το τρέχον φίλτρο groupId
-  // -----------------------------
+  const viewerIsAdmin = String((currentUser as any).role ?? "USER") === "ADMIN";
+
   const dataParams = new URLSearchParams();
   dataParams.set("userId", String(currentUser.id));
   dataParams.set("page", String(page));
   dataParams.set("pageSize", String(pageSize));
-
   if (search) dataParams.set("search", search);
   if (groupId) dataParams.set("groupId", groupId);
-
   const dataUrl = `/lists?${dataParams.toString()}`;
 
-  // -----------------------------
-  // 2) FACETS: total/groups ΠΑΝΤΑ χωρίς groupId (αλλά κρατάμε το search)
-  //    Δεν μας νοιάζουν τα items εδώ, μόνο τα counts.
-  // -----------------------------
   const facetsParams = new URLSearchParams();
   facetsParams.set("userId", String(currentUser.id));
   facetsParams.set("page", "1");
   facetsParams.set("pageSize", "1");
-
   if (search) facetsParams.set("search", search);
-
   const facetsUrl = `/lists?${facetsParams.toString()}`;
+
+  const groupsParams = new URLSearchParams();
+  groupsParams.set("userId", String(currentUser.id));
+  const groupsUrl = `/lists/groups?${groupsParams.toString()}`;
 
   let data: ListsIndexResponse;
   let facets: ListsIndexResponse;
+  let groupsIndex: ListGroupsIndexResponse | null = null;
 
   try {
-    // sequential για καθαρό error handling (και ίδιο session/cookies)
     data = await fetchJson<ListsIndexResponse>(dataUrl);
     facets = await fetchJson<ListsIndexResponse>(facetsUrl);
+
+    try {
+      groupsIndex = await fetchJson<ListGroupsIndexResponse>(groupsUrl);
+    } catch {
+      groupsIndex = null;
+    }
   } catch (err: any) {
     return (
       <section style={{ padding: "1rem" }}>
@@ -118,9 +122,6 @@ export default async function ListsPage({
     );
   }
 
-  // -----------------------------
-  // Render (client)
-  // -----------------------------
   return (
     <ListsPageClient
       initialSearch={search}
@@ -129,6 +130,8 @@ export default async function ListsPage({
       pageSize={pageSize}
       data={data}
       facets={facets}
+      groupsIndex={groupsIndex}
+      viewerIsAdmin={viewerIsAdmin}
     />
   );
 }

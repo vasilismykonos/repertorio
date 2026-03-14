@@ -58,6 +58,34 @@ export type SongDetail = {
   hasScore: boolean;
   scoreFile: string | null;
 
+  /**
+   * Attached assets for this song. Each asset can be a FILE or LINK and has a
+   * type (e.g. SCORE, PDF, IMAGE, AUDIO, etc.). When present, assets of type
+   * SCORE should be used to display the score instead of the legacy
+   * scoreFile.
+   */
+  assets: {
+    id: number;
+    kind: "FILE" | "LINK";
+    type:
+      | "GENERIC"
+      | "YOUTUBE"
+      | "SPOTIFY"
+      | "PDF"
+      | "AUDIO"
+      | "IMAGE"
+      | "SCORE"
+      | string;
+    title: string | null;
+    url: string | null;
+    filePath: string | null;
+    mimeType: string | null;
+    sizeBytes: string | null;
+    label: string | null;
+    sort: number;
+    isPrimary: boolean;
+  }[];
+
   versions: SongVersion[];
 };
 
@@ -178,8 +206,28 @@ function normalizeTags(raw: any): TagDto[] {
   return Array.from(map.values());
 }
 
+function isOrganicSong(song: Pick<SongDetail, "characteristics" | "tags">): boolean {
+  const tags = Array.isArray(song.tags) ? song.tags : [];
+
+  const byTags = tags.some((t) => {
+    const title = String(t?.title ?? "").trim().toLocaleLowerCase("el-GR");
+    const slug = String(t?.slug ?? "").trim().toLocaleLowerCase("el-GR");
+    return title === "οργανικό" || slug === "οργανικό";
+  });
+
+  if (byTags) return true;
+
+  const characteristics = String(song.characteristics ?? "");
+  return characteristics
+    .split(",")
+    .map((c) => c.trim().toLocaleLowerCase("el-GR"))
+    .some((c) => c === "οργανικό");
+}
+
 // Schema.org MusicComposition
 function renderSongSchema(song: SongDetail) {
+  const organic = isOrganicSong(song);
+
   const schema: any = {
     "@context": "https://schema.org",
     "@type": "MusicComposition",
@@ -188,7 +236,11 @@ function renderSongSchema(song: SongDetail) {
     lyricist: song.lyricistName ? { "@type": "Person", name: song.lyricistName } : undefined,
     genre: song.categoryTitle || undefined,
     inLanguage: "el",
-    lyrics: song.lyrics && song.lyrics.trim() !== "" ? song.lyrics : "Χωρίς διαθέσιμους στίχους",
+    lyrics: organic
+      ? "(Οργανικό)"
+      : song.lyrics && song.lyrics.trim() !== ""
+        ? song.lyrics
+        : "Χωρίς διαθέσιμους στίχους",
     isAccessibleForFree: true,
     url: `https://repertorio.net/songs/song/${song.id}-${slugify(song.title)}/`,
   };
@@ -311,6 +363,12 @@ export default async function SongPage({ params }: SongPageProps) {
   const versions = normalizeVersions(rawSong.versions);
   const tags = normalizeTags(rawSong.tags);
 
+  // The API returns assets as part of the song object. Normalize to an array
+  // (defaulting to an empty array when missing) so that the client can
+  // consume it directly. Each asset has id, kind, type, title, url,
+  // filePath, mimeType, sizeBytes, label, sort and isPrimary.
+  const assets: any[] = Array.isArray(rawSong.assets) ? rawSong.assets : [];
+
   const hasScore = Boolean(rawSong.hasScore);
   const scoreFile: string | null = rawSong.scoreFile ? String(rawSong.scoreFile) : null;
 
@@ -363,6 +421,11 @@ export default async function SongPage({ params }: SongPageProps) {
     hasScore,
     scoreFile,
     versions,
+
+    // Attach assets: keep raw values as returned by the API. See SongDetail
+    // type for structure. These will be used for displaying assets and
+    // determining score files.
+    assets,
   };
 
   // ✅ ΜΟΝΟ ΕΔΩ hasChords (όχι δεύτερο)
@@ -379,13 +442,12 @@ export default async function SongPage({ params }: SongPageProps) {
 
   const canEdit = Boolean(isPrivilegedRole(currentUser?.role) || isOwner);
 
-  const isOrganic = song.characteristics?.split(",").some((c) => c.trim() === "Οργανικό") ?? false;
-  const finalLyrics =
-    isOrganic
-      ? "(Οργανικό)"
-      : !song.lyrics || song.lyrics.trim() === ""
-        ? "(Χωρίς διαθέσιμους στίχους)"
-        : song.lyrics;
+  const isOrganic = isOrganicSong(song);
+  const finalLyrics = isOrganic
+    ? "(Οργανικό)"
+    : !song.lyrics || song.lyrics.trim() === ""
+      ? "(Χωρίς διαθέσιμους στίχους)"
+      : song.lyrics;
 
   const firstWords = getFirstWordsForYoutube(song.firstLyrics, song.lyrics);
   const youtubeSearchQuery = `${song.title} ${firstWords}`.trim();
@@ -393,10 +455,28 @@ export default async function SongPage({ params }: SongPageProps) {
     youtubeSearchQuery,
   )}`;
 
-  const scoreFileUrl =
-    song.hasScore && song.scoreFile
+  const scoreFileUrl = (() => {
+    // Prefer a score asset if available. Look for the first asset with type
+    // SCORE and use its filePath or url as the score file URL.
+    const scoreAsset = assets.find(
+      (a: any) => String(a?.type ?? "").toUpperCase() === "SCORE",
+    );
+    if (scoreAsset) {
+      const kind = String(scoreAsset.kind ?? "").toUpperCase();
+      if (kind === "LINK") {
+        const u = String(scoreAsset.url ?? "").trim();
+        if (u) return u;
+      }
+      const fp = String(scoreAsset.filePath ?? "").trim();
+      if (fp) return fp;
+    }
+    // Fallback: use the legacy scoreFile if present, otherwise fallback to
+    // the song ID endpoint. This preserves existing behaviour when no
+    // SCORE assets are found.
+    return song.hasScore && song.scoreFile
       ? `/api/scores/${encodeURIComponent(song.scoreFile)}`
       : `/api/scores/${song.id}`;
+  })();
 
   // ✅ defaults από profile (αν υπάρχει)
   const defaultPanelsOpen = currentUser?.profile

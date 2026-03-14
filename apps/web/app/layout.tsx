@@ -1,4 +1,4 @@
-// app/layout.tsx
+// apps/web/app/layout.tsx
 
 import "./styles/globals.css";
 import "./styles/buttons.css";
@@ -9,7 +9,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 
-import Header from "./components/Header";
+import HeaderServer from "./components/HeaderServer";
 import Footer from "./components/Footer";
 import Providers from "./Providers";
 import { PwaProvider } from "./PwaProvider";
@@ -17,7 +17,6 @@ import { PwaInstallLinkHandler } from "./components/PwaInstallLinkHandler";
 import PpSplash from "./components/ppSplash";
 
 // ✅ Host-based metadata (dev.repertorio.net vs prod)
-// (Πιο σωστό από NODE_ENV όταν το dev domain σερβίρεται από production build)
 export function generateMetadata(): Metadata {
   const host = headers().get("host") || "";
   const isDevHost = host.toLowerCase().startsWith("dev.");
@@ -47,7 +46,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="el" data-env={isDevHost ? "dev" : "prod"}>
       <head>
-        {/* External CSS (ok να μείνει εδώ) */}
+        {/* External CSS */}
         <link
           rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -75,8 +74,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <PwaInstallLinkHandler />
 
         <Providers>
+
+
           <Suspense fallback={null}>
-            <Header />
+            <HeaderServer />
           </Suspense>
 
           <main style={{ flex: 1 }}>{children}</main>

@@ -6,13 +6,19 @@ import { Recycle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
+import SideMenu from "./SideMenu";
+
+type HeaderProps = {
+  appVersion?: string;
+  gitSha?: string | null;
+};
 
 // Wrapper: κρύβει εντελώς το header όταν έχουμε ?embed=1
-export default function Header() {
+export default function Header(props: HeaderProps) {
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   if (isEmbed) return null;
-  return <HeaderInner />;
+    return <HeaderInner appVersion={props.appVersion} gitSha={props.gitSha} />;
 }
 
 // ✅ MUST MATCH RoomsClient.tsx
@@ -40,7 +46,7 @@ type StatusResponse = {
   rooms?: StatusRoom[];
 };
 
-function HeaderInner() {
+function HeaderInner({ appVersion, gitSha }: HeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -381,7 +387,7 @@ function HeaderInner() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "flex-end",
+                justifyContent: "center",
                 width: "100%",
               }}
             >
@@ -589,211 +595,26 @@ function HeaderInner() {
       </header>
 
       {/* Sidebar */}
-      <aside id="sidebar" className={sidebarClass}>
-        <button
-          id="closeSidebar"
-          onClick={closeSidebar}
-          style={{
-            position: "absolute",
-            top: 2,
-            right: 10,
-            background: "none",
-            border: "none",
-            fontSize: 24,
-            color: "#fff",
-            cursor: "pointer",
-          }}
-        >
-          &times;
-        </button>
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            marginTop: 20,
-            justifyContent: "space-between",
-            width: "100%",
-          }}
-        >
-          <button
-            id="newsong"
-            className="user-icon"
-            style={{
-              border: "none",
-              background: "none",
-              cursor: "pointer",
-              color: "#fff",
-              fontSize: 14,
-            }}
-            onClick={() => {
-              closeSidebar();
-              window.location.href = "/songs/song/?song_id=0";
-            }}
-          >
-            ✚ <br />
-            Τραγούδι
-          </button>
-
-          <button
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 3,
-              padding: 5,
-              border: "none",
-              background: "none",
-              cursor: "pointer",
-            }}
-            onClick={() => {
-              closeSidebar();
-              isLoggedIn ? doSignOut() : doSignIn();
-            }}
-          >
-            <span
-              style={{
-                display: "inline-block",
-                width: 32,
-                height: 32,
-                borderRadius: "50%",
-                border: "1.5px solid white",
-                overflow: "hidden",
-              }}
-            >
-              {avatarNode}
-            </span>
-            <span style={{ fontSize: 12 }}>{isLoggedIn ? "Αποσύνδεση" : "Σύνδεση"}</span>
-          </button>
-        </div>
-
-        <hr
-          style={{
-            border: 0,
-            height: 1,
-            background: "#fff",
-            margin: "5px auto",
-            width: "95%",
+        <SideMenu
+          isOpen={isSidebarOpen}
+          onClose={closeSidebar}
+          pathname={pathname}
+          isLoggedIn={isLoggedIn}
+          onSignIn={doSignIn}
+          onSignOut={doSignOut}
+          userName={(session?.user as any)?.name}
+          userEmail={(session?.user as any)?.email}
+          avatarNode={avatarNode}
+          isInRoom={isInRoom}
+          currentRoomName={currentRoomName}
+          roomUserCount={roomUserCount}
+          roomLoading={roomLoading}
+          appVersion={appVersion}
+          gitSha={gitSha}     
+          onNewSong={() => {
+            window.location.href = "/songs/new";
           }}
         />
-
-        <nav className="sidebar-nav">
-          <ul style={{ listStyle: "none", padding: 0, marginTop: 15 }}>
-            <li style={{ marginBottom: 10 }}>
-              <Link
-                href="/lists"
-                onClick={closeSidebar}
-                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
-              >
-                📋 Λίστες
-              </Link>
-            </li>
-
-            <li style={{ marginBottom: 10 }}>
-              <Link
-                href="/artists"
-                onClick={closeSidebar}
-                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
-              >
-                <i className="fa-solid fa-music" /> Καλλιτέχνες
-              </Link>
-            </li>
-
-            <li style={{ marginBottom: 10 }}>
-              <Link
-                href="/rooms"
-                onClick={closeSidebar}
-                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
-              >
-                <i className="fas fa-sync-alt" /> Rooms
-              </Link>
-            </li>
-
-            <li style={{ marginBottom: 10 }}>
-              <Link
-                href="/me"
-                onClick={closeSidebar}
-                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
-              >
-                <i className="fa-solid fa-user" /> Λογαριασμός
-              </Link>
-            </li>
-
-            <li style={{ marginBottom: 10 }}>
-              <a
-                href="#"
-                id="installAppLink"
-                onClick={closeSidebar}
-                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
-              >
-                🛠️ Εγκατάσταση APP
-              </a>
-            </li>
-
-            <li style={{ marginBottom: 10 }}>
-              <Link
-                href="/users"
-                onClick={closeSidebar}
-                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
-              >
-                <i className="fa-solid fa-user" /> Χρήστες
-              </Link>
-            </li>
-
-            <li style={{ marginBottom: 10 }}>
-              <Link
-                href="/settings"
-                onClick={closeSidebar}
-                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
-              >
-                ⚙️ Ρυθμίσεις
-              </Link>
-            </li>
-
-            <li style={{ marginBottom: 50 }}>
-              <a
-                href="mailto:repertorio.net@gmail.com"
-                onClick={closeSidebar}
-                style={{ color: "#fff", textDecoration: "none", fontSize: 18 }}
-              >
-                ✉️ Επικοινωνία
-              </a>
-            </li>
-          </ul>
-        </nav>
-
-        <div
-          className="sidebar-footer"
-          style={{
-            marginTop: 5,
-            width: "90%",
-            textAlign: "center",
-            paddingBottom: 5,
-          }}
-        >
-          <div style={{ marginTop: 10, lineHeight: 1.6, textAlign: "left", fontSize: 12 }}>
-            • Παρτιτούρες:{" "}
-            <a href="https://notttes.blogspot.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#fff" }}>
-              notttes.blogspot.com
-            </a>
-            <br />
-            • Ρεμπέτικα:{" "}
-            <a href="https://rebetiko.sealabs.net/" target="_blank" rel="noopener noreferrer" style={{ color: "#fff" }}>
-              rebetiko.sealabs.net
-            </a>
-          </div>
-
-          <div className="version-info" style={{ fontSize: 12, marginTop: 15 }}>
-            Έκδοση εφαρμογής: 1.0.0 (Next)
-          </div>
-
-          <div style={{ color: "#ffffff", textAlign: "center", marginTop: 10, fontSize: 12 }}>
-            Χρήστες online: –
-          </div>
-        </div>
-      </aside>
-
       <div id="overlay" className={overlayClass} onClick={closeSidebar} />
     </>
   );

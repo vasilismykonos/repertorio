@@ -303,6 +303,9 @@ export class ElasticSongsController {
     @Query('tags') tagsStr?: string,
     @Query('tagIds') tagIdsStr?: string,
 
+    // lists
+    @Query('listIds') listIdsStr?: string,
+
     // legacy names
     @Query('composer') composerStr?: string,
     @Query('lyricist') lyricistStr?: string,
@@ -367,6 +370,7 @@ export class ElasticSongsController {
         this.parseNumber(organikoTagIdStr, 0, 0, 10_000_000) || null;
 
       const tagsIds = this.parseIdsFromAliases(tagsStr, tagIdsStr);
+      const listIds = this.parseIdList(listIdsStr);
 
       const composerIds = this.parseIdsFromAliases(
         composerIdsStr,
@@ -444,6 +448,7 @@ export class ElasticSongsController {
       }
 
       if (tagsIds?.length) filters.push({ terms: { tagIds: tagsIds } });
+      if (listIds?.length) filters.push({ terms: { listIds } });
       if (years.length) filters.push({ terms: { years } });
 
       // overlap range: [minYear,maxYear] intersects [yearFrom,yearTo]
@@ -639,6 +644,7 @@ export class ElasticSongsController {
           'tagIds',
           'tagTitles',
           'tagSlugs',
+          'listIds',
           'years',
           'minYear',
           'maxYear',
@@ -655,6 +661,7 @@ export class ElasticSongsController {
           categoryId: { terms: { field: 'categoryId', size: 200 } },
           rythmId: { terms: { field: 'rythmId', size: 200 } },
           tagIds: { terms: { field: 'tagIds', size: 500 } },
+          listIds: { terms: { field: 'listIds', size: 1000 } },
 
           status: { terms: { field: this.STATUS_FIELD, size: 20 } },
 

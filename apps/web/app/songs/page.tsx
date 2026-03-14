@@ -28,6 +28,9 @@ export type SongsPageSearchParams = {
   // ✅ tags
   tagIds?: string | string[];
 
+  // ✅ lists
+  listIds?: string | string[];
+
   // ✅ ids (multi CSV)
   composerIds?: string | string[];
   lyricistIds?: string | string[];

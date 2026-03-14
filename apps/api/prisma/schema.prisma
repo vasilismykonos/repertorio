@@ -18,13 +18,18 @@ model User {
   legacyUserId              Int?                   @unique
   avatarUrl                 String?
   profile                   Json?
+
   listGroupMembers          ListGroupMember[]
   listMembers               ListMember[]
+
   createdSongs              Song[]                 @relation("SongCreatedBy")
   songSingerTunesAsCreator  SongSingerTune[]       @relation("SongSingerTuneCreatedBy")
   createdVersions           SongVersion[]          @relation("SongVersionCreatedBy")
+
   singerTuneAccessAsViewer  UserSingerTuneAccess[] @relation("UserSingerTuneAccessViewer")
   singerTuneAccessAsCreator UserSingerTuneAccess[] @relation("UserSingerTuneAccessCreator")
+
+  presence                  UserPresence?
 }
 
 model Song {
@@ -49,12 +54,17 @@ model Song {
   updatedAt        DateTime         @updatedAt
   createdByUserId  Int?
   originalKeySign  String?          @db.Char(1)
+
   listItems        ListItem[]
+
   basedOnSong      Song?            @relation("SongBasedOn", fields: [basedOnSongId], references: [id])
   derivedSongs     Song[]           @relation("SongBasedOn")
+
   category         Category?        @relation(fields: [categoryId], references: [id])
   createdBy        User?            @relation("SongCreatedBy", fields: [createdByUserId], references: [id])
   rythm            Rythm?           @relation(fields: [rythmId], references: [id])
+
+  // ✅ ΠΑΛΙΟ naming (όπως το παλιό schema σου / services σου)
   SongAsset        SongAsset[]
   songCategories   SongCategory[]
   credits          SongCredit[]
@@ -79,6 +89,7 @@ model SongSingerTune {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   title                 String   @db.VarChar(200)
+
   createdByUser         User?    @relation("SongSingerTuneCreatedBy", fields: [createdByUserId], references: [id])
   song                  Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
 
@@ -128,6 +139,7 @@ model Artist {
   dieYear        Int?
   sex            String?
   wikiUrl        String?
+
   songCredits    SongCredit[]
   versionCredits SongVersionArtist[]
 }
@@ -138,6 +150,7 @@ model Category {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   slug           String         @unique
+
   songs          Song[]
   songCategories SongCategory[]
 }
@@ -148,6 +161,7 @@ model Rythm {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   slug      String   @unique
+
   songs     Song[]
 }
 
@@ -156,6 +170,7 @@ model SongCredit {
   songId   Int
   artistId Int
   role     SongCreditRole
+
   artist   Artist         @relation(fields: [artistId], references: [id])
   song     Song           @relation(fields: [songId], references: [id])
 
@@ -173,6 +188,7 @@ model SongVersion {
   playerCode      String?
   createdAt       DateTime            @default(now())
   createdByUserId Int?
+
   createdByUser   User?               @relation("SongVersionCreatedBy", fields: [createdByUserId], references: [id])
   song            Song                @relation(fields: [songId], references: [id])
   artists         SongVersionArtist[]
@@ -183,6 +199,7 @@ model SongVersionArtist {
   versionId Int
   artistId  Int
   role      VersionArtistRole
+
   artist    Artist            @relation(fields: [artistId], references: [id])
   version   SongVersion       @relation(fields: [versionId], references: [id])
 
@@ -196,8 +213,12 @@ model ListGroup {
   fullTitle String?
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
+
   lists     List[]
   members   ListGroupMember[]
+
+  // ✅ ΝΕΟ: assets στο group (κρατάμε “ModelName array” naming)
+  ListGroupAsset ListGroupAsset[]
 }
 
 model List {
@@ -208,9 +229,13 @@ model List {
   marked    Boolean      @default(false)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
+
   group     ListGroup?   @relation(fields: [groupId], references: [id])
   items     ListItem[]
   members   ListMember[]
+
+  // ✅ ΝΕΟ: assets στη list
+  ListAsset ListAsset[]
 }
 
 model ListItem {
@@ -224,6 +249,10 @@ model ListItem {
   chords    String?
   lyrics    String?
   songId    Int?
+
+  // ✅ ΝΕΟ: assets στο list item
+  ListItemAsset ListItemAsset[]
+
   list      List    @relation(fields: [listId], references: [id])
   song      Song?   @relation(fields: [songId], references: [id])
 }
@@ -233,6 +262,7 @@ model ListMember {
   listId Int
   userId Int
   role   ListMemberRole
+
   list   List           @relation(fields: [listId], references: [id])
   user   User           @relation(fields: [userId], references: [id])
 
@@ -244,6 +274,7 @@ model ListGroupMember {
   groupId Int
   userId  Int
   role    ListGroupMemberRole
+
   group   ListGroup           @relation(fields: [groupId], references: [id])
   user    User                @relation(fields: [userId], references: [id])
 
@@ -255,11 +286,16 @@ model SongCategory {
   songId     Int
   categoryId Int
   createdAt  DateTime @default(now())
+
   category   Category @relation(fields: [categoryId], references: [id])
   song       Song     @relation(fields: [songId], references: [id])
 
   @@unique([songId, categoryId])
 }
+
+/* =========================
+   Assets
+========================= */
 
 model Asset {
   id        Int         @id @default(autoincrement())
@@ -271,7 +307,12 @@ model Asset {
   mimeType  String?
   sizeBytes BigInt?
   createdAt DateTime    @default(now())
-  SongAsset SongAsset[]
+
+  // ✅ “ModelName arrays” (όπως ήδη δουλεύουν τα services σου)
+  SongAsset      SongAsset[]
+  ListAsset      ListAsset[]
+  ListItemAsset  ListItemAsset[]
+  ListGroupAsset ListGroupAsset[]
 
   @@index([kind, type])
 }
@@ -283,6 +324,8 @@ model SongAsset {
   sort      Int      @default(0)
   isPrimary Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  // ✅ ΠΑΛΙΟ naming (κεφαλαία) όπως στο παλιό schema σου
   Asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
   Song      Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
 
@@ -291,12 +334,69 @@ model SongAsset {
   @@index([songId, sort])
 }
 
+model ListAsset {
+  listId    Int
+  assetId   Int
+  label     String?
+  sort      Int      @default(0)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // ✅ πεζά ώστε include: { list: ... } να δουλεύει
+  list      List     @relation(fields: [listId], references: [id], onDelete: Cascade)
+  asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([listId, assetId])
+  @@index([assetId])
+  @@index([listId, sort])
+}
+
+model ListItemAsset {
+  listItemId Int
+  assetId    Int
+  label      String?
+  sort       Int      @default(0)
+  isPrimary  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  // ✅ πεζά ώστε include: { listItem: ... } να δουλεύει
+  listItem   ListItem @relation(fields: [listItemId], references: [id], onDelete: Cascade)
+  asset      Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([listItemId, assetId])
+  @@index([assetId])
+  @@index([listItemId, sort])
+}
+
+model ListGroupAsset {
+  listGroupId Int
+  assetId     Int
+  label       String?
+  sort        Int      @default(0)
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  // ✅ πεζά ώστε include: { listGroup: ... } να δουλεύει
+  listGroup   ListGroup @relation(fields: [listGroupId], references: [id], onDelete: Cascade)
+  asset       Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([listGroupId, assetId])
+  @@index([assetId])
+  @@index([listGroupId, sort])
+}
+
+/* =========================
+   Tags
+========================= */
+
 model SongTag {
   songId    Int
   tagId     Int
   createdAt DateTime @default(now())
-  Song      Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
-  Tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  // ✅ ΠΑΛΙΟ naming (κεφαλαία) ώστε include: { Tag: ... } να δουλεύει
+  Song      Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+  Tag       Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([songId, tagId])
   @@index([songId])
@@ -308,6 +408,8 @@ model Tag {
   title     String    @unique
   slug      String    @unique
   createdAt DateTime  @default(now())
+
+  // ✅ ΠΑΛΙΟ field name
   SongTag   SongTag[]
 }
 
@@ -318,6 +420,19 @@ model TuneShareGroup {
   createdAt     DateTime @default(now()) @db.Timestamp(6)
   updatedAt     DateTime @default(now()) @db.Timestamp(6)
 }
+
+model UserPresence {
+  userId     Int      @id
+  lastSeenAt DateTime @default(now()) @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([lastSeenAt])
+}
+
+/* =========================
+   Enums
+========================= */
 
 enum SongStatus {
   DRAFT
@@ -348,13 +463,14 @@ enum UserRole {
 
 enum ListMemberRole {
   OWNER
-  EDITOR
+  LIST_EDITOR
+  SONGS_EDITOR
   VIEWER
 }
 
 enum ListGroupMemberRole {
   OWNER
-  EDITOR
+  LIST_EDITOR
   VIEWER
 }
 

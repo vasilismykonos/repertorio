@@ -1,44 +1,26 @@
 // apps/web/app/lists/[id]/edit/ListEditSongsClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import Button from "@/app/components/buttons/Button";
+
 type ListItemRow = {
-  listItemId: number;
+  listItemId: number; // existing (>0) OR temp (<0)
   listId: number;
   sortId: number;
+
   songId: number | null;
   title: string | null;
+
+  __isDraft?: boolean;
 };
 
-async function readJson(res: Response) {
-  const t = await res.text();
-  try {
-    return t ? JSON.parse(t) : null;
-  } catch {
-    return t;
-  }
-}
-
-/** ✅ same-origin -> nginx proxy to API */
-const API_BASE_URL = "/api/v1";
-
-/** ====== Endpoints (must exist on API) ======
- * POST   /api/v1/lists/:id/items?userId=1        body: { songId }
- * DELETE /api/v1/lists/:id/items/:listItemId?userId=1
- */
-function buildAddItemUrl(listId: number, userId: number) {
-  return `${API_BASE_URL}/lists/${encodeURIComponent(String(listId))}/items?userId=${encodeURIComponent(
-    String(userId),
-  )}`;
-}
-
-function buildDeleteItemUrl(listId: number, listItemId: number, userId: number) {
-  return `${API_BASE_URL}/lists/${encodeURIComponent(String(listId))}/items/${encodeURIComponent(
-    String(listItemId),
-  )}?userId=${encodeURIComponent(String(userId))}`;
-}
+type PersistedState = {
+  items: ListItemRow[];
+  nextTempId: number; // negative counter
+};
 
 function normalizeItemsForEdit(items: ListItemRow[]) {
   const copy = (items ?? []).slice();
@@ -46,7 +28,6 @@ function normalizeItemsForEdit(items: ListItemRow[]) {
   return copy;
 }
 
-/** ✅ return_to safety: allow ONLY relative paths */
 function safeReturnTo(input: string): string | null {
   const raw = String(input || "").trim();
   if (!raw) return null;
@@ -59,7 +40,6 @@ type Props = {
   listId: number;
 
   initialItems: ListItemRow[];
-
   inputStyle: React.CSSProperties;
 
   onItemsChange: (items: ListItemRow[]) => void;
@@ -67,9 +47,15 @@ type Props = {
 
   onLocalError?: (message: string | null) => void;
 
-  /** optional: support initial picked from server page */
   initialPickedSongId?: number | null;
 };
+
+// ✅ ίδια λογική με το /lists/new
+const LS_RETURN_TO = "repertorio_groups_return_to";
+const LS_RETURN_TO_LIST_ID = "repertorio_groups_return_to_list_id";
+// το LS_LAST_CREATED_GROUP_ID θα το γράψει η σελίδα δημιουργίας ομάδας
+// και θα το διαβάσει ο parent (ListEditClient) που έχει το group select.
+const LS_LAST_CREATED_GROUP_ID = "repertorio_last_created_group_id";
 
 export default function ListEditSongsClient({
   viewerUserId,
@@ -85,35 +71,152 @@ export default function ListEditSongsClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [items, setItems] = useState<ListItemRow[]>(() => normalizeItemsForEdit(initialItems));
+  const storageKey = useMemo(() => `repertorio:listEdit:${listId}:items`, [listId]);
+  const initialNormalized = useMemo(() => normalizeItemsForEdit(initialItems), [initialItems]);
+
+  // NOTE: hydration-safe: server + client first render MUST match
+  const [items, setItems] = useState<ListItemRow[]>(() => initialNormalized);
+
   const [songQ, setSongQ] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
-  // drag & drop
   const dragIdRef = useRef<number | null>(null);
 
-  // prevent double POST in React dev strict mode
+  // prevent double add in strict mode
   const pickedProcessedRef = useRef<Set<number>>(new Set());
 
-  const dirty = useMemo(() => {
-    const orig = normalizeItemsForEdit(initialItems);
-    if (orig.length !== items.length) return true;
-    for (let i = 0; i < orig.length; i++) {
-      if (Number(orig[i]?.listItemId) !== Number(items[i]?.listItemId)) return true;
-    }
-    return false;
-  }, [items, initialItems]);
+  // temp ids for draft items (must be unique negative ints)
+  const nextTempIdRef = useRef<number>(-1);
 
+  // gate persistence until after restore to avoid overwriting
+  const didMountRef = useRef(false);
+  const restoredOnceRef = useRef(false);
+
+  const initialExistingIdsRef = useRef<number[]>(
+    initialNormalized
+      .map((x) => Number(x.listItemId))
+      .filter((id) => Number.isFinite(id) && id > 0),
+  );
+
+  const setError = useCallback(
+    (msg: string | null) => {
+      setErr(msg);
+      onLocalError?.(msg);
+    },
+    [onLocalError],
+  );
+
+  function hasSameNumberArray(a: number[], b: number[]) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (Number(a[i]) !== Number(b[i])) return false;
+    }
+    return true;
+  }
+
+  const dirty = useMemo(() => {
+    if ((items ?? []).some((it) => !!it.__isDraft || Number(it.listItemId) < 0)) return true;
+
+    const currentExistingIds = (items ?? [])
+      .map((x) => Number(x.listItemId))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (currentExistingIds.length !== initialExistingIdsRef.current.length) return true;
+    if (!hasSameNumberArray(currentExistingIds, initialExistingIdsRef.current)) return true;
+
+    return false;
+  }, [items]);
+
+  // notify parent
   useEffect(() => {
     onItemsChange(items);
     onDirtyChange(dirty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, dirty]);
 
-  function setError(msg: string | null) {
-    setErr(msg);
-    onLocalError?.(msg);
-  }
+  const restoreFromSession = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const raw = window.sessionStorage.getItem(storageKey);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as PersistedState | null;
+      const restored = Array.isArray(parsed?.items) ? parsed!.items : null;
+
+      // restore counter
+      const n = Number((parsed as any)?.nextTempId);
+      nextTempIdRef.current = Number.isFinite(n) && n < 0 ? n : -1;
+
+      if (!restored) return;
+
+      // merge: server items (truth for existing) + drafts from storage
+      const serverById = new Map<number, ListItemRow>();
+      for (const it of initialNormalized) serverById.set(Number(it.listItemId), it);
+
+      const drafts = restored
+        .filter((x) => Number(x.listItemId) < 0 || x.__isDraft)
+        .map((d) => ({
+          ...d,
+          listId,
+          __isDraft: true,
+          listItemId: Number(d.listItemId) < 0 ? Number(d.listItemId) : -1,
+        }));
+
+      const restoredOrder = restored.map((x) => Number(x.listItemId));
+
+      const merged: ListItemRow[] = [];
+      for (const id of restoredOrder) {
+        if (id > 0) {
+          const srv = serverById.get(id);
+          if (srv) merged.push(srv);
+        } else {
+          const d = drafts.find((x) => Number(x.listItemId) === id);
+          if (d) merged.push(d);
+        }
+      }
+
+      // append any server items not present in restored (safety)
+      for (const srv of initialNormalized) {
+        if (!merged.some((x) => Number(x.listItemId) === Number(srv.listItemId))) merged.push(srv);
+      }
+
+      // normalize sortId sequentially
+      const normalized = merged.map((x, i) => ({ ...x, sortId: i + 1 }));
+
+      setItems(normalized);
+    } catch {
+      // ignore parse/storage errors
+    }
+  }, [initialNormalized, listId, storageKey]);
+
+  // hydration-safe restore: only after mount
+  useEffect(() => {
+    didMountRef.current = true;
+
+    if (!restoredOnceRef.current) {
+      restoredOnceRef.current = true;
+      restoreFromSession();
+    }
+
+    return () => {
+      didMountRef.current = false;
+    };
+  }, [restoreFromSession]);
+
+  // persist to sessionStorage (ONLY after first mount+restore)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!didMountRef.current) return;
+    if (!restoredOnceRef.current) return;
+
+    try {
+      const payload: PersistedState = { items, nextTempId: nextTempIdRef.current };
+      window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch {
+      // ignore
+    }
+  }, [items, storageKey]);
 
   function moveItem(listItemId: number, dir: -1 | 1) {
     setItems((prev) => {
@@ -125,7 +228,8 @@ export default function ListEditSongsClient({
       const copy = prev.slice();
       const [a] = copy.splice(idx, 1);
       copy.splice(nextIdx, 0, a);
-      return copy;
+
+      return copy.map((x, i) => ({ ...x, sortId: i + 1 }));
     });
   }
 
@@ -148,108 +252,81 @@ export default function ListEditSongsClient({
       const copy = prev.slice();
       const [moved] = copy.splice(fromIdx, 1);
       copy.splice(toIdx, 0, moved);
-      return copy;
+
+      return copy.map((x, i) => ({ ...x, sortId: i + 1 }));
     });
   }
 
-  async function removeItem(listItemId: number) {
+  function removeItem(listItemId: number) {
     setError(null);
-
-    try {
-      const res = await fetch(buildDeleteItemUrl(listId, listItemId, viewerUserId), {
-        method: "DELETE",
-        headers: { Accept: "application/json" },
-      });
-      const data = await readJson(res);
-
-      if (!res.ok) {
-        const msg =
-          data && typeof data === "object" && ("error" in data || "message" in data)
-            ? String((data as any).error || (data as any).message)
-            : `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
-
-      setItems((prev) => prev.filter((x) => Number(x.listItemId) !== Number(listItemId)));
-    } catch (e: any) {
-      setError(e?.message || "Αποτυχία αφαίρεσης");
-    }
+    setItems((prev) =>
+      prev
+        .filter((x) => Number(x.listItemId) !== Number(listItemId))
+        .map((x, i) => ({ ...x, sortId: i + 1 })),
+    );
   }
 
-  async function addSongToList(songId: number) {
+  function addSongDraft(songId: number, songTitle?: string) {
     setError(null);
-
     if (!Number.isFinite(songId) || songId <= 0) return;
 
-    const exists = items.some((it) => Number(it.songId) === Number(songId));
-    if (exists) return;
+    const title = String(songTitle ?? "").trim();
 
-    try {
-      const res = await fetch(buildAddItemUrl(listId, viewerUserId), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ songId }),
-      });
-      const data = await readJson(res);
+    // IMPORTANT: duplicate check INSIDE setItems to avoid stale state
+    setItems((prev) => {
+      const exists = (prev ?? []).some((it) => Number(it.songId) === Number(songId));
+      if (exists) return prev;
 
-      if (!res.ok) {
-        const msg =
-          data && typeof data === "object" && ("error" in data || "message" in data)
-            ? String((data as any).error || (data as any).message)
-            : `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
+      const tempId =
+        Number.isFinite(nextTempIdRef.current) && nextTempIdRef.current < 0 ? nextTempIdRef.current : -1;
 
-      const newItem = data as any;
+      nextTempIdRef.current = tempId - 1;
 
-      const fallback: ListItemRow = {
-        listItemId: Number(newItem?.listItemId) || Date.now(),
+      const draft: ListItemRow = {
+        listItemId: tempId,
         listId,
-        sortId: items.length + 1,
+        sortId: (prev?.length ?? 0) + 1,
         songId,
-        title: String(newItem?.title ?? ""),
+        title: title || null,
+        __isDraft: true,
       };
 
-      setItems((prev) => prev.concat([newItem && typeof newItem === "object" ? newItem : fallback]));
-      setSongQ("");
-    } catch (e: any) {
-      setError(e?.message || "Αποτυχία προσθήκης");
-    }
+      return prev.concat([draft]).map((x, i) => ({ ...x, sortId: i + 1 }));
+    });
+
+    setSongQ("");
   }
 
-  // ✅ handle "return from songs picker" via query param pickedSongId
+  // ✅ return from songs picker
   useEffect(() => {
     const pickedFromUrl = searchParams?.get("pickedSongId");
+    const pickedTitleFromUrl = searchParams?.get("pickedSongTitle");
     const n = pickedFromUrl ? Number(pickedFromUrl) : NaN;
 
     if (!Number.isFinite(n) || n <= 0) return;
     if (pickedProcessedRef.current.has(n)) return;
     pickedProcessedRef.current.add(n);
 
-    addSongToList(n).finally(() => {
-      const sp = new URLSearchParams(searchParams?.toString() || "");
-      sp.delete("pickedSongId");
-      const next = sp.toString();
-      router.replace(next ? `${pathname}?${next}` : pathname);
-    });
+    addSongDraft(n, pickedTitleFromUrl || undefined);
+
+    // cleanup url
+    const sp = new URLSearchParams(searchParams?.toString() || "");
+    sp.delete("pickedSongId");
+    sp.delete("pickedSongTitle");
+    const qs = sp.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, pathname]);
 
-  // ✅ also support initialPickedSongId passed from server page
+  // optional initial picked
   useEffect(() => {
     const n = initialPickedSongId ?? null;
     if (!n || !Number.isFinite(n) || n <= 0) return;
     if (pickedProcessedRef.current.has(n)) return;
     pickedProcessedRef.current.add(n);
 
-    addSongToList(n).finally(() => {
-      const sp = new URLSearchParams(searchParams?.toString() || "");
-      if (sp.get("pickedSongId") === String(n)) {
-        sp.delete("pickedSongId");
-        const next = sp.toString();
-        router.replace(next ? `${pathname}?${next}` : pathname);
-      }
-    });
+    addSongDraft(n);
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPickedSongId]);
 
@@ -261,7 +338,6 @@ export default function ListEditSongsClient({
     }
     setError(null);
 
-    // ✅ IMPORTANT: return_to MUST be relative for SongsSearchClient.safeReturnTo()
     const returnToRel =
       safeReturnTo(`${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`) || pathname;
 
@@ -275,9 +351,38 @@ export default function ListEditSongsClient({
     window.location.href = url;
   }
 
+  // ✅ ΝΕΟ: προσθήκη ομάδας από εδώ (μόνο navigation + return-to)
+  function onAddGroup() {
+    try {
+      const returnToRel =
+        safeReturnTo(`${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`) || pathname;
+
+      window.localStorage.setItem(LS_RETURN_TO, returnToRel);
+      window.localStorage.setItem(LS_RETURN_TO_LIST_ID, String(listId));
+
+      // reset last created (προαιρετικά, για να μην "πιάσει" παλιό)
+      window.localStorage.removeItem(LS_LAST_CREATED_GROUP_ID);
+    } catch {
+      // ignore
+    }
+
+    router.push("/lists/groups/new");
+  }
+
   return (
     <div style={{ marginTop: 8 }}>
-      <div style={{ fontWeight: 800, color: "#fff", marginBottom: 8, fontSize: 16 }}>Τραγούδια λίστας</div>
+      {/* Header row: τίτλος αριστερά, προσθήκη ομάδας δεξιά (πάνω από τα inputs αυτού του component) */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 8,
+        }}
+      >
+        
+      </div>
 
       {err ? (
         <div
@@ -294,7 +399,6 @@ export default function ListEditSongsClient({
         </div>
       ) : null}
 
-      {/* Add song (redirect search) */}
       <div
         style={{
           border: "1px solid #333",
@@ -321,39 +425,27 @@ export default function ListEditSongsClient({
               style={inputStyle}
             />
 
-            <button
+            <Button
               type="button"
-              onClick={goToGlobalSongsSearch}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 12,
-                border: "1px solid #fff",
-                background: "#111",
-                color: "#fff",
-                cursor: "pointer",
-                fontWeight: 800,
-                whiteSpace: "nowrap",
-              }}
+              variant="secondary"
+              size="md"
+              action="search"
               title="Αναζήτηση στη σελίδα /songs"
+              onClick={goToGlobalSongsSearch}
             >
               Αναζήτηση
-            </button>
-          </div>
-
-          <div style={{ fontSize: 13, opacity: 0.8, color: "#fff" }}>
-            Θα μεταφερθείς στη σελίδα <code>/songs</code> σε picker mode. Μετά την επιλογή, θα επιστρέψεις εδώ με{" "}
-            <code>pickedSongId</code>.
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Items reorder */}
       {items.length === 0 ? (
         <div style={{ color: "#fff", opacity: 0.85 }}>Η λίστα δεν περιέχει τραγούδια.</div>
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
           {items.map((it, idx) => {
-            const titleText = String(it.title ?? "").trim() || `Song #${it.songId ?? "—"}`;
+            const isDraft = !!it.__isDraft || Number(it.listItemId) < 0;
+            const titleText = String(it.title ?? "").trim() || (it.songId ? `Song #${it.songId}` : "Song");
 
             return (
               <li
@@ -393,12 +485,29 @@ export default function ListEditSongsClient({
                 </div>
 
                 <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-                  <div style={{ color: "#fff", fontWeight: 700 }}>
-                    {idx + 1}. {titleText}
+                  <div style={{ color: "#fff", fontWeight: 700, display: "flex", gap: 10, alignItems: "center" }}>
+                    <span>
+                      {idx + 1}. {titleText}
+                    </span>
+
+                    {isDraft ? (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          padding: "2px 8px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(255,255,255,0.35)",
+                          color: "rgba(255,255,255,0.85)",
+                          opacity: 0.9,
+                        }}
+                        title="Δεν έχει αποθηκευτεί ακόμη"
+                      >
+                        ✅ΝΕΟ
+                      </span>
+                    ) : null}
                   </div>
-                  <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13 }}>
-                    songId: {it.songId ?? "—"} · listItemId: {it.listItemId}
-                  </div>
+
+                  <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13 }} />
                 </div>
 
                 <div style={{ display: "flex", gap: 8, flex: "0 0 auto" }}>

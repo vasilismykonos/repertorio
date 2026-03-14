@@ -12,21 +12,9 @@ import TagsEditorClient, { type TagDto } from "./TagsEditorClient";
 import DiscographiesEditorClient from "./DiscographiesEditorClient";
 import SongCreditsEditorClient from "./SongCreditsEditorClient";
 import CategoryRythmPickerClient from "./CategoryRythmPickerClient";
+import SongAssetsEditorClient, { type SongAssetDto } from "./SongAssetsEditorClient";
 
-type SongAssetDto = {
-  id: number;
-  kind: "LINK" | "FILE";
-  type: string;
-  title: string | null;
-  url: string | null;
-  filePath: string | null;
-  mimeType: string | null;
-  sizeBytes: string | null;
 
-  label: string | null;
-  sort: number;
-  isPrimary: boolean;
-};
 
 type SongVersionDto = {
   id: number;
@@ -715,7 +703,11 @@ export default function SongEditForm({
                 className="song-edit-input-light"
               />
             </div>
-
+<SongAssetsEditorClient
+  songId={song.id}
+  initialAssets={initialAssets}
+  hiddenInputId="assetsJson"
+/>
             
           </div>
 

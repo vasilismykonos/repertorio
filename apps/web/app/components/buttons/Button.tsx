@@ -19,6 +19,7 @@ import {
   LogIn,
   LogOut,
   Share2,
+  HelpCircle,
 } from "lucide-react";
 
 export type ButtonVariant =
@@ -49,7 +50,8 @@ export type ButtonAction =
   | "settings"
   | "refresh"
   | "login"
-  | "logout";
+  | "logout"
+  | "help";
 
 type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
@@ -58,16 +60,19 @@ type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   /** Used by CSS + icon mapping */
   action?: ButtonAction;
 
-  /** If true, forces icon-only rendering (hides label) */
+  /**
+   * If true, ALWAYS icon-only rendering (hides label).
+   * This has priority over showLabel.
+   */
   iconOnly?: boolean;
 
   /**
-   * If true, forces label to show (overrides global CSS label hiding),
+   * If true, forces label to show (overrides auto icon-only on small screens),
    * unless iconOnly is true.
    */
   showLabel?: boolean;
 
-  /** Optional custom icon override (rare) */
+  /** Optional custom icon override */
   icon?: LucideIcon;
 };
 
@@ -78,7 +83,7 @@ function useIsSmallScreen(maxWidth = 640) {
     if (typeof window === "undefined") return;
 
     const mq = window.matchMedia(`(max-width: ${maxWidth}px)`);
-    const onChange = () => setIsSmall(!!mq.matches);
+    const onChange = () => setIsSmall(Boolean(mq.matches));
 
     onChange();
 
@@ -129,16 +134,34 @@ function actionToIcon(action: ButtonAction | undefined): LucideIcon | null {
       return LogIn;
     case "logout":
       return LogOut;
-
+    case "help":
+      return HelpCircle;
     default:
       return null;
   }
+}
+
+function iconPx(size: ButtonSize) {
+  if (size === "sm") return 16;
+  if (size === "lg") return 20;
+  return 18;
 }
 
 function cn(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
+function pickAriaLabel(title?: string, children?: React.ReactNode) {
+  if (typeof title === "string" && title.trim()) return title.trim();
+  if (typeof children === "string" && children.trim()) return children.trim();
+  return undefined;
+}
+
+/**
+ * ✅ Critical fix:
+ * Σε icon-only ΔΕΝ αποδίδουμε label node καθόλου,
+ * γιατί το CSS (με !important) μπορεί να το εμφανίζει.
+ */
 export default function Button(props: Props) {
   const {
     variant = "primary",
@@ -155,32 +178,44 @@ export default function Button(props: Props) {
 
   const isSmall = useIsSmallScreen(640);
 
-  const Icon = useMemo(() => {
-    return icon ?? actionToIcon(action);
-  }, [icon, action]);
+  const Icon = useMemo(() => icon ?? actionToIcon(action), [icon, action]);
+  const hasIcon = Boolean(Icon);
 
-  const hasIcon = !!Icon;
+  const forceIconOnly = Boolean(iconOnly);
+  const forceShowLabel = Boolean(showLabel);
 
-  const baseIconOnly = !!iconOnly || isSmall;
-  const effectiveIconOnly = baseIconOnly && hasIcon;
-  const effectiveShowLabel = effectiveIconOnly ? false : showLabel ?? true;
+  // Auto: small screen + hasIcon => icon-only (unless showLabel is forced)
+  const autoIconOnly = isSmall && hasIcon && !forceShowLabel;
 
-  const effectiveTitle = isSmall ? undefined : title;
+  const effectiveIconOnly = forceIconOnly ? true : autoIconOnly;
+  const effectiveShowLabel = forceIconOnly ? false : forceShowLabel ? true : !effectiveIconOnly;
+
+  // Accessibility:
+  // - if icon-only, we must set aria-label (or render sr-only text)
+  const ariaLabel = effectiveIconOnly ? pickAriaLabel(title, children) : undefined;
+  const srLabel = effectiveIconOnly ? pickAriaLabel(title, children) : undefined;
 
   return (
     <button
       {...rest}
-      title={effectiveTitle}
+      title={title}
+      aria-label={ariaLabel}
       data-action={action}
       data-icon-only={effectiveIconOnly ? "true" : undefined}
       data-show-label={effectiveShowLabel ? "true" : undefined}
       className={cn("btn", `btn--${variant}`, `btn--${size}`, className)}
     >
-      <span className="btn__icon" aria-hidden="true">
-        {Icon ? <Icon size={18} strokeWidth={2} style={{ display: "block" }} /> : null}
-      </span>
+      {hasIcon ? (
+        <span className="btn__icon" aria-hidden="true">
+          {Icon ? <Icon size={iconPx(size)} strokeWidth={2} style={{ display: "block" }} /> : null}
+        </span>
+      ) : null}
 
-      <span className="btn__label">{children}</span>
+      {/* ✅ Only render label when it should be visible */}
+      {effectiveShowLabel ? <span className="btn__label">{children}</span> : null}
+
+      {/* ✅ Icon-only: keep accessible text (won't be affected by your .btn__label css) */}
+      {!effectiveShowLabel && srLabel ? <span className="sr-only">{srLabel}</span> : null}
     </button>
   );
 }

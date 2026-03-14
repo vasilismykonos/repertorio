@@ -89,8 +89,9 @@ a:hover {
   color: #fff;
   flex-wrap: wrap;
 }
+
 html[data-env="dev"] .header-container {
-  background-color: #2d0000;   /* dev κόκκινο */
+  background-color: #2d0000; /* dev κόκκινο */
 }
 
 @media (max-width: 768px) {
@@ -829,8 +830,6 @@ ul {
 
 #chords {
   color: lightblue;
-  padding-bottom: 10px;
-  padding-top: 10px;
   font-style: italic;
   font-weight: 400;
 }
@@ -1019,7 +1018,93 @@ ul {
 }
 
 /* =========================================================
-   21) Edit song page (kept as-is, already structured)
+   21) Forms: responsive grid + prevent overflow on small screens
+   ========================================================= */
+
+.form .grid {
+  display: grid;
+  gap: 16px;
+}
+
+.form .grid2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form .field.full {
+  grid-column: 1 / -1;
+}
+
+.form .field {
+  min-width: 0;
+}
+
+.form .input,
+.form input,
+.form select,
+.form textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .form .grid2 {
+    grid-template-columns: 1fr;
+  }
+
+  .form .segmented {
+    flex-wrap: wrap;
+  }
+
+  .form .segmented > * {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+}
+
+/* =========================================================
+   22) Floating Room Button
+   ========================================================= */
+
+.floating-room-button {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+
+  /* για να μην καλύπτει το footer */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* optional: mobile πιο μεγάλο */
+.floating-room-button button {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  font-size: 20px;
+}
+
+/* =========================================================
+   ✅ 23) HEADER MOBILE FIX (μόνο αυτό που ζήτησες)
+   - κρατάει το ίδιο pill όπως ήταν
+   - κεντράρει ΟΛΟ το πλαίσιο της αναζήτησης
+   - δίνει μικρό κενό από πάνω
+   ========================================================= */
+
+@media (max-width: 768px) {
+  /* Η αναζήτηση (λευκό pill) να πάει σε νέα γραμμή και να κεντράρει */
+  .header-search {
+    flex-basis: 100%;
+    order: 1;
+
+    /* ✅ κεντράρισμα του pill σαν block */
+    margin: 8px auto 0 auto; /* ✅ μικρό κενό από πάνω */
+    max-width: min(520px, calc(100% - 24px)); /* να χωράει όμορφα */
+  }
+}
+/* =========================================================
+   Edit song page (Create/Edit)
    ========================================================= */
 
 .song-edit-page {
@@ -1218,51 +1303,5 @@ ul {
   .song-edit-actions {
     flex-direction: column-reverse;
     align-items: stretch;
-  }
-}
-
-/* =========================================================
-   22) Forms: responsive grid + prevent overflow on small screens
-   ========================================================= */
-
-.form .grid {
-  display: grid;
-  gap: 16px;
-}
-
-.form .grid2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.form .field.full {
-  grid-column: 1 / -1;
-}
-
-.form .field {
-  min-width: 0;
-}
-
-.form .input,
-.form input,
-.form select,
-.form textarea {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-
-@media (max-width: 640px) {
-  .form .grid2 {
-    grid-template-columns: 1fr;
-  }
-
-  .form .segmented {
-    flex-wrap: wrap;
-  }
-
-  .form .segmented > * {
-    min-width: 0;
-    flex: 1 1 auto;
   }
 }

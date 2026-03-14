@@ -239,6 +239,10 @@ export class ElasticsearchSongsSyncService {
           include: { Tag: { select: { id: true, title: true, slug: true } } },
           orderBy: [{ tagId: 'asc' }],
         },
+
+        listItems: {
+          select: { listId: true },
+        },
       },
     });
 
@@ -264,6 +268,14 @@ export class ElasticsearchSongsSyncService {
 
     const { singerFrontNames, singerBackNames, discographies } =
       this.computeDiscographySingersFromVersions(s.versions);
+
+    const listIds = Array.from(
+      new Set(
+        ((s as any).listItems ?? [])
+          .map((li: any) => Number(li?.listId))
+          .filter((n: number) => Number.isFinite(n) && n > 0),
+      ),
+    );
 
     const { years, minYear, maxYear, yearText, versionSingerPairs } =
       this.computeVersionMeta(s.versions);
@@ -303,6 +315,7 @@ export class ElasticsearchSongsSyncService {
             String(st?.Tag?.slug ?? '').trim(),
           ).filter((t: any) => t)
         : [],
+      listIds,
 
       categoryId: (s as any).categoryId ?? null,
       categoryTitle,

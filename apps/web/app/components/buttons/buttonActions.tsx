@@ -13,8 +13,8 @@ type CommonProps = {
   style?: React.CSSProperties;
 
   /**
-   * Αν είναι true, θα εμφανίσει label ακόμα κι αν το global CSS κρύβει labels για data-action buttons.
-   * Default: true (για να μην “εξαφανίζεται” το κείμενο).
+   * Αν είναι true, θα εμφανίσει label ακόμα κι αν το Button θα έκανε auto icon-only σε μικρές οθόνες.
+   * ✅ Default: undefined (ΔΕΝ το κάνουμε force)
    */
   showLabel?: boolean;
 
@@ -59,9 +59,18 @@ type LinkLikeProps = LinkProps & {
   rel?: React.ComponentProps<typeof LinkButton>["rel"];
 };
 
+/**
+ * ✅ KEY FIX:
+ * - ΜΗΝ κάνεις default showLabel=true γιατί ακυρώνει το auto icon-only του Button σε μικρές οθόνες.
+ * - Αν showLabel είναι undefined, ΔΕΝ το κάνουμε force -> αφήνουμε το Button να αποφασίσει.
+ */
 function resolveVisibilityProps(p: CommonProps) {
-  const iconOnly = !!p.iconOnly;
-  const showLabel = iconOnly ? false : p.showLabel ?? true;
+  const iconOnly = p.iconOnly === true;
+
+  // Αν iconOnly => showLabel πάντα false.
+  // Αλλιώς: δείξε label ΜΟΝΟ αν ο caller έδωσε ρητά showLabel (true/false).
+  const showLabel = iconOnly ? false : p.showLabel;
+
   return { iconOnly, showLabel };
 }
 
@@ -101,7 +110,7 @@ export const A = {
         aria-label={title || label || undefined}
         disabled={disabled}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
         variant={variant}
         target={target}
         rel={rel}
@@ -192,6 +201,7 @@ export const A = {
     });
   },
 
+  // ---------- Search ----------
   search(props: ClickProps & { action?: ButtonAction; label?: string }) {
     const {
       onClick,
@@ -217,7 +227,69 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
+      >
+        {label}
+      </Button>
+    );
+  },
+
+  // ---------- Help (NEW) ----------
+  help(
+    props: ClickProps & {
+      action?: ButtonAction;
+      label?: string;
+      storageKey?: string;
+    },
+  ) {
+    const {
+      onClick,
+      disabled,
+      title = "Βοήθεια",
+      className,
+      style,
+      label = "Βοήθεια",
+      storageKey,
+    } = props;
+
+    const { iconOnly, showLabel } = resolveVisibilityProps(props);
+
+    const handleClick = () => {
+      if (onClick) {
+        onClick();
+        return;
+      }
+      if (typeof window === "undefined") return;
+
+      try {
+        if (storageKey) window.localStorage.removeItem(storageKey);
+      } catch {
+        // ignore
+      }
+
+      try {
+        window.dispatchEvent(
+          new CustomEvent("repertorio_help", { detail: { storageKey } }),
+        );
+      } catch {
+        // ignore
+      }
+    };
+
+    return (
+      <Button
+        type="button"
+        variant="secondary"
+        size="md"
+        action={props.action ?? ("help" as ButtonAction)}
+        disabled={disabled}
+        onClick={handleClick}
+        title={title}
+        aria-label={title}
+        className={className}
+        style={style}
+        iconOnly={iconOnly}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {label}
       </Button>
@@ -225,13 +297,12 @@ export const A = {
   },
 
   // ---------- Share ----------
-  // Απλό share: native share αν υπάρχει, αλλιώς αντιγραφή link.
   share(
     props: CommonProps & {
       label?: string;
-      url?: string; // αν θες να δώσεις canonical url, αλλιώς παίρνει window.location.href
-      shareTitle?: string; // τίτλος που θα πάει στο native share
-      onCopied?: () => void; // για toast αν έχεις
+      url?: string;
+      shareTitle?: string;
+      onCopied?: () => void;
     },
   ) {
     const {
@@ -248,37 +319,39 @@ export const A = {
     const { iconOnly, showLabel } = resolveVisibilityProps(props);
 
     const onClick = async () => {
-      const shareUrl =
-        url ?? (typeof window !== "undefined" ? window.location.href : "");
+      const shareUrl = url ?? (typeof window !== "undefined" ? window.location.href : "");
       const shareT =
-        shareTitle ??
-        (typeof document !== "undefined" ? document.title : "Share");
+        shareTitle ?? (typeof document !== "undefined" ? document.title : "Share");
 
       if (!shareUrl) return;
 
       try {
-        // Native share (κυρίως mobile)
         if (typeof navigator !== "undefined" && "share" in navigator) {
           await (navigator as any).share({ title: shareT, url: shareUrl });
           return;
         }
 
-        // Clipboard fallback
         const nav: Navigator | undefined =
-        typeof window !== "undefined" ? window.navigator : undefined;
+          typeof window !== "undefined" ? window.navigator : undefined;
 
         if (nav?.clipboard?.writeText) {
           await nav.clipboard.writeText(shareUrl);
           onCopied?.();
+          return;
         }
 
-
-        // Last resort
         if (typeof window !== "undefined") {
           window.prompt("Αντιγραφή link:", shareUrl);
         }
       } catch (e) {
         console.error("Share failed:", e);
+        if (typeof window !== "undefined") {
+          try {
+            window.prompt("Αντιγραφή link:", shareUrl);
+          } catch {
+            // ignore
+          }
+        }
       }
     };
 
@@ -295,7 +368,7 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {label}
       </Button>
@@ -375,7 +448,7 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {label}
       </Button>
@@ -434,7 +507,7 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {loading ? loadingLabel : label}
       </Button>
@@ -468,7 +541,7 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {loading ? loadingLabel : label}
       </Button>
@@ -500,7 +573,7 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {label}
       </Button>
@@ -532,7 +605,7 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {label}
       </Button>
@@ -564,7 +637,7 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {label}
       </Button>
@@ -588,7 +661,7 @@ export const A = {
         type="button"
         variant="secondary"
         size="md"
-        action="refresh" // ✅ σωστό action
+        action="refresh"
         disabled={disabled}
         onClick={onClick}
         title={title}
@@ -596,16 +669,14 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {label}
       </Button>
     );
   },
 
-  login(
-    props: CommonProps & { label?: string; provider?: string; callbackUrl?: string },
-  ) {
+  login(props: CommonProps & { label?: string; provider?: string; callbackUrl?: string }) {
     const {
       disabled,
       title = "Σύνδεση",
@@ -634,7 +705,7 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {label}
       </Button>
@@ -676,7 +747,7 @@ export const A = {
         className={className}
         style={style}
         iconOnly={iconOnly}
-        showLabel={showLabel}
+        {...(showLabel !== undefined ? { showLabel } : {})}
       >
         {label}
       </Button>

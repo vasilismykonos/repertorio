@@ -82,6 +82,7 @@ type EsAggs = {
   categoryId?: EsTermsAgg;
   rythmId?: EsTermsAgg;
   tagIds?: EsTermsAgg;
+  listIds?: EsTermsAgg;
 
   composerId?: EsTermsAgg;
   lyricistId?: EsTermsAgg;
@@ -133,6 +134,32 @@ type TagDto = {
   [key: string]: any;
 };
 
+type ListDto = {
+  id: number;
+  title: string;
+  groupId?: number | null;
+  marked?: boolean;
+  role?: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
+  itemsCount?: number;
+  name?: string;
+  listTitle?: string;
+  list_title?: string;
+  [key: string]: any;
+};
+
+type ListsIndexResponse = {
+  items: ListDto[];
+  total: number;
+  page: number;
+  pageSize: number;
+  groups?: Array<{
+    id: number;
+    title: string;
+    fullTitle: string | null;
+    listsCount: number;
+  }>;
+};
+
 function findOrganikoTagId(tags: TagDto[]): string | null {
   for (const t of tags || []) {
     const title = String(t?.title ?? "").trim();
@@ -162,6 +189,8 @@ type SongsPageSearchParams = {
   rythm_id?: string | string[];
 
   tagIds?: string | string[];
+
+  listIds?: string | string[];
 
   composerIds?: string | string[];
   lyricistIds?: string | string[];
@@ -195,6 +224,7 @@ type FiltersState = {
   rythm_id: string;
 
   tagIds: string;
+  listIds: string;
 
   composerIds: string;
   lyricistIds: string;
@@ -235,7 +265,10 @@ function getSingleParam(p: string | string[] | undefined): string {
   return Array.isArray(p) ? String(p[0] ?? "") : String(p ?? "");
 }
 
-function filtersFromSearchParams(sp: SongsPageSearchParams | undefined, fallback: FiltersState): FiltersState {
+function filtersFromSearchParams(
+  sp: SongsPageSearchParams | undefined,
+  fallback: FiltersState,
+): FiltersState {
   const take = Number(normalizeParam(sp?.take) || String(fallback.take || 50));
   const skip = Number(normalizeParam(sp?.skip) || "0");
 
@@ -254,6 +287,7 @@ function filtersFromSearchParams(sp: SongsPageSearchParams | undefined, fallback
     rythm_id: normalizeParam(sp?.rythm_id),
 
     tagIds: normalizeParam(sp?.tagIds),
+    listIds: normalizeParam((sp as any)?.listIds),
 
     composerIds: normalizeParam(sp?.composerIds),
     lyricistIds: normalizeParam(sp?.lyricistIds),
@@ -287,6 +321,7 @@ function buildEsQueryFromFilters(filters: FiltersState, organikoTagId: string | 
   if (filters.rythm_id) params.set("rythmIds", filters.rythm_id);
 
   if (filters.tagIds) params.set("tagIds", filters.tagIds);
+  if (filters.listIds) params.set("listIds", filters.listIds);
 
   if (filters.composerIds) params.set("composerIds", filters.composerIds);
   if (filters.lyricistIds) params.set("lyricistIds", filters.lyricistIds);
@@ -302,6 +337,9 @@ function buildEsQueryFromFilters(filters: FiltersState, organikoTagId: string | 
 
   if (filters.popular === "1") params.set("popular", "1");
   if (filters.createdByUserId) params.set("createdByUserId", filters.createdByUserId);
+
+  // NOTE: organikoTagId currently used only for counts logic downstream.
+  void organikoTagId;
 
   return params;
 }
@@ -332,6 +370,7 @@ function buildUrlQueryFromFilters(filters: FiltersState, base?: URLSearchParams)
   setOrDelete("rythm_id", filters.rythm_id);
 
   setOrDelete("tagIds", filters.tagIds);
+  setOrDelete("listIds", filters.listIds);
 
   setOrDelete("composerIds", filters.composerIds);
   setOrDelete("lyricistIds", filters.lyricistIds);
@@ -357,7 +396,9 @@ async function parseJsonSafe<T>(res: Response): Promise<T> {
   const ct = res.headers.get("content-type") || "";
   const text = await res.text();
   if (!ct.includes("application/json")) {
-    throw new Error(`Expected JSON but got content-type "${ct}". Body (trimmed): ${text.slice(0, 200)}`);
+    throw new Error(
+      `Expected JSON but got content-type "${ct}". Body (trimmed): ${text.slice(0, 200)}`,
+    );
   }
   return JSON.parse(text) as T;
 }
@@ -527,9 +568,12 @@ function unwrapTermsAgg(agg: any): EsTermsAgg | undefined {
   return undefined;
 }
 
-const YOUTUBE_ICON_URL = "https://repertorio.net/wp-content/plugins/repertorio/images/youtube.png";
-const GUITAR_ICON_URL = "https://repertorio.net/wp-content/plugins/repertorio/images/guitar.png";
-const SOL_ICON_URL = "https://repertorio.net/wp-content/plugins/repertorio/images/sol.png";
+const YOUTUBE_ICON_URL =
+  "https://repertorio.net/wp-content/plugins/repertorio/images/youtube.png";
+const GUITAR_ICON_URL =
+  "https://repertorio.net/wp-content/plugins/repertorio/images/guitar.png";
+const SOL_ICON_URL =
+  "https://repertorio.net/wp-content/plugins/repertorio/images/sol.png";
 
 // ✅ return_to safety (deterministic server+client)
 // allow ONLY relative paths (/lists/54/edit)
@@ -540,12 +584,18 @@ function safeReturnTo(input: string): string | null {
   return null;
 }
 
-function appendPickedSongId(returnTo: string, pickedSongId: number): string {
+/**
+ * Append the selected song id (and optionally its title) to the return URL.
+ */
+function appendPickedSongId(returnTo: string, pickedSongId: number, pickedSongTitle?: string): string {
   const base = safeReturnTo(returnTo) || "/songs";
   const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
   const url = new URL(base, origin);
 
   url.searchParams.set("pickedSongId", String(pickedSongId));
+  if (pickedSongTitle) {
+    url.searchParams.set("pickedSongTitle", pickedSongTitle);
+  }
   return url.pathname + (url.search || "") + (url.hash || "");
 }
 
@@ -556,15 +606,6 @@ function firstLabelByValue(opts: Option[], value: string): string {
   if (!v) return "";
   const o = (Array.isArray(opts) ? opts : []).find((x) => String(x.value) === v);
   return String(o?.label ?? v).trim();
-}
-
-function labelsFromCsv(opts: Option[], csv: string, max = 2): string {
-  const ids = parseCsv(csv);
-  if (ids.length === 0) return "";
-  const labels = ids.map((id) => firstLabelByValue(opts, id)).filter(Boolean);
-  if (labels.length === 0) return "";
-  if (labels.length <= max) return labels.join(", ");
-  return `${labels.slice(0, max).join(", ")} +${labels.length - max}`;
 }
 
 function triYesNoSummary(csv: string, yesLabel: string, noLabel: string): string {
@@ -583,6 +624,19 @@ type Chip = {
   onRemove: () => void;
 };
 
+// ✅ best-practice-ish: blur active input on submit / Enter (fallback)
+// (το “σωστό” είναι να γίνει μέσα στο FiltersPanel με <form onSubmit>, αλλά εδώ το κάνουμε robust)
+function blurActiveElementSoon() {
+  if (typeof window === "undefined") return;
+  const el = document.activeElement as HTMLElement | null;
+  if (!el || typeof (el as any).blur !== "function") return;
+  requestAnimationFrame(() => {
+    try {
+      el.blur();
+    } catch {}
+  });
+}
+
 // -------------------- MAIN --------------------
 
 export default function SongsSearchClient({ searchParams }: Props) {
@@ -592,6 +646,33 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const returnToRaw = getSingleParam(searchParams?.return_to);
   const returnTo = safeReturnTo(returnToRaw || "") || "";
   const listId = getSingleParam(searchParams?.listId);
+
+  const [selectedSongIdSet, setSelectedSongIdSet] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (pickerMode && listId && typeof window !== "undefined") {
+      try {
+        const key = `repertorio:listEdit:${listId}:items`;
+        const raw = window.sessionStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const items = Array.isArray(parsed?.items) ? parsed.items : [];
+          const ids = new Set<number>();
+          for (const it of items) {
+            const sid = Number((it as any)?.songId);
+            if (Number.isFinite(sid) && sid > 0) ids.add(sid);
+          }
+          setSelectedSongIdSet(ids);
+        } else {
+          setSelectedSongIdSet(new Set());
+        }
+      } catch {
+        setSelectedSongIdSet(new Set());
+      }
+    } else {
+      setSelectedSongIdSet(new Set());
+    }
+  }, [pickerMode, listId]);
 
   const [filters, setFilters] = useState<FiltersState>(() => {
     const sp = searchParams || {};
@@ -613,6 +694,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
       category_id: normalizeParam(sp.category_id),
       rythm_id: normalizeParam(sp.rythm_id),
       tagIds: normalizeParam(sp.tagIds),
+      listIds: normalizeParam((sp as any).listIds),
 
       composerIds: normalizeParam(sp.composerIds),
       lyricistIds: normalizeParam(sp.lyricistIds),
@@ -643,6 +725,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
         prev.category_id === next.category_id &&
         prev.rythm_id === next.rythm_id &&
         prev.tagIds === next.tagIds &&
+        prev.listIds === next.listIds &&
         prev.composerIds === next.composerIds &&
         prev.lyricistIds === next.lyricistIds &&
         prev.singerFrontIds === next.singerFrontIds &&
@@ -658,9 +741,30 @@ export default function SongsSearchClient({ searchParams }: Props) {
     });
   }, [searchParams]);
 
+  // ✅ fallback close keyboard (Enter & submit) — best effort
+  useEffect(() => {
+    const onSubmit = () => blurActiveElementSoon();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      const t = e.target as any;
+      if (!t) return;
+      // Inputs / textareas are typical in filters
+      const tag = String(t.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea") blurActiveElementSoon();
+    };
+
+    window.addEventListener("submit", onSubmit, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("submit", onSubmit, true);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, []);
+
   const [categories, setCategories] = useState<CategoryDto[]>([]);
   const [rythms, setRythms] = useState<RythmDto[]>([]);
   const [tags, setTags] = useState<TagDto[]>([]);
+  const [lists, setLists] = useState<ListDto[]>([]);
 
   const [songs, setSongs] = useState<SongSearchItem[]>([]);
   const [total, setTotal] = useState<number>(0);
@@ -668,6 +772,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const [categoryOptions, setCategoryOptions] = useState<Option[]>([]);
   const [rythmOptions, setRythmOptions] = useState<Option[]>([]);
   const [tagOptions, setTagOptions] = useState<Option[]>([]);
+  const [listOptions, setListOptions] = useState<Option[]>([]);
 
   const [composerOptions, setComposerOptions] = useState<Option[]>([]);
   const [lyricistOptions, setLyricistOptions] = useState<Option[]>([]);
@@ -709,15 +814,17 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
     async function loadStaticFilters() {
       try {
-        const [catsRes, rythmsRes, tagsRes] = await Promise.all([
+        const [catsRes, rythmsRes, tagsRes, listsRes] = await Promise.all([
           fetch("/api/categories", { headers: { Accept: "application/json" } }),
           fetch("/api/rythms", { headers: { Accept: "application/json" } }),
           fetch("/api/songs/tags?take=1000", { headers: { Accept: "application/json" } }),
+          fetch("/api/lists?page=1&pageSize=1000", { headers: { Accept: "application/json" } }),
         ]);
 
         const catsJson = catsRes.ok ? await parseJsonSafe<CategoryDto[]>(catsRes).catch(() => []) : [];
         const rythmsJson = rythmsRes.ok ? await parseJsonSafe<RythmDto[]>(rythmsRes).catch(() => []) : [];
         const tagsJson = tagsRes.ok ? await parseJsonSafe<any>(tagsRes).catch(() => []) : [];
+        const listsJson = listsRes.ok ? await parseJsonSafe<ListsIndexResponse>(listsRes).catch(() => null) : null;
 
         if (cancelled) return;
 
@@ -730,13 +837,17 @@ export default function SongsSearchClient({ searchParams }: Props) {
             ? tagsJson.items
             : [];
 
+        const normalizedLists: ListDto[] = Array.isArray(listsJson?.items) ? listsJson.items : [];
+
         setTags(normalizedTags);
+        setLists(normalizedLists);
         setOrganikoTagId(findOrganikoTagId(normalizedTags));
       } catch {
         if (cancelled) return;
         setCategories([]);
         setRythms([]);
         setTags([]);
+        setLists([]);
       }
     }
 
@@ -745,6 +856,116 @@ export default function SongsSearchClient({ searchParams }: Props) {
       cancelled = true;
     };
   }, []);
+
+  // ✅ FIX: patchFilters should reset skip=0 only when filters (not pagination) change
+  const patchFilters = (patch: Partial<FiltersState>) => {
+    setFilters((prev) => {
+      const next: FiltersState = { ...prev, ...patch } as any;
+
+      const keys = Object.keys(patch);
+      const isPaginationOnly =
+        keys.length > 0 &&
+        keys.every((k) => k === "skip" || k === "take");
+
+      if (patch.skip !== undefined) {
+        next.skip = patch.skip;
+      } else if (!isPaginationOnly) {
+        // any filter change resets to first page
+        next.skip = 0;
+      } else {
+        next.skip = prev.skip;
+      }
+
+      // ensure take is sane
+      if (!Number.isFinite(next.take) || next.take <= 0) next.take = 50;
+      if (!Number.isFinite(next.skip) || next.skip < 0) next.skip = 0;
+
+      return next;
+    });
+
+    // after applying filters (typically via Enter), close keyboard best-effort
+    blurActiveElementSoon();
+  };
+
+  const handleQuickFilter = (patch: Partial<FiltersState>) => patchFilters(patch);
+
+  const hasPrev = filters.skip > 0;
+  const hasNext = filters.skip + filters.take < total;
+  const goToPage = (newSkip: number) => patchFilters({ skip: newSkip });
+
+  const maxScore = useMemo(() => {
+    if (songs.length === 0) return 0;
+    return songs.reduce((max, s) => {
+      const val = typeof s.score === "number" && !Number.isNaN(s.score) ? s.score : 0;
+      return val > max ? val : max;
+    }, 0);
+  }, [songs]);
+
+  const selectedTagIdSet = useMemo(() => parseCsvToIdSet(filters.tagIds), [filters.tagIds]);
+
+  const sortSelectStyle: React.CSSProperties = {
+    padding: "8px 12px",
+    borderRadius: 8,
+    border: "1px solid #444",
+    background: "#151515",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: 13,
+    boxSizing: "border-box",
+    height: 38,
+  };
+
+  const sharedFiltersProps = {
+    q: filters.q,
+    take: filters.take,
+    skip: filters.skip,
+    chords: filters.chords,
+    partiture: filters.partiture,
+    category_id: filters.category_id,
+    rythm_id: filters.rythm_id,
+    tagIds: filters.tagIds,
+    listIds: filters.listIds,
+    composerIds: filters.composerIds,
+    lyricistIds: filters.lyricistIds,
+    singerFrontIds: filters.singerFrontIds,
+    singerBackIds: filters.singerBackIds,
+    yearFrom: filters.yearFrom,
+    yearTo: filters.yearTo,
+    lyrics: filters.lyrics,
+    status: filters.status,
+    popular: filters.popular,
+    createdByUserId: filters.createdByUserId,
+
+    categoryOptions,
+    rythmOptions,
+    tagOptions,
+    listOptions,
+    composerOptions,
+    lyricistOptions,
+    singerFrontOptions,
+    singerBackOptions,
+
+    yearMin,
+    yearMax,
+
+    chordsCounts,
+    partitureCounts,
+    lyricsCounts,
+    statusCounts,
+
+    createdByOptions,
+    createdByCounts,
+
+    onChangeFilters: (patch: any) => patchFilters(patch as Partial<FiltersState>),
+  };
+
+  // ✅ deterministic hint (no window usage)
+  const pickerHint =
+    pickerMode && returnTo
+      ? `Επιλογή τραγουδιού για επιστροφή στη λίστα${listId ? ` (listId=${listId})` : ""}.`
+      : pickerMode
+        ? "Picker mode ενεργό, αλλά λείπει/δεν επιτρέπεται το return_to."
+        : "";
 
   // ES search + counts
   useEffect(() => {
@@ -831,6 +1052,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
         };
 
         const tagCountById = buildCountByIdFromAgg(aggs.tagIds);
+        const listCountById = buildCountByIdFromAgg(aggs.listIds);
         const categoryCountById = buildCountByIdFromAgg(aggs.categoryId);
         const rythmCountById = buildCountByIdFromAgg(aggs.rythmId);
 
@@ -867,7 +1089,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
           }
           setStatusCounts(st);
         } else {
-          // fallback best-effort from current page
           const st: Record<string, number> = {};
           for (const s of items) {
             const k = String(s.status || "").trim();
@@ -877,7 +1098,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
           setStatusCounts(st);
         }
 
-        // ✅ Categories options: NEVER from titles (avoids duplicate values with different labels)
         if (categories.length > 0) {
           const catOpts: Option[] = categories.map((c) => {
             const idKey = String(c.id);
@@ -886,7 +1106,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
           });
           setCategoryOptions(catOpts);
         } else {
-          // temporary: only ids from agg, label=id until categories load
           const ids = Object.keys(categoryCountById);
           const catOpts: Option[] = ids.map((idKey) => ({
             value: idKey,
@@ -896,7 +1115,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
           setCategoryOptions(catOpts);
         }
 
-        // ✅ Rythms options: same rule
         if (rythms.length > 0) {
           const rOpts: Option[] = rythms.map((r) => {
             const idKey = String(r.id);
@@ -914,7 +1132,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
           setRythmOptions(rOpts);
         }
 
-        // Tags (counts from aggs) — show 0 too
         const tagOpts: Option[] =
           tags.length > 0
             ? tags.map((t) => {
@@ -924,6 +1141,22 @@ export default function SongsSearchClient({ searchParams }: Props) {
               })
             : [];
         setTagOptions(tagOpts);
+
+        const lOpts: Option[] =
+          lists.length > 0
+            ? lists.map((l) => {
+                const idKey = String(l.id);
+                const label =
+                  String(l.title ?? "").trim() ||
+                  String(l.listTitle ?? "").trim() ||
+                  String(l.name ?? "").trim() ||
+                  String(l.list_title ?? "").trim() ||
+                  idKey;
+                const count = listCountById[idKey] ?? 0;
+                return { value: idKey, label, count };
+              })
+            : [];
+        setListOptions(lOpts);
 
         setComposerOptions(buildOptionsFromIdAggWithTopName(aggs.composerId, "composerName"));
         setLyricistOptions(buildOptionsFromIdAggWithTopName(aggs.lyricistId, "lyricistName"));
@@ -949,6 +1182,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
       } catch (err) {
         if (cancelled) return;
 
+        console.error(err);
         setError("Προέκυψε σφάλμα κατά την φόρτωση τραγουδιών από Elasticsearch. Δες το console log για λεπτομέρειες.");
 
         setSongs([]);
@@ -961,6 +1195,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
         setYearOptions([]);
         setCreatedByOptions([]);
         setCreatedByCounts({});
+        setListOptions([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -970,237 +1205,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [filters, categories, rythms, tags, organikoTagId]);
-
-  const patchFilters = (patch: Partial<FiltersState>) => {
-    setFilters((prev) => ({
-      ...prev,
-      ...patch,
-      skip: patch.skip !== undefined ? patch.skip : 0,
-    }));
-  };
-
-  const handleQuickFilter = (patch: Partial<FiltersState>) => patchFilters(patch);
-
-  const hasPrev = filters.skip > 0;
-  const hasNext = filters.skip + filters.take < total;
-  const goToPage = (newSkip: number) => patchFilters({ skip: newSkip });
-
-  const maxScore = useMemo(() => {
-    if (songs.length === 0) return 0;
-    return songs.reduce((max, s) => {
-      const val = typeof s.score === "number" && !Number.isNaN(s.score) ? s.score : 0;
-      return val > max ? val : max;
-    }, 0);
-  }, [songs]);
-
-  const selectedTagIdSet = useMemo(() => parseCsvToIdSet(filters.tagIds), [filters.tagIds]);
-
-  const sortSelectStyle: React.CSSProperties = {
-    padding: "8px 12px",
-    borderRadius: 8,
-    border: "1px solid #444",
-    background: "#151515",
-    color: "#fff",
-    cursor: "pointer",
-    fontSize: 13,
-    boxSizing: "border-box",
-    height: 38,
-  };
-
-  const sharedFiltersProps = {
-    q: filters.q,
-    take: filters.take,
-    skip: filters.skip,
-    chords: filters.chords,
-    partiture: filters.partiture,
-    category_id: filters.category_id,
-    rythm_id: filters.rythm_id,
-    tagIds: filters.tagIds,
-    composerIds: filters.composerIds,
-    lyricistIds: filters.lyricistIds,
-    singerFrontIds: filters.singerFrontIds,
-    singerBackIds: filters.singerBackIds,
-    yearFrom: filters.yearFrom,
-    yearTo: filters.yearTo,
-    lyrics: filters.lyrics,
-    status: filters.status,
-    popular: filters.popular,
-    createdByUserId: filters.createdByUserId,
-
-    categoryOptions,
-    rythmOptions,
-    tagOptions,
-    composerOptions,
-    lyricistOptions,
-    singerFrontOptions,
-    singerBackOptions,
-
-    yearMin,
-    yearMax,
-
-    chordsCounts,
-    partitureCounts,
-    lyricsCounts,
-    statusCounts,
-
-    createdByOptions,
-    createdByCounts,
-
-    onChangeFilters: (patch: any) => patchFilters(patch as Partial<FiltersState>),
-  };
-
-  // ✅ deterministic hint (no window usage)
-  const pickerHint =
-    pickerMode && returnTo
-      ? `Επιλογή τραγουδιού για επιστροφή στη λίστα${listId ? ` (listId=${listId})` : ""}.`
-      : pickerMode
-        ? "Picker mode ενεργό, αλλά λείπει/δεν επιτρέπεται το return_to."
-        : "";
-
-  // ---------------- Selected filters chips (ABOVE LIST) ----------------
-
-  const selectedChips: Chip[] = useMemo(() => {
-    const chips: Chip[] = [];
-
-    const addCsvChips = (keyPrefix: string, title: string, csv: string, opts: Option[], onRemoveOne: (id: string) => void) => {
-      const ids = parseCsv(csv);
-      for (const id of ids) {
-        const label = firstLabelByValue(opts, id);
-        chips.push({
-          key: `${keyPrefix}:${id}`,
-          label: `${title}: ${label}`,
-          onRemove: () => onRemoveOne(id),
-        });
-      }
-    };
-
-    // q (search term)
-    if ((filters.q || "").trim()) {
-      chips.push({
-        key: "q",
-        label: `Αναζήτηση: ${filters.q.trim()}`,
-        onRemove: () => patchFilters({ q: "" }),
-      });
-    }
-
-    // category (single/multi CSV)
-    if (filters.category_id) {
-      addCsvChips("category", "Κατηγορία", filters.category_id, categoryOptions, (id) =>
-        patchFilters({ category_id: uniqCsv(filters.category_id.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
-      );
-    }
-
-    // rythm
-    if (filters.rythm_id) {
-      addCsvChips("rythm", "Ρυθμός", filters.rythm_id, rythmOptions, (id) =>
-        patchFilters({ rythm_id: uniqCsv(filters.rythm_id.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
-      );
-    }
-
-    // tags
-    if (filters.tagIds) {
-      addCsvChips("tag", "Tag", filters.tagIds, tagOptions, (id) =>
-        patchFilters({ tagIds: uniqCsv(filters.tagIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
-      );
-    }
-
-    // composers/lyricists
-    if (filters.composerIds) {
-      addCsvChips("composer", "Συνθέτης", filters.composerIds, composerOptions, (id) =>
-        patchFilters({ composerIds: uniqCsv(filters.composerIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
-      );
-    }
-    if (filters.lyricistIds) {
-      addCsvChips("lyricist", "Στιχουργός", filters.lyricistIds, lyricistOptions, (id) =>
-        patchFilters({ lyricistIds: uniqCsv(filters.lyricistIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
-      );
-    }
-
-    // singers
-    if (filters.singerFrontIds) {
-      addCsvChips("singerFront", "Ερμηνευτής (Front)", filters.singerFrontIds, singerFrontOptions, (id) =>
-        patchFilters({ singerFrontIds: uniqCsv(filters.singerFrontIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
-      );
-    }
-    if (filters.singerBackIds) {
-      addCsvChips("singerBack", "Ερμηνευτής (Back)", filters.singerBackIds, singerBackOptions, (id) =>
-        patchFilters({ singerBackIds: uniqCsv(filters.singerBackIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : ""))) }),
-      );
-    }
-
-    // year range
-    if ((filters.yearFrom || "").trim() || (filters.yearTo || "").trim()) {
-      const y = `${filters.yearFrom || "…"}–${filters.yearTo || "…"}`;
-      chips.push({
-        key: "year",
-        label: `Έτος: ${y}`,
-        onRemove: () => patchFilters({ yearFrom: "", yearTo: "" }),
-      });
-    }
-
-    // lyrics / chords / partiture summaries as single chips
-    const lyricsSum = triYesNoSummary(filters.lyrics, "Έχει στίχους", "Χωρίς στίχους");
-    if (lyricsSum) {
-      chips.push({ key: "lyrics", label: `Στίχοι: ${lyricsSum}`, onRemove: () => patchFilters({ lyrics: "" }) });
-    }
-
-    const chordsSum = triYesNoSummary(filters.chords, "Με συγχορδίες", "Χωρίς συγχορδίες");
-    if (chordsSum) {
-      chips.push({ key: "chords", label: `Συγχορδίες: ${chordsSum}`, onRemove: () => patchFilters({ chords: "" }) });
-    }
-
-    const partSum = triYesNoSummary(filters.partiture, "Με παρτιτούρα", "Χωρίς παρτιτούρα");
-    if (partSum) {
-      chips.push({ key: "partiture", label: `Παρτιτούρα: ${partSum}`, onRemove: () => patchFilters({ partiture: "" }) });
-    }
-
-    // status multi
-    if (filters.status) {
-      const statusIds = parseCsv(filters.status);
-      for (const st of statusIds) {
-        const label = st === "PUBLISHED" ? "Δημοσιευμένο" : st === "DRAFT" ? "Πρόχειρο" : st;
-        chips.push({
-          key: `status:${st}`,
-          label: `Κατάσταση: ${label}`,
-          onRemove: () =>
-            patchFilters({
-              status: uniqCsv(filters.status.replace(new RegExp(`(^|,)${st}(,|$)`), (m, a, b) => (a && b ? "," : ""))),
-            }),
-        });
-      }
-    }
-
-    // createdBy
-    if ((filters.createdByUserId || "").trim()) {
-      chips.push({
-        key: "createdBy",
-        label: `Δημιουργός: ${firstLabelByValue(createdByOptions, filters.createdByUserId)}`,
-        onRemove: () => patchFilters({ createdByUserId: "" }),
-      });
-    }
-
-    // popular sort flag
-    if (filters.popular === "1") {
-      chips.push({
-        key: "popular",
-        label: "Ταξινόμηση: Δημοφιλή (views)",
-        onRemove: () => patchFilters({ popular: "" }),
-      });
-    }
-
-    return chips;
-  }, [
-    filters,
-    categoryOptions,
-    rythmOptions,
-    tagOptions,
-    composerOptions,
-    lyricistOptions,
-    singerFrontOptions,
-    singerBackOptions,
-    createdByOptions,
-  ]);
+  }, [filters, categories, rythms, tags, lists, organikoTagId]);
 
   const chipStyle: React.CSSProperties = {
     display: "inline-flex",
@@ -1241,6 +1246,187 @@ export default function SongsSearchClient({ searchParams }: Props) {
     whiteSpace: "nowrap",
   };
 
+  const selectedChips: Chip[] = useMemo(() => {
+    const chips: Chip[] = [];
+
+    const addCsvChips = (
+      keyPrefix: string,
+      title: string,
+      csv: string,
+      opts: Option[],
+      onRemoveOne: (id: string) => void,
+    ) => {
+      const ids = parseCsv(csv);
+      for (const id of ids) {
+        const label = firstLabelByValue(opts, id);
+        chips.push({
+          key: `${keyPrefix}:${id}`,
+          label: `${title}: ${label}`,
+          onRemove: () => onRemoveOne(id),
+        });
+      }
+    };
+
+    if ((filters.q || "").trim()) {
+      chips.push({
+        key: "q",
+        label: `Αναζήτηση: ${filters.q.trim()}`,
+        onRemove: () => patchFilters({ q: "" }),
+      });
+    }
+
+    if (filters.category_id) {
+      addCsvChips("category", "Κατηγορία", filters.category_id, categoryOptions, (id) =>
+        patchFilters({
+          category_id: uniqCsv(
+            filters.category_id.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) =>
+              a && b ? "," : "",
+            ),
+          ),
+        }),
+      );
+    }
+
+    if (filters.rythm_id) {
+      addCsvChips("rythm", "Ρυθμός", filters.rythm_id, rythmOptions, (id) =>
+        patchFilters({
+          rythm_id: uniqCsv(
+            filters.rythm_id.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : "")),
+          ),
+        }),
+      );
+    }
+
+    if (filters.tagIds) {
+      addCsvChips("tag", "Tag", filters.tagIds, tagOptions, (id) =>
+        patchFilters({
+          tagIds: uniqCsv(
+            filters.tagIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : "")),
+          ),
+        }),
+      );
+    }
+
+    if (filters.listIds) {
+      addCsvChips("list", "Λίστα", filters.listIds, listOptions, (id) =>
+        patchFilters({
+          listIds: uniqCsv(
+            filters.listIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : "")),
+          ),
+        }),
+      );
+    }
+
+    if (filters.composerIds) {
+      addCsvChips("composer", "Συνθέτης", filters.composerIds, composerOptions, (id) =>
+        patchFilters({
+          composerIds: uniqCsv(
+            filters.composerIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : "")),
+          ),
+        }),
+      );
+    }
+    if (filters.lyricistIds) {
+      addCsvChips("lyricist", "Στιχουργός", filters.lyricistIds, lyricistOptions, (id) =>
+        patchFilters({
+          lyricistIds: uniqCsv(
+            filters.lyricistIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : "")),
+          ),
+        }),
+      );
+    }
+
+    if (filters.singerFrontIds) {
+      addCsvChips("singerFront", "Ερμηνευτής (Front)", filters.singerFrontIds, singerFrontOptions, (id) =>
+        patchFilters({
+          singerFrontIds: uniqCsv(
+            filters.singerFrontIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : "")),
+          ),
+        }),
+      );
+    }
+    if (filters.singerBackIds) {
+      addCsvChips("singerBack", "Ερμηνευτής (Back)", filters.singerBackIds, singerBackOptions, (id) =>
+        patchFilters({
+          singerBackIds: uniqCsv(
+            filters.singerBackIds.replace(new RegExp(`(^|,)${id}(,|$)`), (m, a, b) => (a && b ? "," : "")),
+          ),
+        }),
+      );
+    }
+
+    if ((filters.yearFrom || "").trim() || (filters.yearTo || "").trim()) {
+      const y = `${filters.yearFrom || "…"}–${filters.yearTo || "…"}`;
+      chips.push({
+        key: "year",
+        label: `Έτος: ${y}`,
+        onRemove: () => patchFilters({ yearFrom: "", yearTo: "" }),
+      });
+    }
+
+    const lyricsSum = triYesNoSummary(filters.lyrics, "Έχει στίχους", "Χωρίς στίχους");
+    if (lyricsSum) chips.push({ key: "lyrics", label: `Στίχοι: ${lyricsSum}`, onRemove: () => patchFilters({ lyrics: "" }) });
+
+    const chordsSum = triYesNoSummary(filters.chords, "Με συγχορδίες", "Χωρίς συγχορδίες");
+    if (chordsSum) chips.push({ key: "chords", label: `Συγχορδίες: ${chordsSum}`, onRemove: () => patchFilters({ chords: "" }) });
+
+    const partSum = triYesNoSummary(filters.partiture, "Με παρτιτούρα", "Χωρίς παρτιτούρα");
+    if (partSum) chips.push({ key: "partiture", label: `Παρτιτούρα: ${partSum}`, onRemove: () => patchFilters({ partiture: "" }) });
+
+    if (filters.status) {
+      const statusIds = parseCsv(filters.status);
+      for (const st of statusIds) {
+        const label = st === "PUBLISHED" ? "Δημοσιευμένο" : st === "DRAFT" ? "Πρόχειρο" : st;
+        chips.push({
+          key: `status:${st}`,
+          label: `Κατάσταση: ${label}`,
+          onRemove: () =>
+            patchFilters({
+              status: uniqCsv(
+                filters.status.replace(new RegExp(`(^|,)${st}(,|$)`), (m, a, b) => (a && b ? "," : "")),
+              ),
+            }),
+        });
+      }
+    }
+
+    if ((filters.createdByUserId || "").trim()) {
+      chips.push({
+        key: "createdBy",
+        label: `Δημιουργός: ${firstLabelByValue(createdByOptions, filters.createdByUserId)}`,
+        onRemove: () => patchFilters({ createdByUserId: "" }),
+      });
+    }
+
+    if (filters.popular === "1") {
+      chips.push({
+        key: "popular",
+        label: "Ταξινόμηση: Δημοφιλή (views)",
+        onRemove: () => patchFilters({ popular: "" }),
+      });
+    }
+
+    return chips;
+  }, [
+    filters,
+    categoryOptions,
+    rythmOptions,
+    tagOptions,
+    listOptions,
+    composerOptions,
+    lyricistOptions,
+    singerFrontOptions,
+    singerBackOptions,
+    createdByOptions,
+  ]);
+
+  const pickerHintText =
+    pickerMode && returnTo
+      ? `Επιλογή τραγουδιού για επιστροφή στη λίστα${listId ? ` (listId=${listId})` : ""}.`
+      : pickerMode
+        ? "Picker mode ενεργό, αλλά λείπει/δεν επιτρέπεται το return_to."
+        : "";
+
   return (
     <section style={{ padding: "16px 24px" }}>
       <h1 style={{ fontSize: "1.6rem", marginBottom: 8 }}>
@@ -1248,7 +1434,9 @@ export default function SongsSearchClient({ searchParams }: Props) {
       </h1>
 
       {pickerMode ? (
-        <div style={{ marginBottom: 10, color: "#fff", opacity: 0.85, fontSize: 13 }}>{pickerHint}</div>
+        <div style={{ marginBottom: 10, color: "#fff", opacity: 0.85, fontSize: 13 }}>
+          {pickerHintText}
+        </div>
       ) : null}
 
       <header style={{ marginBottom: 12 }}>
@@ -1365,7 +1553,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
             </div>
           </div>
 
-          {/* ✅ Selected filters ABOVE list */}
           {selectedChips.length > 0 && (
             <div
               style={{
@@ -1380,7 +1567,9 @@ export default function SongsSearchClient({ searchParams }: Props) {
                 alignItems: "center",
               }}
             >
-              <div style={{ color: "#bbb", fontSize: 12, fontWeight: 700, marginRight: 6 }}>Επιλεγμένα φίλτρα:</div>
+              <div style={{ color: "#bbb", fontSize: 12, fontWeight: 700, marginRight: 6 }}>
+                Επιλεγμένα φίλτρα:
+              </div>
 
               {selectedChips.map((c) => (
                 <span key={c.key} style={chipStyle} title={c.label}>
@@ -1404,6 +1593,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
                       category_id: "",
                       rythm_id: "",
                       tagIds: "",
+                      listIds: "",
                       composerIds: "",
                       lyricistIds: "",
                       singerFrontIds: "",
@@ -1446,9 +1636,12 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
                   const onPick = () => {
                     if (!songId) return;
-                    const dest = returnTo ? appendPickedSongId(returnTo, songId) : `/songs?pickedSongId=${songId}`;
+                    const dest = appendPickedSongId(returnTo, songId, song.title || "");
                     window.location.href = dest;
                   };
+
+                  const isAlreadySelected = selectedSongIdSet.has(songId);
+                  const pickButtonDisabled = !songId || isAlreadySelected;
 
                   return (
                     <li
@@ -1540,8 +1733,8 @@ export default function SongsSearchClient({ searchParams }: Props) {
                       {pickerMode ? (
                         <button
                           type="button"
-                          onClick={onPick}
-                          disabled={!songId}
+                          onClick={pickButtonDisabled ? undefined : onPick}
+                          disabled={pickButtonDisabled}
                           style={{
                             flex: "0 0 auto",
                             padding: "8px 10px",
@@ -1549,14 +1742,20 @@ export default function SongsSearchClient({ searchParams }: Props) {
                             border: "1px solid #fff",
                             background: "#111",
                             color: "#fff",
-                            cursor: songId ? "pointer" : "not-allowed",
-                            opacity: songId ? 1 : 0.6,
+                            cursor: pickButtonDisabled ? "not-allowed" : "pointer",
+                            opacity: pickButtonDisabled ? 0.6 : 1,
                             fontWeight: 800,
                             whiteSpace: "nowrap",
                           }}
-                          title={songId ? "Επιλογή αυτού του τραγουδιού" : "Μη έγκυρο ID"}
+                          title={
+                            songId
+                              ? isAlreadySelected
+                                ? "Το τραγούδι είναι ήδη επιλεγμένο"
+                                : "Επιλογή αυτού του τραγουδιού"
+                              : "Μη έγκυρο ID"
+                          }
                         >
-                          Επιλογή
+                          {isAlreadySelected ? "Επιλεγμένο" : "Επιλογή"}
                         </button>
                       ) : null}
                     </li>
@@ -1581,6 +1780,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
               Εμφάνιση από <strong>{filters.skip + 1}</strong> έως{" "}
               <strong>{Math.min(filters.skip + filters.take, total)}</strong> από <strong>{total}</strong> τραγούδια.
             </div>
+
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {hasPrev && (
                 <button
@@ -1599,6 +1799,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
                   ◀ Προηγούμενα
                 </button>
               )}
+
               {hasNext && (
                 <button
                   type="button"

@@ -32,7 +32,11 @@ export type ListDetailDto = {
   groupTitle: string | null;
   groupFullTitle: string | null;
   marked: boolean;
-  role: "OWNER" | "EDITOR" | "VIEWER";
+  role:
+    | "OWNER"
+    | "LIST_EDITOR"
+    | "SONGS_EDITOR"
+    | "VIEWER";
   items: ListItemDto[];
 };
 

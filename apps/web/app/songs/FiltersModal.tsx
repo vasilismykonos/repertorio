@@ -16,6 +16,7 @@ type Props = {
   rythm_id: string;
 
   tagIds: string;
+  listIds: string;
 
   composerIds: string;
   lyricistIds: string;
@@ -35,6 +36,7 @@ type Props = {
   categoryOptions: Option[];
   rythmOptions: Option[];
   tagOptions: Option[];
+  listOptions: Option[];
   composerOptions: Option[];
   lyricistOptions: Option[];
 
@@ -59,6 +61,7 @@ type Props = {
     category_id?: string;
     rythm_id?: string;
     tagIds?: string;
+    listIds?: string;
 
     composerIds?: string;
     lyricistIds?: string;
@@ -276,6 +279,7 @@ export function FiltersPanel(props: FiltersPanelProps) {
     category_id,
     rythm_id,
     tagIds,
+    listIds,
     composerIds,
     lyricistIds,
     singerFrontIds,
@@ -290,6 +294,7 @@ export function FiltersPanel(props: FiltersPanelProps) {
     categoryOptions,
     rythmOptions,
     tagOptions,
+    listOptions,
     composerOptions,
     lyricistOptions,
     singerFrontOptions,
@@ -364,6 +369,7 @@ export function FiltersPanel(props: FiltersPanelProps) {
       category_id: "",
       rythm_id: "",
       tagIds: "",
+      listIds: "",
       composerIds: "",
       lyricistIds: "",
       singerFrontIds: "",
@@ -391,6 +397,7 @@ export function FiltersPanel(props: FiltersPanelProps) {
   const summaryPart = triYesNoSummary(partiture, "Έχει", "Χωρίς");
 
   const summaryTags = labelsFromCsv(tagOptions, tagIds, 2);
+  const summaryLists = labelsFromCsv(listOptions, listIds, 2);
   const summaryComposer = labelsFromCsv(composerOptions, composerIds, 1);
   const summaryLyricist = labelsFromCsv(lyricistOptions, lyricistIds, 1);
 
@@ -645,6 +652,21 @@ export function FiltersPanel(props: FiltersPanelProps) {
             options={tagOptions}
             selectedValue={tagIds}
             onChangeCsv={(v) => onChangeFilters({ tagIds: v })}
+          />
+        </AccordionSection>
+
+        <AccordionSection
+          sectionKey="lists"
+          openKey={openKey}
+          onToggle={toggleSection}
+          title="Λίστες"
+          summary={summaryLists}
+        >
+          <FilterSelectWithSearch
+            name="listIds"
+            options={listOptions}
+            selectedValue={listIds}
+            onChangeCsv={(v) => onChangeFilters({ listIds: v })}
           />
         </AccordionSection>
 

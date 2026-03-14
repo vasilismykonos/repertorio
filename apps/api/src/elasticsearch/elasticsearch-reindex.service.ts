@@ -32,6 +32,7 @@ type PreviewItem = {
   tagIds?: number[] | null;
   tagTitles?: string[] | null;
   tagSlugs?: string[] | null;
+  listIds?: number[] | null;
 
   originalKey?: string | null;
 
@@ -183,6 +184,7 @@ export class ElasticsearchReindexService {
           tagIds: { type: 'integer' },
           tagTitles: this.kwWithText(),
           tagSlugs: { type: 'keyword', ignore_above: 256 },
+          listIds: { type: 'integer' },
 
           categoryId: { type: 'integer' },
           rythmId: { type: 'integer' },
@@ -457,6 +459,14 @@ export class ElasticsearchReindexService {
       const categoryTitle = String(s?.category?.title ?? '').trim() || null;
       const rythmTitle = String(s?.rythm?.title ?? '').trim() || null;
 
+      const listIds = Array.from(
+        new Set(
+          ((s as any).listItems ?? [])
+            .map((li: any) => Number(li?.listId))
+            .filter((n: number) => Number.isFinite(n) && n > 0),
+        ),
+      );
+
       const { composerName, lyricistName, composerId, lyricistId } =
         this.computeCredits(s.credits);
 
@@ -501,6 +511,7 @@ export class ElasticsearchReindexService {
                 String(st?.Tag?.slug ?? '').trim(),
               ).filter((t: any) => t)
             : [],
+          listIds,
 
           categoryId: s.categoryId ?? null,
           categoryTitle,
@@ -637,6 +648,8 @@ export class ElasticsearchReindexService {
                 },
               },
 
+              listItems: { select: { listId: true } },
+
               category: { select: { title: true } },
               rythm: { select: { title: true } },
 
@@ -726,6 +739,7 @@ export class ElasticsearchReindexService {
           'tagIds',
           'tagTitles',
           'tagSlugs',
+          'listIds',
           'originalKey',
           'categoryId',
           'categoryTitle',

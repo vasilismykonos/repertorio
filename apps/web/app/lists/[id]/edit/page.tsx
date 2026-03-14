@@ -29,7 +29,11 @@ export type ListDetailDto = {
   groupFullTitle: string | null;
 
   marked: boolean;
-  role: "OWNER" | "EDITOR" | "VIEWER";
+  role:
+    | "OWNER"
+    | "LIST_EDITOR"
+    | "SONGS_EDITOR"
+    | "VIEWER";
 
   // items may exist in real payload (used by ListEditClient normalize)
   items?: any[];
@@ -99,7 +103,10 @@ export default async function ListEditPage({ params, searchParams }: PageProps) 
   }
 
   // δικαίωμα επεξεργασίας
-  const canEdit = list.role === "OWNER" || list.role === "EDITOR";
+  const canEdit =
+    list.role === "OWNER" ||
+    list.role === "LIST_EDITOR" ||
+    list.role === "SONGS_EDITOR";
   if (!canEdit) {
     return (
       <section style={{ padding: "1rem" }}>
