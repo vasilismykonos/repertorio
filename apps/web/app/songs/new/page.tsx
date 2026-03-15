@@ -62,7 +62,6 @@ export default async function NewSongPage() {
     lyricistName: null,
 
     tags: [],
-
     assets: [],
     characteristics: null,
 
@@ -75,12 +74,12 @@ export default async function NewSongPage() {
     rythmId: null,
 
     createdByUserId: currentUser?.id ?? null,
+    createdByDisplayName: currentUser?.displayName ?? currentUser?.email ?? null,
 
     hasScore: false,
     scoreFile: null,
 
     legacySongId: null,
-
     versions: [],
   };
 
@@ -91,6 +90,8 @@ export default async function NewSongPage() {
 
   const canChangeCreator =
     currentUser?.role === "ADMIN" || currentUser?.role === "EDITOR";
+
+  const canChangeStatus = currentUser?.role === "ADMIN";
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
@@ -118,6 +119,7 @@ export default async function NewSongPage() {
         currentUserRoleLabel={roleLabel(currentUser?.role)}
         apiBase="/api/v1"
         canChangeCreator={canChangeCreator}
+        canChangeStatus={canChangeStatus}
       />
     </main>
   );

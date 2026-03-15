@@ -7,7 +7,7 @@ import {
   canEditSongByRole,
   canChangeSongCreator,
   canChangeSongStatus,
-} from "@/app/lib/permissions";
+} from "@/lib/permissions";
 
 import SongEditForm, {
   type SongForEdit,

@@ -13,14 +13,14 @@ import {
 import {
   canCreateSong,
   canChangeSongCreator,
-} from "@/app/lib/permissions";
+} from "@/lib/permissions";
 
 import SongEditForm, {
   type SongEditFormSong,
   type SongCredits,
   type CategoryOption,
   type RythmOption,
-} from "../[id]/edit/SongEditForm";
+} from "./[id]/edit/SongEditForm";
 
 export const dynamic = "force-dynamic";
 
