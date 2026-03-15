@@ -2,7 +2,12 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { fetchJson } from "@/lib/api";
-import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
+import { getCurrentUserFromApi } from "@/lib/currentUser";
+import {
+  canEditSongByRole,
+  canChangeSongCreator,
+  canChangeSongStatus,
+} from "@/app/lib/permissions";
 
 import SongEditForm, {
   type SongForEdit,
@@ -90,7 +95,6 @@ async function fetchSongBundle(
     createdByUserId:
       typeof s.createdByUserId === "number" ? s.createdByUserId : null,
 
-    // ✅ χρειάζεται για το UI “Τρέχων: <displayName>”
     createdByDisplayName:
       typeof s.createdByDisplayName === "string" ? s.createdByDisplayName : null,
 
@@ -146,13 +150,6 @@ type SongEditPageProps = {
   searchParams?: Record<string, string | string[] | undefined>;
 };
 
-const EDIT_ROLES: UserRole[] = ["ADMIN", "EDITOR", "AUTHOR"];
-
-function isPrivilegedRole(role: UserRole | null | undefined): boolean {
-  if (!role) return false;
-  return EDIT_ROLES.includes(role);
-}
-
 function parsePositiveInt(v: string | string[] | undefined): number | null {
   const s = Array.isArray(v) ? v[0] : v;
   const n = Number(s);
@@ -184,13 +181,9 @@ export default async function SongEditPage({
     song.createdByUserId != null &&
     currentUser.id === song.createdByUserId;
 
-  const canEdit = isPrivilegedRole(currentUser.role) || isOwner;
+  const canEdit = canEditSongByRole(currentUser.role) || isOwner;
   if (!canEdit) redirect(`/songs/${songId}`);
 
-  // ✅ ADMIN-only: αλλαγή creator
-  const canChangeCreator = currentUser.role === "ADMIN";
-
-  // ✅ APPLY return flow overrides
   const overrideCategoryId = parsePositiveInt(searchParams?.categoryId);
   const overrideRythmId = parsePositiveInt(searchParams?.rythmId);
 
@@ -209,7 +202,8 @@ export default async function SongEditPage({
       isOwner={isOwner}
       currentUserRoleLabel={String(currentUser.role)}
       apiBase={API_BASE_URL}
-      canChangeCreator={canChangeCreator} // ✅ ΠΡΟΣΘΗΚΗ
+      canChangeCreator={canChangeSongCreator(currentUser.role)}
+      canChangeStatus={canChangeSongStatus(currentUser.role)}
     />
   );
 }

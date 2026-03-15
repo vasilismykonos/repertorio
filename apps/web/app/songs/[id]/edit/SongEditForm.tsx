@@ -14,8 +14,6 @@ import SongCreditsEditorClient from "./SongCreditsEditorClient";
 import CategoryRythmPickerClient from "./CategoryRythmPickerClient";
 import SongAssetsEditorClient, { type SongAssetDto } from "./SongAssetsEditorClient";
 
-
-
 type SongVersionDto = {
   id: number;
   year: number | null;
@@ -42,14 +40,10 @@ export type SongForEdit = {
   assets: SongAssetDto[];
   characteristics: string | null;
 
-  // ✅ Αποθηκεύεται ως string αριθμός (πχ "103") για μεταφορά τονικότητας
   originalKey: string | null;
-
-  // ✅ "+" | "-"
   originalKeySign: "+" | "-";
 
   chords: string | null;
-
   status: string | null;
 
   categoryId: number | null;
@@ -104,7 +98,8 @@ type Props = {
 
   apiBase: string;
 
-  canChangeCreator: boolean; // ✅ μόνο για ADMIN
+  canChangeCreator: boolean;
+  canChangeStatus: boolean;
   createMode?: boolean;
 };
 
@@ -158,7 +153,6 @@ function normalizeGreekChordName(
   }
 }
 
-// Παίρνει την τελευταία συγχορδία που εμφανίζεται στο chords (και προαιρετικό +/- δίπλα της)
 function detectLastChordAndSignFromChords(
   chordsText: string,
 ): {
@@ -186,29 +180,13 @@ function detectLastChordAndSignFromChords(
   return { baseChord: lastChord, sign: lastSign };
 }
 
-
 function baseChordToOriginalKeyCodeString(
   baseChord: (typeof GREEK_CHORDS)[number] | null,
 ): string | null {
   if (!baseChord) return null;
   const idx = GREEK_CHORDS.indexOf(baseChord);
   if (idx < 0) return null;
-  // 101=Ντο ... 112=Σι
   return String(101 + idx);
-}
-
-function originalKeyCodeStringToBaseChord(codeStr: string | null | undefined) {
-  const s = (codeStr ?? "").toString().trim();
-  if (!s) return null;
-
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-
-  const code = Math.trunc(n);
-  const idx = code - 101;
-  if (idx < 0 || idx >= GREEK_CHORDS.length) return null;
-
-  return GREEK_CHORDS[idx] ?? null;
 }
 
 export default function SongEditForm({
@@ -219,10 +197,12 @@ export default function SongEditForm({
   createMode,
   isOwner,
   currentUserRoleLabel,
+  apiBase,
   canChangeCreator,
+  canChangeStatus,
 }: Props) {
   const isCreate = !!createMode;
-  const statusValue = song.status ?? "PENDING_APPROVAL";
+  const [statusValue, setStatusValue] = useState(song.status ?? "PENDING_APPROVAL");
 
   const scoreUrl =
     song.hasScore && song.scoreFile ? `/api/scores/${song.scoreFile}` : null;
@@ -248,39 +228,35 @@ export default function SongEditForm({
   const [isBusy, setIsBusy] = useState(false);
   const router = useRouter();
 
-  // ✅ Live chords για preview
   const [chordsLive, setChordsLive] = useState<string>(song.chords ?? "");
 
-  // ✅ Live preview τι θα αποθηκευτεί (DB-first, αλλιώς fallback από chords)
-    const computedForSave = React.useMemo(() => {
-  const text = (chordsLive ?? "").toString();
-  if (!text.trim()) {
+  const computedForSave = React.useMemo(() => {
+    const text = (chordsLive ?? "").toString();
+    if (!text.trim()) {
+      return {
+        originalKey: null,
+        originalKeySign: null,
+        baseChord: null,
+      };
+    }
+
+    const det = detectLastChordAndSignFromChords(text);
+    const codeStr = baseChordToOriginalKeyCodeString(det.baseChord);
+
+    if (!codeStr || !det.baseChord) {
+      return {
+        originalKey: null,
+        originalKeySign: null,
+        baseChord: null,
+      };
+    }
+
     return {
-      originalKey: null,
-      originalKeySign: null,
-      baseChord: null,
+      originalKey: codeStr,
+      originalKeySign: det.sign,
+      baseChord: det.baseChord,
     };
-  }
-
-  const det = detectLastChordAndSignFromChords(text);
-  const codeStr = baseChordToOriginalKeyCodeString(det.baseChord);
-
-  if (!codeStr || !det.baseChord) {
-    return {
-      originalKey: null,
-      originalKeySign: null,
-      baseChord: null,
-    };
-  }
-
-  return {
-    originalKey: codeStr,
-    originalKeySign: det.sign, // "+" | "-" | null
-    baseChord: det.baseChord,
-  };
-}, [chordsLive]);
-
-
+  }, [chordsLive]);
 
   function handleCancel() {
     if (isCreate) router.push("/songs");
@@ -302,8 +278,6 @@ export default function SongEditForm({
 
       const title = formData.get("title")?.toString() || "";
       const lyrics = (formData.get("lyrics") as string | null) ?? null;
-
-      // ✅ ΠΑΝΤΑ παίρνουμε chords από το live state για να ταιριάζει με το preview
       const chords = chordsLive ?? null;
 
       const categoryRaw = formData.get("categoryId")?.toString() || "";
@@ -311,7 +285,6 @@ export default function SongEditForm({
       const categoryId = categoryRaw ? Number(categoryRaw) : null;
       const rythmId = rythmRaw ? Number(rythmRaw) : null;
 
-      // ✅ Creator (only for admin & edit)
       const createdByRaw = formData.get("createdByUserId")?.toString() ?? "";
       let createdByUserId: number | null = null;
 
@@ -320,7 +293,6 @@ export default function SongEditForm({
         createdByUserId = Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
       }
 
-      // validation μόνο αν ο admin έβαλε κάτι αλλά δεν είναι valid
       if (
         canChangeCreator &&
         !isCreate &&
@@ -386,31 +358,27 @@ export default function SongEditForm({
 
       const firstLyrics = deriveFirstLyricsFromLyrics(lyrics);
 
-      // ✅ Παίρνουμε ό,τι βλέπουμε στο preview ως “θα αποθηκευτεί”
-      const computedOriginalKey =
-      computedForSave.baseChord ? computedForSave.originalKey : (song.originalKey ?? null);
+      const computedOriginalKey = computedForSave.baseChord
+        ? computedForSave.originalKey
+        : (song.originalKey ?? null);
 
       const computedOriginalKeySign =
         computedForSave.baseChord && computedForSave.originalKeySign
           ? computedForSave.originalKeySign
           : song.originalKeySign;
 
-
+      const status =
+        formData.get("status")?.toString().trim() || statusValue || "PENDING_APPROVAL";
 
       const body: any = {
         title: title.trim() || undefined,
-
-
         firstLyrics: firstLyrics ?? undefined,
         lyrics,
         chords,
         characteristics: song.characteristics ?? null,
-
-        // ✅ DB fields (numeric string + sign)
         originalKey: computedOriginalKey,
         originalKeySign: computedOriginalKeySign,
-
-        status: statusValue ?? undefined,
+        status,
         categoryId,
         rythmId,
         tagIds,
@@ -597,11 +565,10 @@ export default function SongEditForm({
             value={firstLyricsDerived}
             readOnly
           />
-          <input type="hidden" name="__statusValue" value={statusValue} readOnly />
 
-          {/* 1) Βασικές πληροφορίες */}
           <div className="song-edit-section">
             <h2 className="song-edit-section-title">Βασικές πληροφορίες</h2>
+
             <div className="song-edit-field">
               <label htmlFor="title">Τίτλος *</label>
               <input
@@ -615,12 +582,41 @@ export default function SongEditForm({
             </div>
 
             <div className="song-edit-field">
+              <label htmlFor="status">Κατάσταση</label>
+
+              {canChangeStatus ? (
+                <select
+                  id="status"
+                  name="status"
+                  value={statusValue}
+                  onChange={(e) => setStatusValue(e.currentTarget.value)}
+                  className="song-edit-input-light"
+                >
+                  <option value="DRAFT">Πρόχειρο</option>
+                  <option value="PENDING_APPROVAL">Σε αναμονή</option>
+                  <option value="PUBLISHED">Δημοσιευμένο</option>
+                  <option value="ARCHIVED">Αρχειοθετημένο</option>
+                </select>
+              ) : (
+                <>
+                  <input type="hidden" name="status" value={statusValue} readOnly />
+                  <input
+                    type="text"
+                    value={statusValue}
+                    disabled
+                    readOnly
+                    className="song-edit-input-light"
+                  />
+                </>
+              )}
+            </div>
+
+            <div className="song-edit-field">
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <label htmlFor="chords" style={{ margin: 0 }}>
                   Συγχορδίες
                 </label>
 
-                {/* ✅ Tonality badge δίπλα στο label (εμφανίζεται ΜΟΝΟ αν βρέθηκε chord) */}
                 {computedForSave.baseChord ? (
                   <span
                     style={{
@@ -635,12 +631,11 @@ export default function SongEditForm({
                     }}
                     title="Τονικότητα που θα αποθηκευτεί"
                   >
-                    Τονικότητα: 
+                    Τονικότητα:{" "}
                     <strong>
                       {computedForSave.baseChord}
                       {computedForSave.originalKeySign ?? ""}
                     </strong>
-
                   </span>
                 ) : null}
               </div>
@@ -655,12 +650,9 @@ export default function SongEditForm({
               />
 
               {!chordsLive.trim() && (
-                <div style={{ marginTop: 6, opacity: 0.75, fontSize: 13 }}>
-                 
-                </div>
+                <div style={{ marginTop: 6, opacity: 0.75, fontSize: 13 }} />
               )}
             </div>
-
 
             {canChangeCreator && !isCreate && (
               <div className="song-edit-field">
@@ -703,15 +695,14 @@ export default function SongEditForm({
                 className="song-edit-input-light"
               />
             </div>
-<SongAssetsEditorClient
-  songId={song.id}
-  initialAssets={initialAssets}
-  hiddenInputId="assetsJson"
-/>
-            
+
+            <SongAssetsEditorClient
+              songId={song.id}
+              initialAssets={initialAssets}
+              hiddenInputId="assetsJson"
+            />
           </div>
 
-          {/* Κατηγορία/Ρυθμός */}
           <CategoryRythmPickerClient
             initialCategoryId={song.categoryId}
             initialRythmId={song.rythmId}
@@ -719,7 +710,6 @@ export default function SongEditForm({
             rythms={rythms}
           />
 
-          {/* 2) Συντελεστές */}
           <div className="song-edit-section">
             <h2 className="song-edit-section-title">Συντελεστές</h2>
             <SongCreditsEditorClient
@@ -731,13 +721,11 @@ export default function SongEditForm({
             />
           </div>
 
-          {/* Tags */}
           <div className="song-edit-section">
             <h2 className="song-edit-section-title">Tags</h2>
             <TagsEditorClient initialTags={song.tags} hiddenInputId="tagIdsJson" take={25} />
           </div>
 
-          {/* Δισκογραφίες */}
           <div className="song-edit-section">
             <h2 className="song-edit-section-title">Δισκογραφίες</h2>
             <DiscographiesEditorClient
@@ -752,7 +740,5 @@ export default function SongEditForm({
   );
 }
 
-// -----------------------------------------------------------------------------
-// Backwards-compatibility exports
 export type SongEditFormSong = SongForEdit;
 export type SongCredits = SongCreditsDto;

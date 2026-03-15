@@ -2,18 +2,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchJson } from "@/lib/api";
 
-// Απλός τύπος για την απόκριση του Nest API
+// Τύπος για την απόκριση του Nest API
 type ApiUserResponse = {
   id: number;
   email: string | null;
   username: string | null;
   displayName: string | null;
   role: string;
+  avatarUrl?: string | null;
+  profile?: unknown | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
-// Μικρό helper για να φτιάχνουμε HTML σελίδα που κάνει redirect
+// Μικρό helper για HTML redirect page
 function buildRedirectHtml(targetPath: string): string {
-  // Σιγουρευόμαστε ότι το targetPath ξεκινάει με /
   const safePath = targetPath.startsWith("/") ? targetPath : `/${targetPath}`;
 
   return `<!DOCTYPE html>
@@ -41,7 +44,15 @@ function parseId(rawId: string): number | null {
   return idNum;
 }
 
-// GET /api/users/[id] -> απλή HTML σελίδα που σε στέλνει στο /users/[id]
+function normalizeNullableString(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+
+  const v = String(value).trim();
+  return v === "" ? null : v;
+}
+
+// GET /api/users/[id] -> HTML redirect σε /users/[id]
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } },
@@ -55,7 +66,83 @@ export async function GET(
   });
 }
 
-// POST /api/users/[id] -> update μέσω form submit (HTML form) και redirect πίσω στο /users/[id]
+// PATCH /api/users/[id] -> JSON proxy προς Nest PATCH /users/:id
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  const rawId = params.id;
+  const idNum = parseId(rawId);
+
+  if (!idNum) {
+    return NextResponse.json(
+      { ok: false, error: "Invalid user id" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const incoming = await req.json().catch(() => null);
+
+    if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid JSON body" },
+        { status: 400 },
+      );
+    }
+
+    const input = incoming as {
+      displayName?: unknown;
+      role?: unknown;
+      avatarUrl?: unknown;
+      profile?: unknown;
+    };
+
+    const body: {
+      displayName?: string | null;
+      role?: string;
+      avatarUrl?: string | null;
+      profile?: unknown | null;
+    } = {};
+
+    if ("displayName" in input) {
+      body.displayName = normalizeNullableString(input.displayName);
+    }
+
+    if ("role" in input && input.role != null) {
+      body.role = String(input.role).trim();
+    }
+
+    if ("avatarUrl" in input) {
+      body.avatarUrl = normalizeNullableString(input.avatarUrl);
+    }
+
+    if ("profile" in input) {
+      body.profile = input.profile ?? null;
+    }
+
+    const updated = await fetchJson<ApiUserResponse>(`/users/${idNum}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+
+    return NextResponse.json(updated, { status: 200 });
+  } catch (err: any) {
+    console.error("PATCH /api/users/[id] failed for id=", rawId, err);
+
+    const message =
+      typeof err?.message === "string" && err.message.trim()
+        ? err.message
+        : "Update failed";
+
+    return NextResponse.json(
+      { ok: false, error: message },
+      { status: 500 },
+    );
+  }
+}
+
+// POST /api/users/[id] -> legacy form submit support, redirect πίσω στο /users/[id]
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } },
@@ -77,45 +164,34 @@ export async function POST(
     const formData = await req.formData();
 
     const displayName = formData.get("displayName");
-    const username = formData.get("username");
-    const email = formData.get("email");
     const role = formData.get("role");
+    const avatarUrl = formData.get("avatarUrl");
 
     const body: {
-      displayName?: string;
-      username?: string | null;
-      email?: string | null;
+      displayName?: string | null;
       role?: string;
+      avatarUrl?: string | null;
     } = {};
 
     if (displayName !== null) {
-      const v = String(displayName).trim();
-      body.displayName = v;
+      body.displayName = normalizeNullableString(displayName);
     }
 
-    if (username !== null) {
-      const v = String(username).trim();
-      body.username = v === "" ? null : v;
-    }
-
-    if (email !== null) {
-      const v = String(email).trim();
-      body.email = v === "" ? null : v;
-    }
-
-    // ΠΡΟΣ ΤΟ ΠΑΡΟΝ επιτρέπουμε αλλαγή role χωρίς επιπλέον έλεγχο από το web app
     if (role !== null) {
-      body.role = String(role);
+      body.role = String(role).trim();
     }
 
-    // Κλήση προς Nest API: PATCH /users/:id
+    if (avatarUrl !== null) {
+      body.avatarUrl = normalizeNullableString(avatarUrl);
+    }
+
     await fetchJson<ApiUserResponse>(`/users/${idNum}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     });
   } catch (err) {
     ok = false;
-    console.error("Update user failed for id=", rawId, err);
+    console.error("POST /api/users/[id] failed for id=", rawId, err);
   }
 
   const targetPath = ok ? `/users/${idNum}` : `/users/${idNum}?error=1`;
@@ -127,7 +203,7 @@ export async function POST(
   });
 }
 
-// DELETE /api/users/[id] -> proxy σε Nest DELETE /users/:id (για το κουμπί διαγραφής)
+// DELETE /api/users/[id] -> proxy σε Nest DELETE /users/:id
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } },
@@ -143,9 +219,9 @@ export async function DELETE(
   }
 
   try {
-    // Αν το fetchJson σου επιστρέφει πάντα JSON, εδώ μπορεί να μην υπάρχει body.
-    // Οπότε ζητάμε JSON αλλά δεν μας ενδιαφέρει το payload.
-    await fetchJson<{ ok?: boolean }>(`/users/${idNum}`, { method: "DELETE" });
+    await fetchJson<{ ok?: boolean }>(`/users/${idNum}`, {
+      method: "DELETE",
+    });
 
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err) {
