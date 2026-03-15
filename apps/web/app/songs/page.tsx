@@ -1,120 +1,95 @@
-// apps/web/app/songs/new/page.tsx
+// apps/web/app/songs/page.tsx
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import { getCurrentUserFromApi } from "@/lib/currentUser";
+import { canCreateSong } from "@/lib/permissions";
+
+import SongsSearchClient from "./SongsSearchClient";
 
 import ActionBar from "@/app/components/ActionBar";
 import { LinkButton } from "@/app/components/buttons";
-
-import { fetchJson } from "@/lib/api";
-import {
-  getCurrentUserFromApi,
-  type CurrentUser,
-} from "@/lib/currentUser";
-import {
-  canCreateSong,
-  canChangeSongCreator,
-} from "@/lib/permissions";
-
-import SongEditForm, {
-  type SongEditFormSong,
-  type SongCredits,
-  type CategoryOption,
-  type RythmOption,
-} from "./[id]/edit/SongEditForm";
+import PageSuspense from "@/app/components/PageSuspense";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Νέο τραγούδι",
+  title: "Τραγούδια | Repertorio Next",
+  description: "Αναζήτηση τραγουδιών στο Repertorio Next.",
 };
 
-function roleLabel(role?: string | null): string {
-  if (!role) return "GUEST";
-  return role;
-}
+export type SongsPageSearchParams = {
+  take?: string | string[];
+  skip?: string | string[];
 
-export default async function NewSongPage() {
-  const currentUser: CurrentUser | null = await getCurrentUserFromApi().catch(
-    () => null,
-  );
+  q?: string | string[];
+  search_term?: string | string[];
 
-  if (!canCreateSong(currentUser?.role)) {
-    redirect("/songs");
-  }
+  chords?: string | string[];
+  partiture?: string | string[];
+  category_id?: string | string[];
+  rythm_id?: string | string[];
 
-  const [categories, rythms] = await Promise.all([
-    fetchJson<CategoryOption[]>("/categories", { cache: "no-store" }).catch(
-      () => [] as CategoryOption[],
-    ),
-    fetchJson<RythmOption[]>("/rythms", { cache: "no-store" }).catch(
-      () => [] as RythmOption[],
-    ),
-  ]);
+  tagIds?: string | string[];
+  listIds?: string | string[];
 
-  const blankSong: SongEditFormSong = {
-    id: 0,
-    title: "",
-    firstLyrics: null,
-    lyrics: null,
+  composerIds?: string | string[];
+  lyricistIds?: string | string[];
 
-    composerName: null,
-    lyricistName: null,
+  singerFrontIds?: string | string[];
+  singerBackIds?: string | string[];
 
-    tags: [],
-    assets: [],
-    characteristics: null,
+  yearFrom?: string | string[];
+  yearTo?: string | string[];
 
-    originalKey: null,
-    originalKeySign: "+",
-    chords: null,
-    status: "DRAFT",
+  composer?: string | string[];
+  lyricist?: string | string[];
 
-    categoryId: null,
-    rythmId: null,
+  lyrics?: string | string[];
+  status?: string | string[];
+  popular?: string | string[];
+  createdByUserId?: string | string[];
 
-    createdByUserId: currentUser?.id ?? null,
-    createdByDisplayName: currentUser?.displayName ?? currentUser?.email ?? null,
+  mode?: string | string[];
+  return_to?: string | string[];
+  listId?: string | string[];
+};
 
-    hasScore: false,
-    scoreFile: null,
+type SongsPageProps = {
+  searchParams?: SongsPageSearchParams;
+};
 
-    legacySongId: null,
-    versions: [],
-  };
+export default async function SongsPage({ searchParams }: SongsPageProps) {
+  const currentUser = await getCurrentUserFromApi().catch(() => null);
 
-  const blankCredits: SongCredits = {
-    composerArtistIds: [],
-    lyricistArtistIds: [],
-  };
+  const modeValue = searchParams?.mode;
+  const mode = Array.isArray(modeValue) ? modeValue[0] : modeValue;
+
+  const pickerMode = String(mode || "").trim() === "pick";
+  const showCreateButton = !pickerMode && canCreateSong(currentUser?.role);
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6">
+    <>
       <ActionBar
-        left={<h1 className="text-2xl font-semibold">Νέο τραγούδι</h1>}
+        left={
+          <h1 style={{ margin: 0 }}>
+            {pickerMode ? "Επιλογή τραγουδιού" : "Τραγούδια"}
+          </h1>
+        }
         right={
-          <LinkButton
-            href="/songs"
-            variant="secondary"
-            action="back"
-            title="Πίσω στη λίστα τραγουδιών"
-          >
-            Επιστροφή
-          </LinkButton>
+          showCreateButton ? (
+            <LinkButton
+              href="/songs/new"
+              variant="primary"
+              action="new"
+              title="Νέο τραγούδι"
+            >
+              Νέο τραγούδι
+            </LinkButton>
+          ) : null
         }
       />
-
-      <SongEditForm
-        song={blankSong}
-        credits={blankCredits}
-        categories={categories}
-        rythms={rythms}
-        createMode
-        isOwner
-        currentUserRoleLabel={roleLabel(currentUser?.role)}
-        apiBase="/api/v1"
-        canChangeCreator={canChangeSongCreator(currentUser?.role)}
-        canChangeStatus={currentUser?.role === "ADMIN"}
-      />
-    </main>
+      <PageSuspense>
+        <SongsSearchClient searchParams={searchParams || {}} />
+      </PageSuspense>
+    </>
   );
 }

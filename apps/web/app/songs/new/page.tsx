@@ -8,9 +8,12 @@ import { LinkButton } from "@/app/components/buttons";
 import { fetchJson } from "@/lib/api";
 import {
   getCurrentUserFromApi,
-  type UserRole,
   type CurrentUser,
 } from "@/lib/currentUser";
+import {
+  canCreateSong,
+  canChangeSongCreator,
+} from "@/lib/permissions";
 
 import SongEditForm, {
   type SongEditFormSong,
@@ -25,11 +28,7 @@ export const metadata: Metadata = {
   title: "Νέο τραγούδι",
 };
 
-function isPrivilegedRole(role?: UserRole | null): boolean {
-  return role === "ADMIN" || role === "EDITOR" || role === "AUTHOR";
-}
-
-function roleLabel(role?: UserRole | null): string {
+function roleLabel(role?: string | null): string {
   if (!role) return "GUEST";
   return role;
 }
@@ -39,7 +38,7 @@ export default async function NewSongPage() {
     () => null,
   );
 
-  if (!isPrivilegedRole(currentUser?.role)) {
+  if (!canCreateSong(currentUser?.role)) {
     redirect("/songs");
   }
 
@@ -88,11 +87,6 @@ export default async function NewSongPage() {
     lyricistArtistIds: [],
   };
 
-  const canChangeCreator =
-    currentUser?.role === "ADMIN" || currentUser?.role === "EDITOR";
-
-  const canChangeStatus = currentUser?.role === "ADMIN";
-
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
       <ActionBar
@@ -114,12 +108,12 @@ export default async function NewSongPage() {
         credits={blankCredits}
         categories={categories}
         rythms={rythms}
-        createMode={true}
-        isOwner={true}
+        createMode
+        isOwner
         currentUserRoleLabel={roleLabel(currentUser?.role)}
         apiBase="/api/v1"
-        canChangeCreator={canChangeCreator}
-        canChangeStatus={canChangeStatus}
+        canChangeCreator={canChangeSongCreator(currentUser?.role)}
+        canChangeStatus={currentUser?.role === "ADMIN"}
       />
     </main>
   );
