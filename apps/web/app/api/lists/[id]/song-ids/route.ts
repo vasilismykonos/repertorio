@@ -3,6 +3,15 @@ import { NextResponse } from "next/server";
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi } from "@/lib/currentUser";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+  Pragma: "no-cache",
+  Expires: "0",
+} as const;
+
 type ListItemDto = {
   songId: number | null;
   sortId: number;
@@ -19,12 +28,12 @@ export async function GET(
 ) {
   const listId = Number(ctx.params.id);
   if (!Number.isFinite(listId) || listId <= 0) {
-    return NextResponse.json({ error: "Invalid list id" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid list id" }, { status: 400, headers: NO_STORE_HEADERS });
   }
 
   const user = await getCurrentUserFromApi();
   if (!user) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401, headers: NO_STORE_HEADERS });
   }
 
   const apiUrl = `/lists/${listId}?userId=${user.id}`;
@@ -35,7 +44,7 @@ export async function GET(
   } catch (e: any) {
     return NextResponse.json(
       { error: String(e?.message || e || "Failed") },
-      { status: 500 },
+      { status: 500, headers: NO_STORE_HEADERS },
     );
   }
 
@@ -45,5 +54,5 @@ export async function GET(
     if (Number.isFinite(sid) && sid > 0) songIds.push(sid);
   }
 
-  return NextResponse.json({ listId, songIds }, { status: 200 });
+  return NextResponse.json({ listId, songIds }, { status: 200, headers: NO_STORE_HEADERS });
 }

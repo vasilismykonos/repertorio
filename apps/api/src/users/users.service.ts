@@ -4,9 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
-
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 
 export interface ListUsersOptions {
   search?: string;
@@ -23,10 +21,7 @@ export type ListUserItem = {
   displayName: string | null;
   role: UserRole;
   avatarUrl: string | null;
-
-  // ✅ NEW
   profile: Prisma.JsonValue | null;
-
   createdAt: Date;
   createdSongsCount: number;
   createdVersionsCount: number;
@@ -107,6 +102,7 @@ export class UsersService {
     for (const r of rows) {
       if (r.createdByUserId != null) map.set(r.createdByUserId, r._count._all);
     }
+
     return map;
   }
 
@@ -123,7 +119,37 @@ export class UsersService {
     for (const r of rows) {
       if (r.createdByUserId != null) map.set(r.createdByUserId, r._count._all);
     }
+
     return map;
+  }
+
+  private async mapUserToListItem(user: {
+    id: number;
+    email: string | null;
+    username: string | null;
+    displayName: string | null;
+    role: UserRole;
+    avatarUrl: string | null;
+    profile: Prisma.JsonValue | null;
+    createdAt: Date;
+  }): Promise<ListUserItem> {
+    const [songCounts, versionCounts] = await Promise.all([
+      this.getSongCounts([user.id]),
+      this.getVersionCounts([user.id]),
+    ]);
+
+    return {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      displayName: user.displayName,
+      role: user.role,
+      avatarUrl: user.avatarUrl ?? null,
+      profile: user.profile ?? null,
+      createdAt: user.createdAt,
+      createdSongsCount: songCounts.get(user.id) ?? 0,
+      createdVersionsCount: versionCounts.get(user.id) ?? 0,
+    };
   }
 
   async listUsers(options: ListUsersOptions): Promise<ListUsersResult> {
@@ -143,7 +169,6 @@ export class UsersService {
     const total = await this.prisma.user.count({ where });
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const safePage = Math.min(Math.max(page, 1), totalPages);
-
     const orderBy = this.buildOrderBy(options.sort, options.order);
 
     const users = await this.prisma.user.findMany({
@@ -158,10 +183,7 @@ export class UsersService {
         displayName: true,
         role: true,
         avatarUrl: true,
-
-        // ✅ NEW
         profile: true,
-
         createdAt: true,
       },
     });
@@ -179,10 +201,7 @@ export class UsersService {
       displayName: u.displayName,
       role: u.role,
       avatarUrl: u.avatarUrl ?? null,
-
-      // ✅ NEW
       profile: u.profile ?? null,
-
       createdAt: u.createdAt,
       createdSongsCount: songCounts.get(u.id) ?? 0,
       createdVersionsCount: versionCounts.get(u.id) ?? 0,
@@ -215,36 +234,92 @@ export class UsersService {
         displayName: true,
         role: true,
         avatarUrl: true,
-
-        // ✅ NEW
         profile: true,
-
         createdAt: true,
       },
     });
 
-    if (!user) throw new NotFoundException(`User with id=${id} not found`);
+    if (!user) {
+      throw new NotFoundException(`User with id=${id} not found`);
+    }
 
-    const [songCounts, versionCounts] = await Promise.all([
-      this.getSongCounts([id]),
-      this.getVersionCounts([id]),
-    ]);
+    return this.mapUserToListItem(user);
+  }
 
-    return {
-      id: user.id,
-      email: user.email,
-      username: user.username,
-      displayName: user.displayName,
-      role: user.role,
-      avatarUrl: user.avatarUrl ?? null,
+  async getUserByEmail(email: string): Promise<ListUserItem> {
+    const normalized = email.trim().toLowerCase();
 
-      // ✅ NEW
-      profile: user.profile ?? null,
+    if (!normalized) {
+      throw new NotFoundException('User email not found');
+    }
 
-      createdAt: user.createdAt,
-      createdSongsCount: songCounts.get(id) ?? 0,
-      createdVersionsCount: versionCounts.get(id) ?? 0,
-    };
+    const user = await this.prisma.user.findFirst({
+      where: {
+        email: {
+          equals: normalized,
+          mode: 'insensitive',
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        displayName: true,
+        role: true,
+        avatarUrl: true,
+        profile: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with email=${normalized} not found`);
+    }
+
+    return this.mapUserToListItem(user);
+  }
+
+  async registerFromAuth(input: {
+    email: string;
+    name?: string | null;
+    image?: string | null;
+  }) {
+    const email = input.email.trim().toLowerCase();
+
+    if (!email) {
+      throw new BadRequestException('email is required');
+    }
+
+    const displayName =
+      input.name && input.name.trim() ? input.name.trim() : null;
+
+    const avatarUrl =
+      input.image && input.image.trim() ? input.image.trim() : null;
+
+    return this.prisma.user.upsert({
+      where: { email },
+      update: {
+        displayName: displayName ?? undefined,
+        avatarUrl: avatarUrl ?? undefined,
+      },
+      create: {
+        email,
+        username: email,
+        displayName,
+        avatarUrl,
+        role: UserRole.USER,
+      },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        displayName: true,
+        role: true,
+        avatarUrl: true,
+        profile: true,
+        createdAt: true,
+      },
+    });
   }
 
   async updateUser(
@@ -253,8 +328,6 @@ export class UsersService {
       displayName?: string | null;
       role?: UserRole;
       avatarUrl?: string | null;
-
-      // ✅ NEW
       profile?: unknown | null;
     },
   ) {
@@ -262,7 +335,10 @@ export class UsersService {
       where: { id },
       select: { id: true, profile: true },
     });
-    if (!exists) throw new NotFoundException(`User with id=${id} not found`);
+
+    if (!exists) {
+      throw new NotFoundException(`User with id=${id} not found`);
+    }
 
     const data: Prisma.UserUpdateInput = {};
 
@@ -270,7 +346,6 @@ export class UsersService {
     if (body.role !== undefined) data.role = body.role;
     if (body.avatarUrl !== undefined) data.avatarUrl = body.avatarUrl;
 
-    // ✅ NEW: merge profile (ώστε να μην σβήνονται άλλα keys)
     if (body.profile !== undefined) {
       if (body.profile === null) {
         data.profile = Prisma.DbNull;
@@ -292,10 +367,7 @@ export class UsersService {
         displayName: true,
         role: true,
         avatarUrl: true,
-
-        // ✅ NEW
         profile: true,
-
         createdAt: true,
         updatedAt: true,
       },
@@ -307,7 +379,10 @@ export class UsersService {
       where: { id },
       select: { id: true },
     });
-    if (!exists) throw new NotFoundException(`User with id=${id} not found`);
+
+    if (!exists) {
+      throw new NotFoundException(`User with id=${id} not found`);
+    }
 
     const [songsCount, versionsCount] = await Promise.all([
       this.prisma.song.count({ where: { createdByUserId: id } }),

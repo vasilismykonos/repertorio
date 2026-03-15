@@ -17,7 +17,17 @@ type AddListItemResponse = {
   chordsSource: "LIST" | "SONG" | "NONE";
   lyrics: string | null;
   lyricsSource: "LIST" | "SONG" | "NONE";
+  itemsCount: number;
 };
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+  Pragma: "no-cache",
+  Expires: "0",
+} as const;
 
 export async function POST(
   req: NextRequest,
@@ -54,11 +64,11 @@ export async function POST(
       },
     );
 
-    return NextResponse.json(data, { status: 200 });
+    return NextResponse.json(data, { status: 200, headers: NO_STORE_HEADERS });
   } catch (e: any) {
     return NextResponse.json(
       { error: String(e?.message || e || "Failed") },
-      { status: 500 },
+      { status: 500, headers: NO_STORE_HEADERS },
     );
   }
 }

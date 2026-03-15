@@ -1,4 +1,3 @@
-// apps/web/app/components/SideMenu.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -39,12 +38,14 @@ type Props = {
   currentRoomName: string | null;
   roomUserCount: number | null;
   roomLoading: boolean;
+
   // build info
   appVersion?: string;
   gitSha?: string | null;
+
   /**
    * Προαιρετικό: αν το περνάς από πάνω (Header) fine.
-   * Αν όχι, το SideMenu θα το υπολογίσει μόνο του από το API με βάση email.
+   * Αν όχι, το SideMenu θα το υπολογίσει μόνο του από το API.
    */
   isAdmin?: boolean;
 
@@ -56,12 +57,9 @@ function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
-// ✅ MUST MATCH Header.tsx / RoomsClient.tsx
 const STORAGE_KEY_ROOM = "repertorio_current_room";
 const ROOM_CHANGED_EVENT = "repertorio_current_room_changed";
 const ROOMS_API_BASE = "/rooms-api";
-
-// ✅ Your Nest global prefix
 const API_BASE = "/api/v1";
 
 type StatusRoomUser = {
@@ -82,19 +80,10 @@ type StatusResponse = {
   rooms?: StatusRoom[];
 };
 
-// ---- Users API response (as in currentUser.ts) ----
-type UserListItem = {
+type MeResponse = {
   id: number;
   email: string | null;
   role: string | null;
-};
-
-type UsersResponse = {
-  items: UserListItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
 };
 
 export default function SideMenu(props: Props) {
@@ -120,15 +109,11 @@ export default function SideMenu(props: Props) {
   const displayName = userName || userEmail || "Επισκέπτης";
   const statusText = isLoggedIn ? "Συνδεδεμένος" : "Επισκέπτης";
 
-  
-
-  // =========================
-  // ✅ LIVE room state (no refresh)
-  // =========================
   const [currentRoomNameLocal, setCurrentRoomNameLocal] = useState<string | null>(null);
   const [roomUserCountLocal, setRoomUserCountLocal] = useState<number | null>(null);
   const [roomLoadingLocal, setRoomLoadingLocal] = useState(false);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -155,7 +140,6 @@ export default function SideMenu(props: Props) {
     window.addEventListener("storage", onStorageOrCustom as any);
     window.addEventListener(ROOM_CHANGED_EVENT, onStorageOrCustom as any);
 
-    // same-tab fallback polling only while open
     let pollId: number | null = null;
     if (isOpen) pollId = window.setInterval(readRoom, 700);
 
@@ -219,37 +203,32 @@ export default function SideMenu(props: Props) {
       window.clearInterval(id);
     };
   }, [isLoggedIn, currentRoomNameLocal]);
-    // =========================
+
   useEffect(() => {
-  if (typeof window === "undefined") return;
-  if (!isOpen) return;
+    if (typeof window === "undefined") return;
+    if (!isOpen) return;
 
-  const handler = (e: Event) => {
-    const d = (e as CustomEvent).detail || {};
-    const n = typeof d.uniqueUsers === "number" ? d.uniqueUsers : null;
-    setOnlineCount(n);
-  };
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent).detail || {};
+      const n = typeof d.uniqueUsers === "number" ? d.uniqueUsers : null;
+      setOnlineCount(n);
+    };
 
-  window.addEventListener("rep_presence_counts", handler as any);
+    window.addEventListener("rep_presence_counts", handler as any);
+    return () => window.removeEventListener("rep_presence_counts", handler as any);
+  }, [isOpen]);
 
-  return () => window.removeEventListener("rep_presence_counts", handler as any);
-}, [isOpen]);
-
-  // =========================
-  // ✅ Admin detection (client-side) based on your currentUser.ts logic
-  // =========================
+  // Canonical admin detection μέσω /users/me (+ self-heal)
   const [isAdminResolved, setIsAdminResolved] = useState<boolean>(false);
-  const [adminResolved, setAdminResolved] = useState<boolean>(false); // "we tried"
+  const [adminResolved, setAdminResolved] = useState<boolean>(false);
 
   useEffect(() => {
-    // Αν το δίνει parent, δεν χρειάζεται resolve.
     if (typeof isAdminProp === "boolean") {
       setIsAdminResolved(isAdminProp);
       setAdminResolved(true);
       return;
     }
 
-    // Αν δεν είμαστε logged in ή δεν έχουμε email, δεν υπάρχει admin.
     const email = (userEmail || "").trim();
     if (!isLoggedIn || !email) {
       setIsAdminResolved(false);
@@ -257,52 +236,76 @@ export default function SideMenu(props: Props) {
       return;
     }
 
-    // Μην βαράς API όταν το menu είναι κλειστό (optional optimization)
     if (!isOpen) return;
 
     const ctrl = new AbortController();
 
+    const fetchMe = async () => {
+      const res = await fetch(`${API_BASE}/users/me`, {
+        method: "GET",
+        cache: "no-store",
+        signal: ctrl.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-email": email,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error(`users/me ${res.status}`);
+      }
+
+      return (await res.json()) as MeResponse;
+    };
+
+    const registerFromAuth = async () => {
+      const res = await fetch(`${API_BASE}/users/register-from-auth`, {
+        method: "POST",
+        cache: "no-store",
+        signal: ctrl.signal,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          name: userName ?? null,
+          image: null,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`register-from-auth ${res.status}`);
+      }
+    };
+
     const run = async () => {
       try {
-        const search = encodeURIComponent(email);
-        const url = `${API_BASE}/users?search=${search}&page=1&pageSize=5`;
+        let me: MeResponse | null = null;
 
-        const res = await fetch(url, {
-          method: "GET",
-          cache: "no-store",
-          signal: ctrl.signal,
-          headers: { "Content-Type": "application/json" },
-        });
+        try {
+          me = await fetchMe();
+        } catch {
+          await registerFromAuth();
+          me = await fetchMe();
+        }
 
-        if (!res.ok) throw new Error("Users HTTP error");
-
-        const data = (await res.json()) as UsersResponse;
-        const lower = email.toLowerCase();
-
-        const match = Array.isArray(data?.items)
-          ? data.items.find((u) => (u.email ?? "").toLowerCase() === lower)
-          : null;
-
-        const role = String(match?.role ?? "USER").toUpperCase();
+        const role = String(me?.role ?? "USER").toUpperCase();
         setIsAdminResolved(role === "ADMIN");
       } catch {
-        // Σε σφάλμα, default: όχι admin
         setIsAdminResolved(false);
       } finally {
         setAdminResolved(true);
       }
     };
 
-    run();
+    void run();
 
     return () => ctrl.abort();
-  }, [isAdminProp, isLoggedIn, userEmail, isOpen]);
+  }, [isAdminProp, isLoggedIn, userEmail, userName, isOpen]);
 
-  const effectiveIsAdmin = typeof isAdminProp === "boolean" ? isAdminProp : isAdminResolved;
+  const effectiveIsAdmin =
+    typeof isAdminProp === "boolean" ? isAdminProp : isAdminResolved;
 
-  // =========================
-  // Tiles
-  // =========================
   type Tile = {
     key: string;
     href?: string;
@@ -324,7 +327,7 @@ export default function SideMenu(props: Props) {
           ? "…"
           : null;
 
-    const list: Tile[] = [
+    return [
       {
         key: "new",
         label: "Νέο τραγούδι",
@@ -365,10 +368,7 @@ export default function SideMenu(props: Props) {
         onClick: () => onClose(),
       },
     ];
-
-    return list;
   }, [
-    pathname,
     isInRoomLocal,
     roomUserCountLocal,
     roomLoadingLocal,
@@ -380,7 +380,6 @@ export default function SideMenu(props: Props) {
   return (
     <>
       <aside id="sidebar" className={sidebarClass} aria-hidden={!isOpen}>
-        {/* Top user card */}
         <div className="smh-top">
           <div className="smh-user">
             <span className="smh-avatar">{avatarNode}</span>
@@ -402,7 +401,6 @@ export default function SideMenu(props: Props) {
                   </span>
                 ) : null}
 
-                {/* Προαιρετικό debug indicator (σβήσε το αν δεν το θες) */}
                 {isLoggedIn && !adminResolved ? <span style={{ opacity: 0.6 }}>role…</span> : null}
               </div>
             </div>
@@ -419,7 +417,6 @@ export default function SideMenu(props: Props) {
           </button>
         </div>
 
-        {/* Auth row */}
         <div className="smh-auth">
           <button
             type="button"
@@ -428,16 +425,15 @@ export default function SideMenu(props: Props) {
               onClose();
               isLoggedIn ? onSignOut() : onSignIn();
             }}
-            title={isLoggedIn ? "Αποσύνδεση" : "Σύνδεση"}
+            title={isLoggedIn ? "Αποσύνδεση" : "Σύνδεση / Εγγραφή"}
           >
             {isLoggedIn ? <LogOut size={18} /> : <LogIn size={18} />}
-            <span>{isLoggedIn ? "Αποσύνδεση" : "Σύνδεση"}</span>
+            <span>{isLoggedIn ? "Αποσύνδεση" : "Σύνδεση / Εγγραφή"}</span>
           </button>
         </div>
 
         <div className="smh-sep" />
 
-        {/* Android-like tiles */}
         <nav className="smh-grid" aria-label="Μενού">
           {tiles.map((t) => {
             const Icon = t.Icon;
@@ -493,73 +489,58 @@ export default function SideMenu(props: Props) {
           })}
         </nav>
 
-        
-         <div className="smh-footer">
-            <div className="smh-footer-links">
-                Πηγές;
-                <a href="https://notttes.blogspot.com/" onClick={onClose}>
-                Παρτιτούρες (Παίξε μπουζούκι, παίξε...)
-                </a>
-                <a href="https://rebetiko.sealabs.net/" onClick={onClose}>
-                Πληροφορίες (sealabs)
-                </a>
-            </div>
+        <div className="smh-footer">
+          <div className="smh-footer-links">
+            Πηγές;
+            <a href="https://notttes.blogspot.com/" onClick={onClose}>
+              Παρτιτούρες (Παίξε μπουζούκι, παίξε...)
+            </a>
+            <a href="https://rebetiko.sealabs.net/" onClick={onClose}>
+              Πληροφορίες (sealabs)
+            </a>
+          </div>
 
-            <div className="smh-footer-meta">
-                <span>
-                    Έκδοση: {appVersion ?? "—"}
-                    {gitSha ? ` • ${gitSha}` : ""}
-                </span>
-                <span style={{ marginLeft: 10 }}>
-                    Χρήστες online: {onlineCount ?? "—"}
-                </span>
-            </div>
+          <div className="smh-footer-meta">
+            <span>
+              Έκδοση: {appVersion ?? "—"}
+              {gitSha ? ` • ${gitSha}` : ""}
+            </span>
+            <span style={{ marginLeft: 10 }}>
+              Χρήστες online: {onlineCount ?? "—"}
+            </span>
+          </div>
         </div>
-        
+
         <style jsx global>{`
-        /* =========================================================
-            Sidebar: scrollable + top-most layer
-        ========================================================= */
-        #sidebar.site-sidebar {
-            /* ✅ κράτα ΜΟΝΙΜΑ το “mobile” drawer width */
+          #sidebar.site-sidebar {
             width: 340px !important;
             max-width: 340px !important;
-
-            /* ✅ να μην αλλάζει στο desktop από global rules */
             box-sizing: border-box;
-
             padding: 14px !important;
-
             max-height: 100vh !important;
             max-height: 100dvh !important;
-
             overflow-y: auto !important;
             overflow-x: hidden !important;
-
             -webkit-overflow-scrolling: touch;
-
             z-index: 2147483647 !important;
-            }
+          }
 
-        /* =========================================================
-            Top user card
-        ========================================================= */
-        .smh-top {
+          .smh-top {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 10px;
             margin-top: 6px;
-        }
+          }
 
-        .smh-user {
+          .smh-user {
             display: flex;
             align-items: center;
             gap: 10px;
             min-width: 0;
-        }
+          }
 
-        .smh-avatar {
+          .smh-avatar {
             width: 46px;
             height: 46px;
             border-radius: 999px;
@@ -570,13 +551,13 @@ export default function SideMenu(props: Props) {
             align-items: center;
             justify-content: center;
             flex: 0 0 auto;
-        }
+          }
 
-        .smh-meta {
+          .smh-meta {
             min-width: 0;
-        }
+          }
 
-        .smh-name {
+          .smh-name {
             color: #fff;
             font-weight: 900;
             font-size: 15px;
@@ -584,9 +565,9 @@ export default function SideMenu(props: Props) {
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 220px;
-        }
+          }
 
-        .smh-sub {
+          .smh-sub {
             display: flex;
             align-items: center;
             gap: 8px;
@@ -595,21 +576,22 @@ export default function SideMenu(props: Props) {
             font-size: 12px;
             min-width: 0;
             flex-wrap: wrap;
-        }
+          }
 
-        .smh-dot {
+          .smh-dot {
             width: 8px;
             height: 8px;
             border-radius: 999px;
             background: rgba(255, 255, 255, 0.25);
             box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06);
-        }
-        .smh-dot.on {
+          }
+
+          .smh-dot.on {
             background: rgba(34, 197, 94, 0.95);
             box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
-        }
+          }
 
-        .smh-room {
+          .smh-room {
             display: inline-flex;
             align-items: center;
             gap: 6px;
@@ -619,16 +601,16 @@ export default function SideMenu(props: Props) {
             background: rgba(124, 58, 237, 0.12);
             color: rgba(255, 255, 255, 0.92);
             min-width: 0;
-        }
+          }
 
-        .smh-room-name {
+          .smh-room-name {
             max-width: 140px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-        }
+          }
 
-        .smh-close {
+          .smh-close {
             width: 40px;
             height: 40px;
             border-radius: 14px;
@@ -638,19 +620,17 @@ export default function SideMenu(props: Props) {
             font-size: 24px;
             cursor: pointer;
             flex: 0 0 auto;
-        }
-        .smh-close:hover {
+          }
+
+          .smh-close:hover {
             background: rgba(255, 255, 255, 0.1);
-        }
+          }
 
-        /* =========================================================
-            Auth row
-        ========================================================= */
-        .smh-auth {
+          .smh-auth {
             margin-top: 12px;
-        }
+          }
 
-        .smh-auth-btn {
+          .smh-auth-btn {
             width: 100%;
             height: 42px;
             border-radius: 14px;
@@ -664,29 +644,27 @@ export default function SideMenu(props: Props) {
             cursor: pointer;
             font-weight: 900;
             font-size: 14px;
-        }
-        .smh-auth-btn:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
+          }
 
-        .smh-sep {
+          .smh-auth-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+          }
+
+          .smh-sep {
             height: 1px;
             background: rgba(255, 255, 255, 0.12);
             margin: 14px 0;
             width: 100%;
-        }
+          }
 
-        /* =========================================================
-            Tiles grid
-        ========================================================= */
-        .smh-grid {
+          .smh-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 12px 10px;
             padding: 2px 2px 0;
-        }
+          }
 
-        .smh-tile {
+          .smh-tile {
             text-decoration: none;
             color: rgba(255, 255, 255, 0.92);
             display: flex;
@@ -700,13 +678,13 @@ export default function SideMenu(props: Props) {
             cursor: pointer;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
-        }
+          }
 
-        .smh-tile:hover {
+          .smh-tile:hover {
             background: rgba(255, 255, 255, 0.05);
-        }
+          }
 
-        .smh-ico {
+          .smh-ico {
             width: 56px;
             height: 56px;
             border-radius: 18px;
@@ -717,14 +695,14 @@ export default function SideMenu(props: Props) {
             justify-content: center;
             position: relative;
             color: #fff;
-        }
+          }
 
-        .smh-ico-icon {
+          .smh-ico-icon {
             width: 22px;
             height: 22px;
-        }
+          }
 
-        .smh-badge {
+          .smh-badge {
             position: absolute;
             top: -8px;
             right: -8px;
@@ -741,102 +719,89 @@ export default function SideMenu(props: Props) {
             font-weight: 900;
             font-size: 12px;
             line-height: 1;
-        }
+          }
 
-        /* ✅ Always 1-line labels with ellipsis */
-        .smh-label {
+          .smh-label {
             font-weight: 900;
             font-size: 12px;
             text-align: center;
             line-height: 1.15;
             color: rgba(255, 255, 255, 0.88);
-
             display: block;
             width: 100%;
             max-width: 100%;
-
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-        }
+          }
 
-        /* =========================================================
-            Footer
-        ========================================================= */
-        .smh-footer {
+          .smh-footer {
             margin-top: 16px;
             padding-top: 12px;
             border-top: 1px solid rgba(255, 255, 255, 0.12);
-        }
+          }
 
-        .smh-footer-links {
+          .smh-footer-links {
             display: flex;
             flex-direction: column;
             gap: 8px;
             font-size: 12px;
-        }
+          }
 
-        .smh-footer-links a {
+          .smh-footer-links a {
             color: rgba(255, 255, 255, 0.82);
             text-decoration: none;
-        }
+          }
 
-        .smh-footer-links a:hover {
+          .smh-footer-links a:hover {
             text-decoration: underline;
-        }
+          }
 
-        .smh-footer-meta {
+          .smh-footer-meta {
             margin-top: 10px;
             font-size: 12px;
             color: rgba(255, 255, 255, 0.55);
-
             display: flex;
             align-items: center;
             gap: 10px;
             flex-wrap: wrap;
-        }
+          }
 
-        /* =========================================================
-            Small screens
-        ========================================================= */
-        @media (max-width: 420px) {
+          @media (max-width: 420px) {
             .smh-ico {
-            width: 50px;
-            height: 50px;
-            border-radius: 16px;
+              width: 50px;
+              height: 50px;
+              border-radius: 16px;
             }
             .smh-ico-icon {
-            width: 20px;
-            height: 20px;
+              width: 20px;
+              height: 20px;
             }
             .smh-label {
-            font-size: 11.5px;
+              font-size: 11.5px;
             }
-        }
+          }
 
-        /* =========================================================
-            Desktop: slightly more compact
-        ========================================================= */
-        @media (min-width: 768px) {
+          @media (min-width: 768px) {
             .smh-grid {
-            gap: 10px 8px;
+              gap: 10px 8px;
             }
             .smh-tile {
-            padding: 8px 6px;
+              padding: 8px 6px;
             }
             .smh-ico {
-            width: 50px;
-            height: 50px;
-            border-radius: 16px;
+              width: 50px;
+              height: 50px;
+              border-radius: 16px;
             }
             .smh-ico-icon {
-            width: 20px;
-            height: 20px;
+              width: 20px;
+              height: 20px;
             }
             .smh-label {
-            font-size: 11px;
+              font-size: 11px;
             }
-        }
+          }
         `}</style>
       </aside>
 

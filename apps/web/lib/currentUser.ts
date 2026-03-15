@@ -1,5 +1,3 @@
-// apps/web/lib/currentUser.ts
-
 import type { NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { getToken } from "next-auth/jwt";
@@ -15,37 +13,28 @@ export type UserRole =
   | "SUBSCRIBER"
   | "USER";
 
-type UserListItem = {
+type MeResponse = {
   id: number;
   email: string | null;
   username: string | null;
   displayName: string | null;
   role: string | null;
-
-  // ✅ important: the API already selects profile in users.service.ts
   profile?: any | null;
-
-  // optional (if your API returns them)
   avatarUrl?: string | null;
-
   createdSongsCount: number;
   createdVersionsCount: number;
 };
 
-type UsersResponse = {
-  items: UserListItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
+type AuthIdentity = {
+  email: string | null;
+  name?: string | null;
+  image?: string | null;
 };
 
 export type CurrentUser = {
   id: number;
   email: string;
   role: UserRole;
-
-  // ✅ NEW: so Song pages can read prefs
   username?: string | null;
   displayName?: string | null;
   avatarUrl?: string | null;
@@ -67,52 +56,94 @@ function normalizeRole(raw: unknown): UserRole {
   return (allowedRoles.find((r) => r === rawRole) as UserRole) || "USER";
 }
 
-/**
- * Επιστρέφει τον τρέχοντα χρήστη από το Nest API, με βάση email από NextAuth.
- *
- * - Route Handler: δίνεις req και παίρνουμε email από JWT token (getToken),
- *   επειδή βλέπει τα cookies του req.
- * - Server Component / Server Action: χωρίς req, χρησιμοποιούμε getServerSession.
- *
- * ✅ Επιστρέφει πλέον και profile ώστε να δουλεύουν τα prefs (song toggles defaults).
- */
+async function getAuthIdentity(req?: NextRequest): Promise<AuthIdentity> {
+  if (req) {
+    const secret = process.env.NEXTAUTH_SECRET;
+    if (!secret) {
+      return { email: null, name: null, image: null };
+    }
+
+    const token = await getToken({ req, secret }).catch(() => null);
+
+    return {
+      email: (token?.email as string | undefined) ?? null,
+      name: (token?.name as string | undefined) ?? null,
+      image: (token?.picture as string | undefined) ?? null,
+    };
+  }
+
+  const session = await getServerSession(authOptions).catch(() => null);
+
+  return {
+    email: session?.user?.email ?? null,
+    name: session?.user?.name ?? null,
+    image: session?.user?.image ?? null,
+  };
+}
+
+async function fetchMe(email: string): Promise<MeResponse> {
+  return fetchJson<MeResponse>("/users/me", {
+    headers: {
+      "x-user-email": email,
+    },
+  });
+}
+
+async function ensureUser(identity: AuthIdentity): Promise<void> {
+  if (!identity.email) return;
+
+  await fetchJson("/users/register-from-auth", {
+    method: "POST",
+    body: JSON.stringify({
+      email: identity.email,
+      name: identity.name ?? null,
+      image: identity.image ?? null,
+    }),
+  });
+}
+
 export async function getCurrentUserFromApi(
   req?: NextRequest,
 ): Promise<CurrentUser | null> {
-  let email: string | null = null;
+  const identity = await getAuthIdentity(req);
 
-  if (req) {
-    const secret = process.env.NEXTAUTH_SECRET;
-    if (!secret) return null;
-
-    const token = await getToken({ req, secret }).catch(() => null);
-    email = (token?.email as string | undefined) || null;
-  } else {
-    const session = await getServerSession(authOptions).catch(() => null);
-    email = session?.user?.email ?? null;
+  if (!identity.email) {
+    return null;
   }
 
-  if (!email) return null;
+  try {
+    const me = await fetchMe(identity.email);
 
-  const search = encodeURIComponent(email);
+    if (!me?.email) return null;
 
-  const data = await fetchJson<UsersResponse>(
-    `/users?search=${search}&page=1&pageSize=5`,
-  );
+    return {
+      id: me.id,
+      email: me.email,
+      role: normalizeRole(me.role),
+      username: me.username ?? null,
+      displayName: me.displayName ?? null,
+      avatarUrl: me.avatarUrl ?? null,
+      profile: me.profile ?? null,
+    };
+  } catch {
+    try {
+      await ensureUser(identity);
 
-  const lower = email.toLowerCase();
-  const match = data.items.find((u) => (u.email ?? "").toLowerCase() === lower);
+      const me = await fetchMe(identity.email);
 
-  if (!match?.email) return null;
+      if (!me?.email) return null;
 
-  return {
-    id: match.id,
-    email: match.email,
-    role: normalizeRole(match.role),
-
-    username: match.username ?? null,
-    displayName: match.displayName ?? null,
-    avatarUrl: (match as any).avatarUrl ?? null,
-    profile: (match as any).profile ?? null,
-  };
+      return {
+        id: me.id,
+        email: me.email,
+        role: normalizeRole(me.role),
+        username: me.username ?? null,
+        displayName: me.displayName ?? null,
+        avatarUrl: me.avatarUrl ?? null,
+        profile: me.profile ?? null,
+      };
+    } catch {
+      return null;
+    }
+  }
 }

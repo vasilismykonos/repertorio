@@ -7,8 +7,12 @@ import {
   Param,
   ParseIntPipe,
   Patch,
+  Post,
   Query,
+  Req,
+  UnauthorizedException,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { UserRole } from '@prisma/client';
 
 import { UsersService, type ListUsersOptions } from './users.service';
@@ -44,6 +48,37 @@ export class UsersController {
     return this.usersService.listUsers(options);
   }
 
+  @Post('register-from-auth')
+  async registerFromAuth(
+    @Body()
+    body: {
+      email?: string;
+      name?: string | null;
+      image?: string | null;
+    },
+  ) {
+    if (!body?.email || typeof body.email !== 'string') {
+      throw new BadRequestException('email is required');
+    }
+
+    return this.usersService.registerFromAuth({
+      email: body.email,
+      name: body.name ?? null,
+      image: body.image ?? null,
+    });
+  }
+
+  @Get('me')
+  async getMe(@Req() req: Request) {
+    const email = this.extractEmailFromRequest(req);
+
+    if (!email) {
+      throw new UnauthorizedException('Not authenticated');
+    }
+
+    return this.usersService.getUserByEmail(email);
+  }
+
   @Get(':id')
   async getUser(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.getUserById(id);
@@ -57,12 +92,9 @@ export class UsersController {
       displayName?: string | null;
       role?: UserRole;
       avatarUrl?: string | null;
-
-      // ✅ NEW
       profile?: unknown | null;
     },
   ) {
-    // Ελάχιστος έλεγχος τύπων
     if (
       body.displayName !== undefined &&
       body.displayName !== null &&
@@ -79,7 +111,6 @@ export class UsersController {
       throw new BadRequestException('avatarUrl must be string or null');
     }
 
-    // ✅ NEW: profile must be object or null (όχι array/string/number)
     if (body.profile !== undefined) {
       if (body.profile !== null && !isPlainObject(body.profile)) {
         throw new BadRequestException('profile must be an object or null');
@@ -92,5 +123,43 @@ export class UsersController {
   @Delete(':id')
   async deleteUser(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.deleteUser(id);
+  }
+
+  private extractEmailFromRequest(req: Request): string | null {
+    const anyReq = req as any;
+
+    const candidates = [
+      anyReq?.user?.email,
+      anyReq?.auth?.email,
+      anyReq?.session?.user?.email,
+    ];
+
+    for (const value of candidates) {
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim().toLowerCase();
+      }
+    }
+
+    const headerCandidates = [
+      req.headers['x-user-email'],
+      req.headers['x-auth-request-email'],
+      req.headers['x-forwarded-email'],
+    ];
+
+    for (const header of headerCandidates) {
+      if (typeof header === 'string' && header.trim()) {
+        return header.trim().toLowerCase();
+      }
+
+      if (
+        Array.isArray(header) &&
+        typeof header[0] === 'string' &&
+        header[0].trim()
+      ) {
+        return header[0].trim().toLowerCase();
+      }
+    }
+
+    return null;
   }
 }

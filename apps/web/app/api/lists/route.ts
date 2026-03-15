@@ -22,6 +22,15 @@ type ListGroupSummaryDto = {
   listsCount: number;
 };
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+  Pragma: "no-cache",
+  Expires: "0",
+} as const;
+
 type ListsIndexResponse = {
   items: ListSummaryDto[];
   total: number;
@@ -33,7 +42,7 @@ type ListsIndexResponse = {
 export async function GET(req: NextRequest) {
   const user = await getCurrentUserFromApi(req);
   if (!user) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401, headers: NO_STORE_HEADERS });
   }
 
   const sp = req.nextUrl.searchParams;
@@ -52,11 +61,11 @@ export async function GET(req: NextRequest) {
 
   try {
     const data = await fetchJson<ListsIndexResponse>(`/lists?${qs.toString()}`);
-    return NextResponse.json(data, { status: 200 });
+    return NextResponse.json(data, { status: 200, headers: NO_STORE_HEADERS });
   } catch (e: any) {
     return NextResponse.json(
       { error: String(e?.message || e || "Failed") },
-      { status: 500 },
+      { status: 500, headers: NO_STORE_HEADERS },
     );
   }
 }

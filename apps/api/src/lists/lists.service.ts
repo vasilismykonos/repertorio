@@ -111,6 +111,10 @@ export type ListItemsResponse = {
   title: string; // canonical
 };
 
+export type AddListItemResponse = ListItemDto & {
+  itemsCount: number;
+};
+
 export type DeleteListItemResponse = { ok: true };
 export type ReorderListItemsResponse = { ok: true };
 
@@ -694,7 +698,7 @@ async getListsIndex(params: {
     lyrics?: string;
     notes?: string | null;
     transport?: number;
-  }): Promise<ListItemDto> {
+  }): Promise<AddListItemResponse> {
     const { listId, userId, songId } = params;
 
     // Για επεξεργασία των τραγουδιών επιτρέπουμε και τους SONGS_EDITOR
@@ -761,6 +765,8 @@ async getListsIndex(params: {
         ? "SONG"
         : "NONE";
 
+    const itemsCount = await this.prisma.listItem.count({ where: { listId } });
+
     await this.esSync?.upsertSong(songId);
 
     return {
@@ -773,6 +779,7 @@ async getListsIndex(params: {
       chordsSource,
       lyrics: effectiveLyrics,
       lyricsSource,
+      itemsCount,
     };
   }
 

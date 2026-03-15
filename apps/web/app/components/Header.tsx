@@ -1,4 +1,3 @@
-// apps/web/app/components/Header.tsx
 "use client";
 
 import Link from "next/link";
@@ -13,19 +12,15 @@ type HeaderProps = {
   gitSha?: string | null;
 };
 
-// Wrapper: κρύβει εντελώς το header όταν έχουμε ?embed=1
 export default function Header(props: HeaderProps) {
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   if (isEmbed) return null;
-    return <HeaderInner appVersion={props.appVersion} gitSha={props.gitSha} />;
+  return <HeaderInner appVersion={props.appVersion} gitSha={props.gitSha} />;
 }
 
-// ✅ MUST MATCH RoomsClient.tsx
 const STORAGE_KEY_ROOM = "repertorio_current_room";
 const ROOM_CHANGED_EVENT = "repertorio_current_room_changed";
-
-// ✅ Rooms page χρησιμοποιεί /rooms-api (proxy από nginx προς rooms server)
 const ROOMS_API_BASE = "/rooms-api";
 
 type StatusRoomUser = {
@@ -54,7 +49,6 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
   const isSongsPage = pathname === "/songs";
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // ---- NextAuth session ----
   const { data: session, status } = useSession();
   const isLoggedIn = status === "authenticated";
 
@@ -63,25 +57,20 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
     (session?.user as any)?.picture ||
     undefined;
 
-  // ---- Room state για το header ----
   const [currentRoomName, setCurrentRoomName] = useState<string | null>(null);
   const [roomUserCount, setRoomUserCount] = useState<number | null>(null);
   const [roomLoading, setRoomLoading] = useState(false);
 
-  // ---- refs για αναζήτηση / φόρμα ----
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
 
-  // Τιμή input αναζήτησης (controlled) + εμφάνιση / απόκρυψη X
   const [searchValue, setSearchValue] = useState("");
   const [hasText, setHasText] = useState(false);
 
-  // ---- voice search (webkitSpeechRecognition) ----
   const [isVoiceSupported, setIsVoiceSupported] = useState(false);
   const recognitionRef = useRef<any | null>(null);
   const recognitionTimeoutRef = useRef<number | null>(null);
 
-  // ✅ Auth helpers: ΠΑΝΤΑ login στο ίδιο origin + σωστό post-login redirect
   const getSameOriginCallbackUrl = useCallback(() => {
     if (typeof window === "undefined") return "/";
     const path = window.location.pathname + window.location.search;
@@ -114,7 +103,6 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
     [isSongsPage, searchParams, router],
   );
 
-  // ✅ Hidden inputs για να διατηρούνται τα filters όταν κάνεις νέα αναζήτηση από το header
   const preservedHiddenInputs = useMemo(() => {
     if (!isSongsPage) return [];
 
@@ -146,14 +134,12 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
     return out;
   }, [isSongsPage, searchParams]);
 
-  // Ενημέρωση searchValue από το URL
   useEffect(() => {
     const termFromUrl = searchParams.get("search_term") || "";
     setSearchValue(termFromUrl);
     setHasText(termFromUrl.trim().length > 0);
   }, [searchParams]);
 
-  // ✅ Διαβάζουμε το current room από localStorage (ίδιο key με RoomsClient) + ακούμε event (ίδιο event name)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -186,7 +172,6 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
     };
   }, []);
 
-  // ✅ Φόρτωση count από /rooms-api/status (ίδιο source με Rooms page)
   useEffect(() => {
     if (!isLoggedIn || !currentRoomName) {
       setRoomUserCount(null);
@@ -204,7 +189,6 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
         if (!res.ok) throw new Error("Rooms status HTTP error");
 
         const data = (await res.json()) as StatusResponse;
-
         if (cancelled) return;
 
         if (!data?.ok || !Array.isArray(data.rooms)) {
@@ -242,7 +226,6 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
     };
   }, [isLoggedIn, currentRoomName]);
 
-  // Ρύθμιση voice recognition
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -326,7 +309,6 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
   };
 
   const closeSidebar = () => setIsSidebarOpen(false);
-  const sidebarClass = `site-sidebar${isSidebarOpen ? " visible" : ""}`;
   const overlayClass = isSidebarOpen ? "visible" : "";
 
   const avatarNode = avatarUrl ? (
@@ -494,7 +476,6 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
           </div>
 
           <div className="header-buttons">
-            {/* Rooms indicator */}
             <Link
               href="/rooms"
               className="rooms-button"
@@ -522,7 +503,6 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
               </span>
             </Link>
 
-            {/* Avatar / Login */}
             {isLoggedIn ? (
               <Link
                 href="/me"
@@ -550,7 +530,7 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
               <button
                 type="button"
                 onClick={doSignIn}
-                title="Σύνδεση με Google"
+                title="Σύνδεση / Εγγραφή με Google"
                 style={{
                   width: 30,
                   height: 30,
@@ -594,27 +574,27 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
         </div>
       </header>
 
-      {/* Sidebar */}
-        <SideMenu
-          isOpen={isSidebarOpen}
-          onClose={closeSidebar}
-          pathname={pathname}
-          isLoggedIn={isLoggedIn}
-          onSignIn={doSignIn}
-          onSignOut={doSignOut}
-          userName={(session?.user as any)?.name}
-          userEmail={(session?.user as any)?.email}
-          avatarNode={avatarNode}
-          isInRoom={isInRoom}
-          currentRoomName={currentRoomName}
-          roomUserCount={roomUserCount}
-          roomLoading={roomLoading}
-          appVersion={appVersion}
-          gitSha={gitSha}     
-          onNewSong={() => {
-            window.location.href = "/songs/new";
-          }}
-        />
+      <SideMenu
+        isOpen={isSidebarOpen}
+        onClose={closeSidebar}
+        pathname={pathname}
+        isLoggedIn={isLoggedIn}
+        onSignIn={doSignIn}
+        onSignOut={doSignOut}
+        userName={(session?.user as any)?.name}
+        userEmail={(session?.user as any)?.email}
+        avatarNode={avatarNode}
+        isInRoom={isInRoom}
+        currentRoomName={currentRoomName}
+        roomUserCount={roomUserCount}
+        roomLoading={roomLoading}
+        appVersion={appVersion}
+        gitSha={gitSha}
+        onNewSong={() => {
+          window.location.href = "/songs/new";
+        }}
+      />
+
       <div id="overlay" className={overlayClass} onClick={closeSidebar} />
     </>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { signOut } from "next-auth/react";
 import Button from "@/app/components/buttons/Button";
 import { A } from "@/app/components/buttons/buttonActions";
 import { fetchJson } from "@/lib/api";
@@ -149,7 +150,6 @@ export default function MePageClient({ user }: { user: MeUser }) {
   const [displayName, setDisplayName] = useState<string>(user.displayName ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string>(user.avatarUrl ?? "");
 
-  // ✅ IMPORTANT: initial state must be boolean (not boolean|undefined)
   const [defChords, setDefChords] = useState<boolean>(
     prefs.songTogglesDefault.chords ?? true,
   );
@@ -168,8 +168,11 @@ export default function MePageClient({ user }: { user: MeUser }) {
   );
 
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+
+  const busy = saving || deleting;
 
   const avatarPreview = useMemo(() => {
     const v = String(avatarUrl ?? "").trim();
@@ -177,11 +180,9 @@ export default function MePageClient({ user }: { user: MeUser }) {
   }, [avatarUrl]);
 
   function onCancel() {
-    // reset values
     setDisplayName(user.displayName ?? "");
     setAvatarUrl(user.avatarUrl ?? "");
 
-    // reset prefs (always booleans)
     setDefChords(prefs.songTogglesDefault.chords ?? true);
     setDefTonicities(prefs.songTogglesDefault.tonicities ?? true);
     setDefInfo(prefs.songTogglesDefault.info ?? true);
@@ -232,18 +233,62 @@ export default function MePageClient({ user }: { user: MeUser }) {
     }
   }
 
+  async function onDeleteAccount() {
+    const confirmed = window.confirm(
+      "Θέλεις σίγουρα να διαγράψεις τον λογαριασμό σου; Η ενέργεια δεν αναιρείται.",
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setError(null);
+    setOk(null);
+
+    try {
+      const res = await fetch(`/api/users/${user.id}`, {
+        method: "DELETE",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      let body: any = null;
+      try {
+        body = await res.json();
+      } catch {
+        body = null;
+      }
+
+      if (!res.ok || body?.ok === false) {
+        throw new Error(body?.error || "Αποτυχία διαγραφής λογαριασμού.");
+      }
+
+      await signOut({ callbackUrl: "/" });
+    } catch (e: any) {
+      setError(e?.message || "Αποτυχία διαγραφής λογαριασμού.");
+      setDeleting(false);
+    }
+  }
+
   return (
     <div style={{ display: "grid", gap: 16, color: "#ffffff" }}>
       <AddressBar
         title="Ο λογαριασμός μου"
         right={
           <>
-            {A.cancel({ onClick: onCancel, disabled: saving })}
-            {A.save({ onClick: onSave, disabled: saving, loading: saving })}
+            {A.cancel({ onClick: onCancel, disabled: busy })}
+            {A.save({ onClick: onSave, disabled: busy, loading: saving })}
+            {A.del({
+              onClick: onDeleteAccount,
+              disabled: busy,
+              loading: deleting,
+              title: "Διαγραφή λογαριασμού",
+              label: "Διαγραφή",
+              loadingLabel: "Διαγραφή...",
+            })}
             {A.logout({
               title: "Αποσύνδεση",
               callbackUrl: "/",
               variant: "danger",
+              disabled: busy,
             })}
           </>
         }

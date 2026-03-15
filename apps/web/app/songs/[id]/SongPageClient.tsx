@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ListMusic,
+  PlayCircle,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -27,7 +28,9 @@ import type { Step } from "react-joyride";
 import type { SongDetail } from "./page";
 
 // ✅ IMPORTANT: no SSR for Joyride (fix hydration)
-const GuidedTour = dynamic(() => import("../../components/GuidedTour"), { ssr: false });
+const GuidedTour = dynamic(() => import("../../components/GuidedTour"), {
+  ssr: false,
+});
 
 type PanelsOpen = {
   info: boolean;
@@ -117,10 +120,8 @@ function computeInitialPanels(
     info: defaults?.info ?? true,
     singerTunes: defaults?.singerTunes ?? true,
     chords: defaults?.chords ?? hasChords,
-
     // ✅ Νέος τρόπος: ανοίγει default μόνο αν υπάρχουν SCORE assets (εκτός αν υπάρχει override)
     scores: defaults?.scores ?? hasScores,
-
     // ✅ “Υλικό” default open μόνο αν έχει assets (εκτός αν override)
     assets: defaults?.assets ?? false,
   };
@@ -159,6 +160,18 @@ function sortListsForPicker(items: SongListOption[]): SongListOption[] {
   });
 }
 
+function isSafeExternalHttpUrl(value: string): boolean {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 export default function SongPageClient(props: Props) {
   const {
     song,
@@ -167,10 +180,16 @@ export default function SongPageClient(props: Props) {
     schemaNode,
     defaultPanelsOpen,
     redirectDefault,
+    youtubeUrl,
   } = props;
 
   const router = useRouter();
   const sp = useSearchParams();
+
+  const safeYoutubeUrl = useMemo(() => {
+    const raw = String(youtubeUrl || "").trim();
+    return isSafeExternalHttpUrl(raw) ? raw : "";
+  }, [youtubeUrl]);
 
   // ✅ Manual open signal for GuidedTour
   const [tourOpenSignal, setTourOpenSignal] = useState(0);
@@ -322,7 +341,13 @@ export default function SongPageClient(props: Props) {
     if (!hasListContext) return;
     if (e.touches.length !== 1) return; // ✅ ignore pinch
     const t = e.touches[0];
-    touchRef.current = { x0: t.clientX, y0: t.clientY, x1: t.clientX, y1: t.clientY, t0: Date.now() };
+    touchRef.current = {
+      x0: t.clientX,
+      y0: t.clientY,
+      x1: t.clientX,
+      y1: t.clientY,
+      t0: Date.now(),
+    };
   }
 
   function onTouchMove(e: React.TouchEvent) {
@@ -518,7 +543,6 @@ export default function SongPageClient(props: Props) {
     setPanels((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-
   const filteredLists = useMemo(() => {
     const q = listPickerQuery.trim().toLocaleLowerCase("el");
     const base = sortListsForPicker(availableLists);
@@ -644,6 +668,11 @@ export default function SongPageClient(props: Props) {
     label: "Room",
   });
 
+  function openYoutube() {
+    if (!safeYoutubeUrl || typeof window === "undefined") return;
+    window.open(safeYoutubeUrl, "_blank", "noopener,noreferrer");
+  }
+
   const backHref = hasListContext ? `/lists/${listId}` : "/songs";
   const backLabel = hasListContext ? "Λίστα" : "Τραγούδια";
   const backTitle = hasListContext ? "Επιστροφή στη λίστα" : "Επιστροφή στη λίστα τραγουδιών";
@@ -651,7 +680,10 @@ export default function SongPageClient(props: Props) {
   // ------------------------------------------------------------
   // Draggable "Room" floating button + persistence (localStorage)
   // ------------------------------------------------------------
-  const [roomPos, setRoomPos] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+  const [roomPos, setRoomPos] = useState<{ x: number | null; y: number | null }>({
+    x: null,
+    y: null,
+  });
   const [draggingRoom, setDraggingRoom] = useState(false);
 
   const roomButtonRef = useRef<HTMLDivElement | null>(null);
@@ -681,7 +713,10 @@ export default function SongPageClient(props: Props) {
     const rect = roomButtonRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    roomDragOffsetRef.current = { offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
+    roomDragOffsetRef.current = {
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+    };
     roomDragStartRef.current = { x: e.clientX, y: e.clientY };
     roomMovedRef.current = false;
 
@@ -875,9 +910,11 @@ export default function SongPageClient(props: Props) {
   function lyricsZoomIn() {
     applyLyricsScale(lyricsScale + 0.12);
   }
+
   function lyricsZoomOut() {
     applyLyricsScale(lyricsScale - 0.12);
   }
+
   function lyricsZoomReset() {
     applyLyricsScale(1);
   }
@@ -892,10 +929,22 @@ export default function SongPageClient(props: Props) {
         content: "«Tunes»: δείχνει/κρύβει τις τονικότητες ανά τραγουδιστή.",
         disableBeacon: true,
       },
-      { target: '[data-tour="btn-info"]', content: "«Info»: δείχνει/κρύβει πληροφορίες για το τραγούδι." },
-      { target: '[data-tour="btn-chords"]', content: "«Chords»: δείχνει/κρύβει τις συγχορδίες (αν υπάρχουν)." },
-      { target: '[data-tour="btn-scores"]', content: "«Scores»: δείχνει/κρύβει την παρτιτούρα (αν υπάρχει)." },
-      { target: '[data-tour="btn-assets"]', content: "«Υλικό»: assets (mp3/pdf/links) του τραγουδιού." },
+      {
+        target: '[data-tour="btn-info"]',
+        content: "«Info»: δείχνει/κρύβει πληροφορίες για το τραγούδι.",
+      },
+      {
+        target: '[data-tour="btn-chords"]',
+        content: "«Chords»: δείχνει/κρύβει τις συγχορδίες (αν υπάρχουν).",
+      },
+      {
+        target: '[data-tour="btn-scores"]',
+        content: "«Scores»: δείχνει/κρύβει την παρτιτούρα (αν υπάρχει).",
+      },
+      {
+        target: '[data-tour="btn-assets"]',
+        content: "«Υλικό»: assets (mp3/pdf/links) του τραγουδιού.",
+      },
       {
         target: '[data-tour="room-button"]',
         content: "«Room»: στέλνεις το τραγούδι στο room. Μπορείς και να το σύρεις σε άλλη θέση.",
@@ -958,6 +1007,19 @@ export default function SongPageClient(props: Props) {
         left={<>{A.backLink({ href: backHref, title: backTitle, label: backLabel })}</>}
         right={
           <>
+            {safeYoutubeUrl ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={openYoutube}
+                title="Άνοιγμα αναζήτησης στο YouTube"
+                aria-label="Άνοιγμα αναζήτησης στο YouTube"
+                icon={PlayCircle}
+              >
+                YouTube
+              </Button>
+            ) : null}
+
             <Button
               type="button"
               variant="secondary"
@@ -968,8 +1030,10 @@ export default function SongPageClient(props: Props) {
             >
               Σε λίστα
             </Button>
+
             {A.help({ title: "Βοήθεια", label: "Βοήθεια", onClick: onHelpClick })}
             {A.share({ shareTitle: song.title, label: "Share" })}
+
             {canEdit
               ? A.editLink({
                   href: `/songs/${song.id}/edit`,
@@ -1139,9 +1203,7 @@ export default function SongPageClient(props: Props) {
                           </div>
                         </div>
 
-                        <div style={{ flexShrink: 0 }}>
-                          {busy ? "Προσθήκη..." : "Επιλογή"}
-                        </div>
+                        <div style={{ flexShrink: 0 }}>{busy ? "Προσθήκη..." : "Επιλογή"}</div>
                       </div>
                     </button>
                   );
@@ -1335,7 +1397,6 @@ export default function SongPageClient(props: Props) {
           </Button>
         </span>
 
-        {/* ✅ assets button moved into separate file */}
         <SongAssetsPanel
           open={panels.assets}
           hasAssets={hasAssets}
