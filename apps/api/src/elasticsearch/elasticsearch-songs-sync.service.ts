@@ -364,7 +364,7 @@ export class ElasticsearchSongsSyncService {
     }
 
     const { res, text } = await this.es(
-      `/${encodeURIComponent(this.INDEX)}/_doc/${encodeURIComponent(String(songId))}`,
+      `/${encodeURIComponent(this.INDEX)}/_doc/${encodeURIComponent(String(songId))}?refresh=true`,
       {
         method: 'PUT',
         body: JSON.stringify(doc),

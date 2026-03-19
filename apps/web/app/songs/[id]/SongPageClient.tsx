@@ -673,9 +673,15 @@ export default function SongPageClient(props: Props) {
     window.open(safeYoutubeUrl, "_blank", "noopener,noreferrer");
   }
 
-  const backHref = hasListContext ? `/lists/${listId}` : "/songs";
+  const backHref = useMemo(() => {
+    if (hasListContext) return `/lists/${listId}`;
+
+    const qs = sp.toString();
+    return qs ? `/songs?${qs}` : "/songs";
+  }, [hasListContext, listId, sp]);
+
   const backLabel = hasListContext ? "Λίστα" : "Τραγούδια";
-  const backTitle = hasListContext ? "Επιστροφή στη λίστα" : "Επιστροφή στη λίστα τραγουδιών";
+  const backTitle = hasListContext ? "Επιστροφή στη λίστα" : "Επιστροφή στα φιλτραρισμένα τραγούδια";
 
   // ------------------------------------------------------------
   // Draggable "Room" floating button + persistence (localStorage)
