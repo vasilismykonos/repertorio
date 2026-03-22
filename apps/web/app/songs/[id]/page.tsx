@@ -75,10 +75,8 @@ export type SongDetail = {
   createdByDisplayName?: string | null;
 
   tags: TagDto[];
-
   hasScore: boolean;
   assets: SongAsset[];
-
   versions: SongVersion[];
 };
 
@@ -107,17 +105,20 @@ function getFirstWordsForYoutube(
   return words.join(" ");
 }
 
-function cleanText(v: any): string | null {
+function cleanText(v: unknown): string | null {
   if (v === null || v === undefined) return null;
   if (typeof v !== "string") return cleanText(String(v));
+
   const s = v.trim();
   if (!s) return null;
+
   const u = s.toUpperCase();
   if (u === "NULL" || u === "UNDEFINED" || u === "N/A") return null;
+
   return s;
 }
 
-function pickText(...candidates: any[]): string | null {
+function pickText(...candidates: unknown[]): string | null {
   for (const c of candidates) {
     const x = cleanText(c);
     if (x) return x;
@@ -125,8 +126,8 @@ function pickText(...candidates: any[]): string | null {
   return null;
 }
 
-function normalizeVersions(raw: any): SongVersion[] {
-  if (!raw || !Array.isArray(raw) || raw.length === 0) return [];
+function normalizeVersions(raw: unknown): SongVersion[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
 
   return raw.map((v: any, idx: number) => {
     const id = v.id ?? v.versionId ?? v.version_id ?? idx + 1;
@@ -187,23 +188,28 @@ function normalizeVersions(raw: any): SongVersion[] {
   });
 }
 
-function normalizeTags(raw: any): TagDto[] {
-  if (!raw || !Array.isArray(raw) || raw.length === 0) return [];
+function normalizeTags(raw: unknown): TagDto[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+
   const map = new Map<number, TagDto>();
 
-  for (const t of raw) {
+  for (const t of raw as any[]) {
     const id = Number(t?.id);
     const title = String(t?.title ?? "").trim();
     const slug = String(t?.slug ?? "").trim();
+
     if (!Number.isFinite(id) || id <= 0) continue;
     if (!title) continue;
-    if (!map.has(id)) map.set(id, { id, title, slug });
+
+    if (!map.has(id)) {
+      map.set(id, { id, title, slug });
+    }
   }
 
   return Array.from(map.values());
 }
 
-function normalizeAssets(raw: any): SongAsset[] {
+function normalizeAssets(raw: unknown): SongAsset[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
 
   return raw
@@ -211,7 +217,8 @@ function normalizeAssets(raw: any): SongAsset[] {
       const id = Number(a?.id);
       if (!Number.isFinite(id) || id <= 0) return null;
 
-      const kind = String(a?.kind ?? "").toUpperCase() === "LINK" ? "LINK" : "FILE";
+      const kind =
+        String(a?.kind ?? "").toUpperCase() === "LINK" ? "LINK" : "FILE";
 
       return {
         id,
@@ -232,7 +239,7 @@ function normalizeAssets(raw: any): SongAsset[] {
         isPrimary: a?.isPrimary === true,
       } as SongAsset;
     })
-    .filter((a): a is SongAsset => !!a)
+    .filter((a): a is SongAsset => Boolean(a))
     .sort((a, b) => {
       if (a.sort !== b.sort) return a.sort - b.sort;
       return a.id - b.id;
@@ -248,6 +255,7 @@ function hasMxlExtension(value: string | null | undefined): boolean {
 function hasMxlMimeType(value: string | null | undefined): boolean {
   if (!value) return false;
   const mt = value.trim().toLowerCase();
+
   return (
     mt.includes("application/vnd.recordare.musicxml") ||
     mt.includes("application/vnd.recordare.musicxml+xml") ||
@@ -259,29 +267,13 @@ function hasMxlMimeType(value: string | null | undefined): boolean {
 
 function isMxlScoreAsset(asset: Partial<SongAsset> | null | undefined): boolean {
   if (!asset) return false;
+
   return (
     hasMxlMimeType(asset.mimeType) ||
     hasMxlExtension(asset.filePath) ||
     hasMxlExtension(asset.url) ||
     hasMxlExtension(asset.title)
   );
-}
-
-function resolveAssetPlaybackUrl(asset: Partial<SongAsset> | null | undefined): string | null {
-  if (!asset) return null;
-
-  if (String(asset.kind ?? "").toUpperCase() === "LINK") {
-    const u = cleanText(asset.url);
-    if (u) return u;
-  }
-
-  const fp = cleanText(asset.filePath);
-  if (fp) return fp;
-
-  const u = cleanText(asset.url);
-  if (u) return u;
-
-  return null;
 }
 
 function isOrganicSong(song: Pick<SongDetail, "characteristics" | "tags">): boolean {
@@ -305,7 +297,7 @@ function isOrganicSong(song: Pick<SongDetail, "characteristics" | "tags">): bool
 function renderSongSchema(song: SongDetail) {
   const organic = isOrganicSong(song);
 
-  const schema: any = {
+  const schema: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "MusicComposition",
     name: song.title,
@@ -327,11 +319,18 @@ function renderSongSchema(song: SongDetail) {
   };
 
   const json = JSON.stringify(schema, null, 2);
-  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: json }} />;
+
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: json }}
+    />
+  );
 }
 
 export async function generateMetadata({ params }: SongPageProps) {
   const songId = Number(params.id);
+
   if (!songId || Number.isNaN(songId)) {
     return { title: "Μη έγκυρο τραγούδι | Repertorio Next" };
   }
@@ -370,6 +369,7 @@ export async function generateMetadata({ params }: SongPageProps) {
 }
 
 const EDIT_ROLES: UserRole[] = ["ADMIN", "EDITOR", "AUTHOR"];
+
 function isPrivilegedRole(role: UserRole | null | undefined): boolean {
   if (!role) return false;
   return EDIT_ROLES.includes(role);
@@ -387,7 +387,9 @@ function readSongToggleDefaultsFromProfile(profile: any, hasChords: boolean) {
       : {};
 
   const defInfo =
-    typeof songTogglesDefault.info === "boolean" ? songTogglesDefault.info : true;
+    typeof songTogglesDefault.info === "boolean"
+      ? songTogglesDefault.info
+      : true;
 
   const defChordsRaw =
     typeof songTogglesDefault.chords === "boolean"
@@ -541,12 +543,6 @@ export default async function SongPage({ params }: SongPageProps) {
     youtubeSearchQuery,
   )}`;
 
-  const primaryScoreAsset =
-    assets.find((a) => isMxlScoreAsset(a) && a.isPrimary) ??
-    assets.find((a) => isMxlScoreAsset(a));
-
-  const scoreFileUrl = resolveAssetPlaybackUrl(primaryScoreAsset);
-
   const defaultPanelsOpen = currentUser?.profile
     ? readSongToggleDefaultsFromProfile(currentUser.profile, hasChords)
     : { info: true, singerTunes: true, chords: hasChords, scores: true };
@@ -561,7 +557,6 @@ export default async function SongPage({ params }: SongPageProps) {
       canEdit={canEdit}
       finalLyrics={finalLyrics}
       youtubeUrl={youtubeUrl}
-      scoreFileUrl={scoreFileUrl}
       schemaNode={renderSongSchema(song)}
       defaultPanelsOpen={defaultPanelsOpen}
       redirectDefault={redirectDefault}

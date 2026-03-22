@@ -45,10 +45,6 @@ type Props = {
   song: SongDetail;
   canEdit: boolean;
   finalLyrics: string;
-
-  // legacy prop για συμβατότητα caller
-  scoreFileUrl: string;
-
   schemaNode: React.ReactNode;
   defaultPanelsOpen?: Partial<PanelsOpen>;
   redirectDefault?: RedirectDefault;
