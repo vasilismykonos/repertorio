@@ -59,7 +59,6 @@ type SongVersionDto = {
 type SongDetailDto = {
   id: number;
   legacySongId: number | null;
-  scoreFile: string | null;
   hasScore: boolean;
 
   title: string;
@@ -235,7 +234,6 @@ type UpdateSongBody = {
   rythmId?: number | null;
   basedOnSongId?: number | null;
 
-  scoreFile?: string | null;
   highestVocalNote?: string | null;
 
   createdByUserId?: number | null;
@@ -244,38 +242,42 @@ type UpdateSongBody = {
   tagIds?: number[] | null;
 
   // ✅ NEW (assets replace-all)
-  assets?: Array<{
-    id?: number;
-    kind: AssetKind;
-    type?: AssetType;
-    title?: string | null;
-    url?: string | null;
-    filePath?: string | null;
-    mimeType?: string | null;
-    sizeBytes?: string | number | bigint | null;
+  assets?:
+    | Array<{
+        id?: number;
+        kind: AssetKind;
+        type?: AssetType;
+        title?: string | null;
+        url?: string | null;
+        filePath?: string | null;
+        mimeType?: string | null;
+        sizeBytes?: string | number | bigint | null;
 
-    // relation metadata
-    label?: string | null;
-    sort?: number | null;
-    isPrimary?: boolean | null;
-  }> | null;
+        // relation metadata
+        label?: string | null;
+        sort?: number | null;
+        isPrimary?: boolean | null;
+      }>
+    | null;
 
   // ✅ NEW (discographies/versions replace-all)
-  versions?: Array<{
-    id?: number | null;
-    year?: number | string | null;
-    youtubeSearch?: string | null;
+  versions?:
+    | Array<{
+        id?: number | null;
+        year?: number | string | null;
+        youtubeSearch?: string | null;
 
-    // backward compatible: comma-separated names
-    singerFrontNames?: string | null;
-    singerBackNames?: string | null;
-    solistNames?: string | null;
+        // backward compatible: comma-separated names
+        singerFrontNames?: string | null;
+        singerBackNames?: string | null;
+        solistNames?: string | null;
 
-    // ✅ preferred: ids (array or CSV string)
-    singerFrontIds?: number[] | string | null;
-    singerBackIds?: number[] | string | null;
-    solistIds?: number[] | string | null;
-  }> | null;
+        // ✅ preferred: ids (array or CSV string)
+        singerFrontIds?: number[] | string | null;
+        singerBackIds?: number[] | string | null;
+        solistIds?: number[] | string | null;
+      }>
+    | null;
 };
 
 function slugifySongTitle(input: string): string {
@@ -327,10 +329,56 @@ function inferOriginalKeySignFromChords(chords: unknown): '+' | '-' | null {
   if (!last) return null;
 
   // αν το τελευταίο match δεν είχε ρητό πρόσημο, πάλι NULL
-  // (γιατί είπες "NULL όταν δεν προκύπτει πρόσημο")
   if (last[3] !== '+' && last[3] !== '-') return null;
 
   return last[3] === '-' ? '-' : '+';
+}
+
+function normalizeAssetFileNameLike(
+  ...parts: Array<string | null | undefined>
+): string {
+  return parts
+    .filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+    .join(' ')
+    .trim()
+    .toLowerCase();
+}
+
+function hasMxlExtension(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const clean = value.split('?')[0].split('#')[0].trim().toLowerCase();
+  return clean.endsWith('.mxl');
+}
+
+function hasMxlMimeType(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const mt = value.trim().toLowerCase();
+  return (
+    mt.includes('application/vnd.recordare.musicxml') ||
+    mt.includes('application/vnd.recordare.musicxml+xml') ||
+    mt.includes('application/x-mxl') ||
+    mt.includes('musicxml') ||
+    mt.includes('/mxl')
+  );
+}
+
+function isScoreAssetLike(input: {
+  title?: string | null;
+  url?: string | null;
+  filePath?: string | null;
+  mimeType?: string | null;
+}): boolean {
+  if (hasMxlMimeType(input.mimeType)) return true;
+  if (hasMxlExtension(input.filePath)) return true;
+  if (hasMxlExtension(input.url)) return true;
+  if (hasMxlExtension(input.title)) return true;
+
+  const combined = normalizeAssetFileNameLike(
+    input.title,
+    input.url,
+    input.filePath,
+  );
+  return combined.includes('.mxl');
 }
 
 @Injectable()
@@ -344,236 +392,244 @@ export class SongsService {
    * Επιστρέφει 1 τραγούδι σε DTO συμβατό με το SongDetail του Next.
    * Αν noIncrement=true δεν αυξάνει τα views.
    */
-async findOne(id: number, noIncrement = false): Promise<SongDetailDto> {
-  if (!noIncrement) {
-    const updated = await this.prisma.song.updateMany({
+  async findOne(id: number, noIncrement = false): Promise<SongDetailDto> {
+    if (!noIncrement) {
+      const updated = await this.prisma.song.updateMany({
+        where: { id },
+        data: { views: { increment: 1 } },
+      });
+
+      if (updated.count === 0) {
+        throw new NotFoundException(`Song with id=${id} not found`);
+      }
+
+      try {
+        await this.esSync?.upsertSong(id);
+      } catch (e) {
+        console.error('[SongsService] ES upsert after view increment failed', e);
+      }
+    }
+
+    const song = await this.prisma.song.findUnique({
       where: { id },
-      data: { views: { increment: 1 } },
+      include: {
+        category: true,
+        rythm: true,
+        basedOnSong: { select: { id: true, title: true } },
+        credits: { include: { artist: true } },
+        versions: { include: { artists: { include: { artist: true } } } },
+
+        createdBy: { select: { id: true, displayName: true, username: true } },
+
+        SongTag: {
+          include: { Tag: { select: { id: true, title: true, slug: true } } },
+          orderBy: [{ tagId: 'asc' }],
+        },
+
+        SongAsset: {
+          include: { Asset: true },
+          orderBy: [{ sort: 'asc' }, { assetId: 'asc' }],
+        },
+      },
     });
 
-    if (updated.count === 0) {
-      throw new NotFoundException(`Song with id=${id} not found`);
-    }
+    if (!song) throw new NotFoundException(`Song with id=${id} not found`);
 
-    try {
-      await this.esSync?.upsertSong(id);
-    } catch (e) {
-      console.error('[SongsService] ES upsert after view increment failed', e);
-    }
-  }
+    console.log('[SongsService.findOne] RETURNING', {
+      id: song.id,
+      views: song.views,
+      noIncrement,
+    });
 
-  const song = await this.prisma.song.findUnique({
-    where: { id },
-    include: {
-      category: true,
-      rythm: true,
-      basedOnSong: { select: { id: true, title: true } },
-      credits: { include: { artist: true } },
-      versions: { include: { artists: { include: { artist: true } } } },
+    const categoryTitle = song.category?.title ?? null;
+    const rythmTitle = song.rythm?.title ?? null;
 
-      createdBy: { select: { id: true, displayName: true, username: true } },
-
-      SongTag: {
-        include: { Tag: { select: { id: true, title: true, slug: true } } },
-        orderBy: [{ tagId: 'asc' }],
-      },
-
-      SongAsset: {
-        include: { Asset: true },
-        orderBy: [{ sort: 'asc' }, { assetId: 'asc' }],
-      },
-    },
-  });
-
-  if (!song) throw new NotFoundException(`Song with id=${id} not found`);
-
-  console.log('[SongsService.findOne] RETURNING', {
-    id: song.id,
-    views: song.views,
-    noIncrement,
-  });
-
-  const categoryTitle = song.category?.title ?? null;
-  const rythmTitle = song.rythm?.title ?? null;
-
-  const composerArtists = (song.credits ?? [])
-    .filter((c) => c.role === SongCreditRole.COMPOSER && c.artist)
-    .map((c) => c.artist);
-
-  const lyricistArtists = (song.credits ?? [])
-    .filter((c) => c.role === SongCreditRole.LYRICIST && c.artist)
-    .map((c) => c.artist);
-
-  const composerName =
-    composerArtists.length > 0
-      ? composerArtists.map((a) => buildArtistDisplayName(a)).join(', ')
-      : null;
-
-  const lyricistName =
-    lyricistArtists.length > 0
-      ? lyricistArtists.map((a) => buildArtistDisplayName(a)).join(', ')
-      : null;
-
-  const creditsDto = {
-    composers: (song.credits ?? [])
+    const composerArtists = (song.credits ?? [])
       .filter((c) => c.role === SongCreditRole.COMPOSER && c.artist)
-      .map((c) => ({
-        creditId: c.id,
-        artistId: c.artistId,
-        title: c.artist.title,
-        firstName: c.artist.firstName ?? null,
-        lastName: c.artist.lastName ?? null,
-      })),
-    lyricists: (song.credits ?? [])
+      .map((c) => c.artist);
+
+    const lyricistArtists = (song.credits ?? [])
       .filter((c) => c.role === SongCreditRole.LYRICIST && c.artist)
-      .map((c) => ({
-        creditId: c.id,
-        artistId: c.artistId,
-        title: c.artist.title,
-        firstName: c.artist.firstName ?? null,
-        lastName: c.artist.lastName ?? null,
-      })),
-  };
+      .map((c) => c.artist);
 
-  const basedOnSongId = song.basedOnSong?.id ?? null;
-  const basedOnSongTitle = song.basedOnSong?.title ?? null;
+    const composerName =
+      composerArtists.length > 0
+        ? composerArtists.map((a) => buildArtistDisplayName(a)).join(', ')
+        : null;
 
-  const versions: SongVersionDto[] =
-    song.versions?.map((v) => {
-      const frontArray = (v.artists ?? []).filter(
-        (x) => x.role === VersionArtistRole.SINGER_FRONT,
-      );
-      const backArray = (v.artists ?? []).filter(
-        (x) => x.role === VersionArtistRole.SINGER_BACK,
-      );
-      const soloArray = (v.artists ?? []).filter(
-        (x) => x.role === VersionArtistRole.SOLOIST,
-      );
+    const lyricistName =
+      lyricistArtists.length > 0
+        ? lyricistArtists.map((a) => buildArtistDisplayName(a)).join(', ')
+        : null;
 
-      const singerFront =
-        frontArray.length > 0
-          ? frontArray
-              .map((x) => x.artist)
-              .filter((a): a is NonNullable<typeof a> => !!a)
-              .map((a) => buildArtistDisplayName(a))
-              .join(', ')
-          : null;
+    const creditsDto = {
+      composers: (song.credits ?? [])
+        .filter((c) => c.role === SongCreditRole.COMPOSER && c.artist)
+        .map((c) => ({
+          creditId: c.id,
+          artistId: c.artistId,
+          title: c.artist.title,
+          firstName: c.artist.firstName ?? null,
+          lastName: c.artist.lastName ?? null,
+        })),
+      lyricists: (song.credits ?? [])
+        .filter((c) => c.role === SongCreditRole.LYRICIST && c.artist)
+        .map((c) => ({
+          creditId: c.id,
+          artistId: c.artistId,
+          title: c.artist.title,
+          firstName: c.artist.firstName ?? null,
+          lastName: c.artist.lastName ?? null,
+        })),
+    };
 
-      const singerBack =
-        backArray.length > 0
-          ? backArray
-              .map((x) => x.artist)
-              .filter((a): a is NonNullable<typeof a> => !!a)
-              .map((a) => buildArtistDisplayName(a))
-              .join(', ')
-          : null;
+    const basedOnSongId = song.basedOnSong?.id ?? null;
+    const basedOnSongTitle = song.basedOnSong?.title ?? null;
 
-      const solist =
-        soloArray.length > 0
-          ? soloArray
-              .map((x) => x.artist)
-              .filter((a): a is NonNullable<typeof a> => !!a)
-              .map((a) => buildArtistDisplayName(a))
-              .join(', ')
-          : null;
+    const versions: SongVersionDto[] =
+      song.versions?.map((v) => {
+        const frontArray = (v.artists ?? []).filter(
+          (x) => x.role === VersionArtistRole.SINGER_FRONT,
+        );
+        const backArray = (v.artists ?? []).filter(
+          (x) => x.role === VersionArtistRole.SINGER_BACK,
+        );
+        const soloArray = (v.artists ?? []).filter(
+          (x) => x.role === VersionArtistRole.SOLOIST,
+        );
 
-      const singerFrontIds = frontArray
-        .map((x) => x.artistId)
-        .filter((x): x is number => typeof x === 'number');
+        const singerFront =
+          frontArray.length > 0
+            ? frontArray
+                .map((x) => x.artist)
+                .filter((a): a is NonNullable<typeof a> => !!a)
+                .map((a) => buildArtistDisplayName(a))
+                .join(', ')
+            : null;
 
-      const singerBackIds = backArray
-        .map((x) => x.artistId)
-        .filter((x): x is number => typeof x === 'number');
+        const singerBack =
+          backArray.length > 0
+            ? backArray
+                .map((x) => x.artist)
+                .filter((a): a is NonNullable<typeof a> => !!a)
+                .map((a) => buildArtistDisplayName(a))
+                .join(', ')
+            : null;
 
-      const solistIds = soloArray
-        .map((x) => x.artistId)
-        .filter((x): x is number => typeof x === 'number');
+        const solist =
+          soloArray.length > 0
+            ? soloArray
+                .map((x) => x.artist)
+                .filter((a): a is NonNullable<typeof a> => !!a)
+                .map((a) => buildArtistDisplayName(a))
+                .join(', ')
+            : null;
 
-      return {
-        id: v.id,
-        year: v.year ?? null,
-        singerFront,
-        singerBack,
-        solist,
-        youtubeSearch: v.youtubeSearch ?? null,
-        singerFrontIds,
-        singerBackIds,
-        solistIds,
-      };
-    }) ?? [];
+        const singerFrontIds = frontArray
+          .map((x) => x.artistId)
+          .filter((x): x is number => typeof x === 'number');
 
-  const tags: TagDto[] = (song.SongTag ?? [])
-    .map((st) => st.Tag)
-    .filter((t): t is NonNullable<typeof t> => !!t)
-    .map((t) => ({ id: t.id, title: t.title, slug: t.slug }));
+        const singerBackIds = backArray
+          .map((x) => x.artistId)
+          .filter((x): x is number => typeof x === 'number');
 
-  const assets: SongAssetDto[] = (song.SongAsset ?? []).map((sa) => ({
-    id: sa.Asset.id,
-    kind: sa.Asset.kind,
-    type: sa.Asset.type,
-    title: sa.Asset.title ?? null,
-    url: sa.Asset.url ?? null,
-    filePath: sa.Asset.filePath ?? null,
-    mimeType: sa.Asset.mimeType ?? null,
-    sizeBytes: toNullableBigIntString(sa.Asset.sizeBytes),
-    label: sa.label ?? null,
-    sort: sa.sort ?? 0,
-    isPrimary: sa.isPrimary ?? false,
-  }));
+        const solistIds = soloArray
+          .map((x) => x.artistId)
+          .filter((x): x is number => typeof x === 'number');
 
-  const createdByUserId = song.createdByUserId ?? song.createdBy?.id ?? null;
-  const createdByDisplayName =
-    song.createdBy?.displayName?.trim() ||
-    song.createdBy?.username?.trim() ||
-    null;
+        return {
+          id: v.id,
+          year: v.year ?? null,
+          singerFront,
+          singerBack,
+          solist,
+          youtubeSearch: v.youtubeSearch ?? null,
+          singerFrontIds,
+          singerBackIds,
+          solistIds,
+        };
+      }) ?? [];
 
-  return {
-    id: song.id,
-    legacySongId: song.legacySongId,
-    scoreFile: song.scoreFile ?? null,
-    hasScore: song.hasScore ?? false,
+    const assets: SongAssetDto[] = (song.SongAsset ?? []).map((sa) => ({
+      id: sa.Asset.id,
+      kind: sa.Asset.kind,
+      type: sa.Asset.type,
+      title: sa.Asset.title ?? null,
+      url: sa.Asset.url ?? null,
+      filePath: sa.Asset.filePath ?? null,
+      mimeType: sa.Asset.mimeType ?? null,
+      sizeBytes: toNullableBigIntString(sa.Asset.sizeBytes),
+      label: sa.label ?? null,
+      sort: sa.sort ?? 0,
+      isPrimary: sa.isPrimary ?? false,
+    }));
 
-    title: song.title,
-    firstLyrics: song.firstLyrics ?? null,
-    lyrics: song.lyrics ?? null,
+    const hasScore = assets.some((a) =>
+      isScoreAssetLike({
+        title: a.title,
+        url: a.url,
+        filePath: a.filePath,
+        mimeType: a.mimeType,
+      }),
+    );
 
-    characteristics: song.characteristics ?? null,
+    const tags: TagDto[] = (song.SongTag ?? [])
+      .map((st) => st.Tag)
+      .filter((t): t is NonNullable<typeof t> => !!t)
+      .map((t) => ({ id: t.id, title: t.title, slug: t.slug }));
 
-    tags,
-    assets,
+    const createdByUserId = song.createdByUserId ?? song.createdBy?.id ?? null;
+    const createdByDisplayName =
+      song.createdBy?.displayName?.trim() ||
+      song.createdBy?.username?.trim() ||
+      null;
 
-    originalKey: song.originalKey ?? null,
-    originalKeySign:
-      song.originalKeySign === '-'
-        ? '-'
-        : song.originalKeySign === '+'
-          ? '+'
-          : null,
+    return {
+      id: song.id,
+      legacySongId: song.legacySongId,
+      hasScore,
 
-    chords: song.chords ?? null,
-    status: song.status ?? null,
+      title: song.title,
+      firstLyrics: song.firstLyrics ?? null,
+      lyrics: song.lyrics ?? null,
 
-    categoryId: song.categoryId ?? null,
-    rythmId: song.rythmId ?? null,
-    makamId: null,
+      characteristics: song.characteristics ?? null,
 
-    categoryTitle,
-    composerName,
-    lyricistName,
-    credits: creditsDto,
-    rythmTitle,
+      tags,
+      assets,
 
-    basedOnSongId,
-    basedOnSongTitle,
+      originalKey: song.originalKey ?? null,
+      originalKeySign:
+        song.originalKeySign === '-'
+          ? '-'
+          : song.originalKeySign === '+'
+            ? '+'
+            : null,
 
-    views: song.views ?? 0,
+      chords: song.chords ?? null,
+      status: song.status ?? null,
 
-    createdByUserId,
-    createdByDisplayName,
+      categoryId: song.categoryId ?? null,
+      rythmId: song.rythmId ?? null,
+      makamId: null,
 
-    versions,
-  };
-}
+      categoryTitle,
+      composerName,
+      lyricistName,
+      credits: creditsDto,
+      rythmTitle,
+
+      basedOnSongId,
+      basedOnSongTitle,
+
+      views: song.views ?? 0,
+
+      createdByUserId,
+      createdByDisplayName,
+
+      versions,
+    };
+  }
 
   private validateAssetInput(input: {
     kind: AssetKind;
@@ -681,10 +737,6 @@ async findOne(id: number, noIncrement = false): Promise<SongDetailDto> {
 
     if (Object.prototype.hasOwnProperty.call(body, 'highestVocalNote')) {
       data.highestVocalNote = body.highestVocalNote;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(body, 'scoreFile')) {
-      data.scoreFile = body.scoreFile;
     }
 
     if (body.status && Object.values(SongStatus).includes(body.status)) {
@@ -1062,7 +1114,13 @@ async findOne(id: number, noIncrement = false): Promise<SongDetailDto> {
         // (C) Credits
         await tx.songCredit.deleteMany({ where: { songId: id } });
 
-        // (D) Τελική διαγραφή Song
+        // (D) Song-Asset joins μόνο, όχι delete των Asset rows εδώ
+        await tx.songAsset.deleteMany({ where: { songId: id } });
+
+        // (E) Tags
+        await tx.songTag.deleteMany({ where: { songId: id } });
+
+        // (F) Τελική διαγραφή Song
         return tx.song.delete({
           where: { id },
           select: { id: true, title: true },
@@ -1127,10 +1185,6 @@ async findOne(id: number, noIncrement = false): Promise<SongDetailDto> {
 
     if (Object.prototype.hasOwnProperty.call(body, 'highestVocalNote')) {
       data.highestVocalNote = body.highestVocalNote;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(body, 'scoreFile')) {
-      data.scoreFile = body.scoreFile;
     }
 
     if (body.status && Object.values(SongStatus).includes(body.status)) {

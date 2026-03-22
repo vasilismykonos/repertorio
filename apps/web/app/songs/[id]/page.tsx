@@ -2,7 +2,6 @@
 
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
-import SongSendToRoomButton from "./SongSendToRoomButton";
 import SongPageClient from "./SongPageClient";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +23,28 @@ type SongVersion = {
   singerFrontId?: number | null;
   singerBackId?: number | null;
   solistId?: number | null;
+};
+
+type SongAsset = {
+  id: number;
+  kind: "FILE" | "LINK";
+  type:
+    | "GENERIC"
+    | "YOUTUBE"
+    | "SPOTIFY"
+    | "PDF"
+    | "AUDIO"
+    | "IMAGE"
+    | "SCORE"
+    | string;
+  title: string | null;
+  url: string | null;
+  filePath: string | null;
+  mimeType: string | null;
+  sizeBytes: string | null;
+  label: string | null;
+  sort: number;
+  isPrimary: boolean;
 };
 
 export type SongDetail = {
@@ -56,35 +77,7 @@ export type SongDetail = {
   tags: TagDto[];
 
   hasScore: boolean;
-  scoreFile: string | null;
-
-  /**
-   * Attached assets for this song. Each asset can be a FILE or LINK and has a
-   * type (e.g. SCORE, PDF, IMAGE, AUDIO, etc.). When present, assets of type
-   * SCORE should be used to display the score instead of the legacy
-   * scoreFile.
-   */
-  assets: {
-    id: number;
-    kind: "FILE" | "LINK";
-    type:
-      | "GENERIC"
-      | "YOUTUBE"
-      | "SPOTIFY"
-      | "PDF"
-      | "AUDIO"
-      | "IMAGE"
-      | "SCORE"
-      | string;
-    title: string | null;
-    url: string | null;
-    filePath: string | null;
-    mimeType: string | null;
-    sizeBytes: string | null;
-    label: string | null;
-    sort: number;
-    isPrimary: boolean;
-  }[];
+  assets: SongAsset[];
 
   versions: SongVersion[];
 };
@@ -95,7 +88,6 @@ type SongPageProps = {
 
 type RedirectDefault = "TITLE" | "CHORDS" | "LYRICS" | "SCORE";
 
-// Βοηθητικό slug (σαν sanitize_title)
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -105,8 +97,10 @@ function slugify(text: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-// Πρώτες 5 λέξεις για YouTube search
-function getFirstWordsForYoutube(firstLyrics: string | null, lyrics: string | null): string {
+function getFirstWordsForYoutube(
+  firstLyrics: string | null,
+  lyrics: string | null,
+): string {
   const source = firstLyrics || lyrics || "";
   if (!source.trim()) return "";
   const words = source.trim().split(/\s+/).slice(0, 5);
@@ -172,9 +166,12 @@ function normalizeVersions(raw: any): SongVersion[] {
       v.youtube_query,
     );
 
-    const singerFrontId = v.singerFrontId ?? v.singer_front_id ?? v.singerfront_id ?? null;
-    const singerBackId = v.singerBackId ?? v.singer_back_id ?? v.singerback_id ?? null;
-    const solistId = v.solistId ?? v.soloistId ?? v.solist_id ?? v.soloist_id ?? null;
+    const singerFrontId =
+      v.singerFrontId ?? v.singer_front_id ?? v.singerfront_id ?? null;
+    const singerBackId =
+      v.singerBackId ?? v.singer_back_id ?? v.singerback_id ?? null;
+    const solistId =
+      v.solistId ?? v.soloistId ?? v.solist_id ?? v.soloist_id ?? null;
 
     return {
       id: Number(id),
@@ -206,6 +203,87 @@ function normalizeTags(raw: any): TagDto[] {
   return Array.from(map.values());
 }
 
+function normalizeAssets(raw: any): SongAsset[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+
+  return raw
+    .map((a: any) => {
+      const id = Number(a?.id);
+      if (!Number.isFinite(id) || id <= 0) return null;
+
+      const kind = String(a?.kind ?? "").toUpperCase() === "LINK" ? "LINK" : "FILE";
+
+      return {
+        id,
+        kind,
+        type: String(a?.type ?? "GENERIC").toUpperCase(),
+        title: cleanText(a?.title),
+        url: cleanText(a?.url),
+        filePath: cleanText(a?.filePath),
+        mimeType: cleanText(a?.mimeType),
+        sizeBytes: cleanText(a?.sizeBytes),
+        label: cleanText(a?.label),
+        sort:
+          typeof a?.sort === "number"
+            ? a.sort
+            : Number.isFinite(Number(a?.sort))
+              ? Number(a.sort)
+              : 0,
+        isPrimary: a?.isPrimary === true,
+      } as SongAsset;
+    })
+    .filter((a): a is SongAsset => !!a)
+    .sort((a, b) => {
+      if (a.sort !== b.sort) return a.sort - b.sort;
+      return a.id - b.id;
+    });
+}
+
+function hasMxlExtension(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const clean = value.split("?")[0].split("#")[0].trim().toLowerCase();
+  return clean.endsWith(".mxl");
+}
+
+function hasMxlMimeType(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const mt = value.trim().toLowerCase();
+  return (
+    mt.includes("application/vnd.recordare.musicxml") ||
+    mt.includes("application/vnd.recordare.musicxml+xml") ||
+    mt.includes("application/x-mxl") ||
+    mt.includes("musicxml") ||
+    mt.includes("/mxl")
+  );
+}
+
+function isMxlScoreAsset(asset: Partial<SongAsset> | null | undefined): boolean {
+  if (!asset) return false;
+  return (
+    hasMxlMimeType(asset.mimeType) ||
+    hasMxlExtension(asset.filePath) ||
+    hasMxlExtension(asset.url) ||
+    hasMxlExtension(asset.title)
+  );
+}
+
+function resolveAssetPlaybackUrl(asset: Partial<SongAsset> | null | undefined): string | null {
+  if (!asset) return null;
+
+  if (String(asset.kind ?? "").toUpperCase() === "LINK") {
+    const u = cleanText(asset.url);
+    if (u) return u;
+  }
+
+  const fp = cleanText(asset.filePath);
+  if (fp) return fp;
+
+  const u = cleanText(asset.url);
+  if (u) return u;
+
+  return null;
+}
+
 function isOrganicSong(song: Pick<SongDetail, "characteristics" | "tags">): boolean {
   const tags = Array.isArray(song.tags) ? song.tags : [];
 
@@ -224,7 +302,6 @@ function isOrganicSong(song: Pick<SongDetail, "characteristics" | "tags">): bool
     .some((c) => c === "οργανικό");
 }
 
-// Schema.org MusicComposition
 function renderSongSchema(song: SongDetail) {
   const organic = isOrganicSong(song);
 
@@ -232,8 +309,12 @@ function renderSongSchema(song: SongDetail) {
     "@context": "https://schema.org",
     "@type": "MusicComposition",
     name: song.title,
-    composer: song.composerName ? { "@type": "Person", name: song.composerName } : undefined,
-    lyricist: song.lyricistName ? { "@type": "Person", name: song.lyricistName } : undefined,
+    composer: song.composerName
+      ? { "@type": "Person", name: song.composerName }
+      : undefined,
+    lyricist: song.lyricistName
+      ? { "@type": "Person", name: song.lyricistName }
+      : undefined,
     genre: song.categoryTitle || undefined,
     inLanguage: "el",
     lyrics: organic
@@ -267,20 +348,24 @@ export async function generateMetadata({ params }: SongPageProps) {
   }
 
   const title: string = song.title ?? "Τραγούδι";
-  const composerName: string | undefined = song.composerName ?? song.composer_name ?? undefined;
+  const composerName: string | undefined =
+    song.composerName ?? song.composer_name ?? undefined;
 
   const parts = [title];
   if (composerName) parts.push(composerName);
 
   const baseTitle = parts.join(" - ");
 
-  const firstLyrics: string | undefined = song.firstLyrics ?? song.first_lyrics ?? undefined;
+  const firstLyrics: string | undefined =
+    song.firstLyrics ?? song.first_lyrics ?? undefined;
   const lyrics: string | undefined = song.lyrics ?? undefined;
 
   return {
     title: `${baseTitle} | Repertorio Next`,
     description: firstLyrics || lyrics || undefined,
-    alternates: { canonical: `https://repertorio.net/songs/song/${songId}-${slugify(title)}/` },
+    alternates: {
+      canonical: `https://repertorio.net/songs/song/${songId}-${slugify(title)}/`,
+    },
   };
 }
 
@@ -290,10 +375,6 @@ function isPrivilegedRole(role: UserRole | null | undefined): boolean {
   return EDIT_ROLES.includes(role);
 }
 
-/**
- * Διαβάζει prefs από user.profile όπως στο MePageClient.tsx
- * και επιστρέφει default panels για το SongPageClient.
- */
 function readSongToggleDefaultsFromProfile(profile: any, hasChords: boolean) {
   const prefs =
     profile && typeof profile === "object" && !Array.isArray(profile)
@@ -305,28 +386,32 @@ function readSongToggleDefaultsFromProfile(profile: any, hasChords: boolean) {
       ? (prefs.songTogglesDefault ?? {})
       : {};
 
-  const defInfo = typeof songTogglesDefault.info === "boolean" ? songTogglesDefault.info : true;
+  const defInfo =
+    typeof songTogglesDefault.info === "boolean" ? songTogglesDefault.info : true;
 
   const defChordsRaw =
-    typeof songTogglesDefault.chords === "boolean" ? songTogglesDefault.chords : true;
+    typeof songTogglesDefault.chords === "boolean"
+      ? songTogglesDefault.chords
+      : true;
 
   const defTonicities =
-    typeof songTogglesDefault.tonicities === "boolean" ? songTogglesDefault.tonicities : true;
+    typeof songTogglesDefault.tonicities === "boolean"
+      ? songTogglesDefault.tonicities
+      : true;
 
   const defScores =
-    typeof songTogglesDefault.scores === "boolean" ? songTogglesDefault.scores : false;
+    typeof songTogglesDefault.scores === "boolean"
+      ? songTogglesDefault.scores
+      : false;
 
   return {
     info: defInfo,
     chords: Boolean(defChordsRaw && hasChords),
-    singerTunes: defTonicities, // tonicities -> singerTunes
+    singerTunes: defTonicities,
     scores: defScores,
   };
 }
 
-/**
- * Διαβάζει prefs.songsRedirectDefault από user.profile.
- */
 function readSongsRedirectDefaultFromProfile(profile: any): RedirectDefault {
   const prefs =
     profile && typeof profile === "object" && !Array.isArray(profile)
@@ -335,7 +420,9 @@ function readSongsRedirectDefaultFromProfile(profile: any): RedirectDefault {
 
   const v = (prefs as any)?.songsRedirectDefault;
 
-  return v === "TITLE" || v === "CHORDS" || v === "LYRICS" || v === "SCORE" ? v : "TITLE";
+  return v === "TITLE" || v === "CHORDS" || v === "LYRICS" || v === "SCORE"
+    ? v
+    : "TITLE";
 }
 
 export default async function SongPage({ params }: SongPageProps) {
@@ -362,15 +449,12 @@ export default async function SongPage({ params }: SongPageProps) {
 
   const versions = normalizeVersions(rawSong.versions);
   const tags = normalizeTags(rawSong.tags);
+  const assets = normalizeAssets(rawSong.assets);
 
-  // The API returns assets as part of the song object. Normalize to an array
-  // (defaulting to an empty array when missing) so that the client can
-  // consume it directly. Each asset has id, kind, type, title, url,
-  // filePath, mimeType, sizeBytes, label, sort and isPrimary.
-  const assets: any[] = Array.isArray(rawSong.assets) ? rawSong.assets : [];
-
-  const hasScore = Boolean(rawSong.hasScore);
-  const scoreFile: string | null = rawSong.scoreFile ? String(rawSong.scoreFile) : null;
+  const resolvedHasScore =
+    typeof rawSong.hasScore === "boolean"
+      ? rawSong.hasScore || assets.some(isMxlScoreAsset)
+      : assets.some(isMxlScoreAsset);
 
   const song: SongDetail = {
     id: Number(rawSong.id),
@@ -387,7 +471,12 @@ export default async function SongPage({ params }: SongPageProps) {
     status: rawSong.status ?? null,
 
     categoryId: rawSong.categoryId ?? rawSong.category_id ?? null,
-    rythmId: rawSong.rythmId ?? rawSong.rythm_id ?? rawSong.rhythmId ?? rawSong.rhythm_id ?? null,
+    rythmId:
+      rawSong.rythmId ??
+      rawSong.rythm_id ??
+      rawSong.rhythmId ??
+      rawSong.rhythm_id ??
+      null,
     makamId: rawSong.makamId ?? rawSong.makam_id ?? null,
 
     categoryTitle: rawSong.categoryTitle ?? rawSong.category_title ?? null,
@@ -400,8 +489,12 @@ export default async function SongPage({ params }: SongPageProps) {
       rawSong.rhythm_title ??
       null,
     basedOnSongId: rawSong.basedOnSongId ?? rawSong.based_on_song_id ?? null,
-    basedOnSongTitle: rawSong.basedOnSongTitle ?? rawSong.based_on_song_title ?? null,
-    views: typeof rawSong.views === "number" ? rawSong.views : Number(rawSong.views ?? 0) || 0,
+    basedOnSongTitle:
+      rawSong.basedOnSongTitle ?? rawSong.based_on_song_title ?? null,
+    views:
+      typeof rawSong.views === "number"
+        ? rawSong.views
+        : Number(rawSong.views ?? 0) || 0,
 
     createdByUserId:
       rawSong.createdByUserId ??
@@ -418,20 +511,13 @@ export default async function SongPage({ params }: SongPageProps) {
       null,
 
     tags,
-    hasScore,
-    scoreFile,
-    versions,
-
-    // Attach assets: keep raw values as returned by the API. See SongDetail
-    // type for structure. These will be used for displaying assets and
-    // determining score files.
+    hasScore: resolvedHasScore,
     assets,
+    versions,
   };
 
-  // ✅ ΜΟΝΟ ΕΔΩ hasChords (όχι δεύτερο)
   const hasChords = Boolean(song.chords && song.chords.trim() !== "");
 
-  // τρέχων χρήστης (με profile πλέον)
   const currentUser = await getCurrentUserFromApi().catch(() => null);
 
   const isOwner =
@@ -455,35 +541,16 @@ export default async function SongPage({ params }: SongPageProps) {
     youtubeSearchQuery,
   )}`;
 
-  const scoreFileUrl = (() => {
-    // Prefer a score asset if available. Look for the first asset with type
-    // SCORE and use its filePath or url as the score file URL.
-    const scoreAsset = assets.find(
-      (a: any) => String(a?.type ?? "").toUpperCase() === "SCORE",
-    );
-    if (scoreAsset) {
-      const kind = String(scoreAsset.kind ?? "").toUpperCase();
-      if (kind === "LINK") {
-        const u = String(scoreAsset.url ?? "").trim();
-        if (u) return u;
-      }
-      const fp = String(scoreAsset.filePath ?? "").trim();
-      if (fp) return fp;
-    }
-    // Fallback: use the legacy scoreFile if present, otherwise fallback to
-    // the song ID endpoint. This preserves existing behaviour when no
-    // SCORE assets are found.
-    return song.hasScore && song.scoreFile
-      ? `/api/scores/${encodeURIComponent(song.scoreFile)}`
-      : `/api/scores/${song.id}`;
-  })();
+  const primaryScoreAsset =
+    assets.find((a) => isMxlScoreAsset(a) && a.isPrimary) ??
+    assets.find((a) => isMxlScoreAsset(a));
 
-  // ✅ defaults από profile (αν υπάρχει)
+  const scoreFileUrl = resolveAssetPlaybackUrl(primaryScoreAsset);
+
   const defaultPanelsOpen = currentUser?.profile
     ? readSongToggleDefaultsFromProfile(currentUser.profile, hasChords)
     : { info: true, singerTunes: true, chords: hasChords, scores: true };
 
-  // ✅ redirect default από profile (αν υπάρχει)
   const redirectDefault = currentUser?.profile
     ? readSongsRedirectDefaultFromProfile(currentUser.profile)
     : ("TITLE" as const);

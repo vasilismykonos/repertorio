@@ -1,23 +1,41 @@
-// apps/web/app/songs/[id]/SongScoresPanel.tsx
 "use client";
 
 import React, { useMemo } from "react";
 import ScorePlayerClient from "./score/ScorePlayerClient";
 
-function isProbablyPublicUrlOrPath(p: string) {
-  const s = String(p || "").trim();
-  if (!s) return false;
-  if (s.startsWith("http://") || s.startsWith("https://")) return true;
-  if (s.startsWith("/api/")) return true;
-  if (s.startsWith("/uploads/")) return true;
-  return false;
+function hasMxlExtension(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const clean = String(value).split("?")[0].split("#")[0].trim().toLowerCase();
+  return clean.endsWith(".mxl");
 }
 
-function baseNameFromPath(p: string) {
-  const s = String(p || "").trim();
-  if (!s) return "";
-  const parts = s.split("/").filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : "";
+function hasMxlMimeType(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const mt = String(value).trim().toLowerCase();
+  return (
+    mt.includes("application/vnd.recordare.musicxml") ||
+    mt.includes("application/vnd.recordare.musicxml+xml") ||
+    mt.includes("application/x-mxl") ||
+    mt.includes("musicxml") ||
+    mt.includes("/mxl")
+  );
+}
+
+function isMxlScoreAsset(asset: any): boolean {
+  if (!asset || typeof asset !== "object") return false;
+
+  return (
+    hasMxlMimeType(asset.mimeType) ||
+    hasMxlExtension(asset.filePath) ||
+    hasMxlExtension(asset.url) ||
+    hasMxlExtension(asset.title)
+  );
+}
+
+function isUsableAssetPath(value: string | null | undefined): boolean {
+  const s = String(value ?? "").trim();
+  if (!s) return false;
+  return s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/");
 }
 
 function resolveScoreFileUrlFromAsset(asset: any): string | null {
@@ -25,24 +43,25 @@ function resolveScoreFileUrlFromAsset(asset: any): string | null {
 
   const kind = String(asset.kind ?? "").toUpperCase();
 
-  // LINK score: use url
   if (kind === "LINK") {
-    const u = String(asset.url ?? "").trim();
-    return u || null;
+    const url = String(asset.url ?? "").trim();
+    return isUsableAssetPath(url) ? url : null;
   }
 
-  // FILE score: use filePath
-  const fp = String(asset.filePath ?? "").trim();
-  if (!fp) return null;
+  const filePath = String(asset.filePath ?? "").trim();
+  if (isUsableAssetPath(filePath)) return filePath;
 
-  // already a public path/url (e.g. /api/scores/293.mxl)
-  if (isProbablyPublicUrlOrPath(fp)) return fp;
+  const url = String(asset.url ?? "").trim();
+  if (isUsableAssetPath(url)) return url;
 
-  // filesystem path => /api/scores/<basename>
-  const bn = baseNameFromPath(fp);
-  if (!bn) return null;
+  return null;
+}
 
-  return `/api/scores/${encodeURIComponent(bn)}`;
+function baseNameFromPath(p: string): string {
+  const s = String(p || "").trim();
+  if (!s) return "";
+  const parts = s.split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : "";
 }
 
 function scoreTitleForAsset(asset: any, idx: number): string {
@@ -51,6 +70,18 @@ function scoreTitleForAsset(asset: any, idx: number): string {
 
   const t2 = String(asset?.label ?? "").trim();
   if (t2) return t2;
+
+  const fp = String(asset?.filePath ?? "").trim();
+  if (fp) {
+    const bn = baseNameFromPath(fp);
+    if (bn) return bn;
+  }
+
+  const u = String(asset?.url ?? "").trim();
+  if (u) {
+    const bn = baseNameFromPath(u);
+    if (bn) return bn;
+  }
 
   return `Παρτιτούρα ${idx + 1}`;
 }
@@ -66,12 +97,8 @@ export default function SongScoresPanel(props: Props) {
   const scoreAssets = useMemo(() => {
     const allAssets: any[] = Array.isArray(assets) ? assets : [];
 
-    const onlyScores = allAssets.filter(
-      (a) => String(a?.type ?? "").toUpperCase() === "SCORE",
-    );
-
-    // Sort: primary first, then sort asc, then id asc
-    return onlyScores
+    return allAssets
+      .filter((a) => isMxlScoreAsset(a))
       .slice()
       .sort((a, b) => {
         const ap = a?.isPrimary ? 1 : 0;
@@ -88,7 +115,6 @@ export default function SongScoresPanel(props: Props) {
       });
   }, [assets]);
 
-  // ✅ αν δεν είναι open ή δεν υπάρχουν scores: μην δείξεις τίποτα
   if (!open || scoreAssets.length === 0) return null;
 
   return (
@@ -101,6 +127,27 @@ export default function SongScoresPanel(props: Props) {
         {scoreAssets.map((asset, idx) => {
           const url = resolveScoreFileUrlFromAsset(asset);
           const title = scoreTitleForAsset(asset, idx);
+
+          console.log(
+            "[SongScoresPanel:score-asset:json]",
+            JSON.stringify(
+              {
+                assetId: asset?.id ?? null,
+                kind: asset?.kind ?? null,
+                type: asset?.type ?? null,
+                title: asset?.title ?? null,
+                label: asset?.label ?? null,
+                mimeType: asset?.mimeType ?? null,
+                url: asset?.url ?? null,
+                filePath: asset?.filePath ?? null,
+                isPrimary: asset?.isPrimary ?? false,
+                sort: asset?.sort ?? null,
+                resolvedUrl: url,
+              },
+              null,
+              2,
+            ),
+          );
 
           return (
             <div
@@ -143,9 +190,22 @@ export default function SongScoresPanel(props: Props) {
 
               {url ? (
                 <div data-tour="scores-player">
-                  <ScorePlayerClient fileUrl={url} title={""} />
+                  <ScorePlayerClient fileUrl={url} title="" />
                 </div>
-              ) : null}
+              ) : (
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid #442",
+                    background: "#1a1a12",
+                    color: "#f3e7a0",
+                    fontSize: 14,
+                  }}
+                >
+                  Το MXL asset δεν έχει usable public url/filePath.
+                </div>
+              )}
             </div>
           );
         })}

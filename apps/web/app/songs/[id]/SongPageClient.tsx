@@ -27,7 +27,6 @@ import SongAssetsPanel from "./SongAssetsPanel";
 import type { Step } from "react-joyride";
 import type { SongDetail } from "./page";
 
-// ✅ IMPORTANT: no SSR for Joyride (fix hydration)
 const GuidedTour = dynamic(() => import("../../components/GuidedTour"), {
   ssr: false,
 });
@@ -45,17 +44,14 @@ type RedirectDefault = "TITLE" | "CHORDS" | "LYRICS" | "SCORE" | "ASSETS";
 type Props = {
   song: SongDetail;
   canEdit: boolean;
-
   finalLyrics: string;
 
-  // κρατιέται για συμβατότητα με caller (δεν χρησιμοποιείται εδώ)
+  // legacy prop για συμβατότητα caller
   scoreFileUrl: string;
 
   schemaNode: React.ReactNode;
-
   defaultPanelsOpen?: Partial<PanelsOpen>;
   redirectDefault?: RedirectDefault;
-
   youtubeUrl: string;
 };
 
@@ -88,17 +84,14 @@ type AddSongToListResponse = {
 
 const HEADER_OFFSET_PX = 0;
 
-// Draggable Room button settings
 const ROOM_POS_STORAGE_KEY = "repertorio_room_button_pos_v1";
 const ROOM_MARGIN = 16;
 const DRAG_CLICK_THRESHOLD_PX = 6;
 
-// Tour key
 const TOUR_STORAGE_KEY = "tour_song_page_v1";
 
-// Lyrics zoom settings (ALL devices)
 const LYRICS_SCALE_STORAGE_KEY = "repertorio_lyrics_scale_v1";
-const LYRICS_BASE_FONT_SIZE = 16; // px
+const LYRICS_BASE_FONT_SIZE = 15;
 const LYRICS_SCALE_MIN = 0.75;
 const LYRICS_SCALE_MAX = 2.2;
 
@@ -108,6 +101,34 @@ function scrollToId(id: string) {
   if (!el) return;
   const top = el.getBoundingClientRect().top + window.scrollY - HEADER_OFFSET_PX;
   window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+}
+
+function hasMxlExtension(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const clean = value.split("?")[0].split("#")[0].trim().toLowerCase();
+  return clean.endsWith(".mxl");
+}
+
+function hasMxlMimeType(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const mt = value.trim().toLowerCase();
+  return (
+    mt.includes("application/vnd.recordare.musicxml") ||
+    mt.includes("application/vnd.recordare.musicxml+xml") ||
+    mt.includes("application/x-mxl") ||
+    mt.includes("musicxml") ||
+    mt.includes("/mxl")
+  );
+}
+
+function isMxlScoreAsset(asset: any): boolean {
+  if (!asset || typeof asset !== "object") return false;
+  return (
+    hasMxlMimeType(asset.mimeType) ||
+    hasMxlExtension(asset.filePath) ||
+    hasMxlExtension(asset.url) ||
+    hasMxlExtension(asset.title)
+  );
 }
 
 function computeInitialPanels(
@@ -120,9 +141,7 @@ function computeInitialPanels(
     info: defaults?.info ?? true,
     singerTunes: defaults?.singerTunes ?? true,
     chords: defaults?.chords ?? hasChords,
-    // ✅ Νέος τρόπος: ανοίγει default μόνο αν υπάρχουν SCORE assets (εκτός αν υπάρχει override)
     scores: defaults?.scores ?? hasScores,
-    // ✅ “Υλικό” default open μόνο αν έχει assets (εκτός αν override)
     assets: defaults?.assets ?? false,
   };
 }
@@ -191,7 +210,6 @@ export default function SongPageClient(props: Props) {
     return isSafeExternalHttpUrl(raw) ? raw : "";
   }, [youtubeUrl]);
 
-  // ✅ Manual open signal for GuidedTour
   const [tourOpenSignal, setTourOpenSignal] = useState(0);
 
   const [listPickerOpen, setListPickerOpen] = useState(false);
@@ -202,9 +220,6 @@ export default function SongPageClient(props: Props) {
   const [availableLists, setAvailableLists] = useState<SongListOption[]>([]);
   const [lastAddedList, setLastAddedList] = useState<SongListOption | null>(null);
 
-  // ------------------------------------------------------------
-  // List context (NO userId). We pass listId + listPos.
-  // ------------------------------------------------------------
   const listId = useMemo(() => {
     const v = sp.get("listId") ?? "";
     const n = Number(v);
@@ -219,10 +234,6 @@ export default function SongPageClient(props: Props) {
 
   const hasListContext = Boolean(listId);
 
-  // ------------------------------------------------------------
-  // Load ordered song ids for list (same-origin)
-  // GET /api/lists/:id/song-ids -> { listId, songIds: number[] }
-  // ------------------------------------------------------------
   const [listSongIds, setListSongIds] = useState<number[] | null>(null);
 
   useEffect(() => {
@@ -264,9 +275,6 @@ export default function SongPageClient(props: Props) {
     };
   }, [listId]);
 
-  // ------------------------------------------------------------
-  // Resolve current position
-  // ------------------------------------------------------------
   const resolvedPos = useMemo(() => {
     if (!listId) return null;
     if (!listSongIds || listSongIds.length === 0) return null;
@@ -325,10 +333,6 @@ export default function SongPageClient(props: Props) {
     router.push(buildSongHref(listNav.nextSongId, listNav.nextPos));
   }
 
-  // ------------------------------------------------------------
-  // Touch swipe (mobile) for list navigation
-  // (ignores multi-touch so it doesn't conflict with lyrics pinch)
-  // ------------------------------------------------------------
   const touchRef = useRef<{
     x0: number;
     y0: number;
@@ -339,7 +343,7 @@ export default function SongPageClient(props: Props) {
 
   function onTouchStart(e: React.TouchEvent) {
     if (!hasListContext) return;
-    if (e.touches.length !== 1) return; // ✅ ignore pinch
+    if (e.touches.length !== 1) return;
     const t = e.touches[0];
     touchRef.current = {
       x0: t.clientX,
@@ -385,9 +389,6 @@ export default function SongPageClient(props: Props) {
     else goPrev();
   }
 
-  // ------------------------------------------------------------
-  // Desktop swipe (mouse drag) via Pointer Events
-  // ------------------------------------------------------------
   const pointerSwipeRef = useRef<{
     x0: number;
     y0: number;
@@ -458,9 +459,6 @@ export default function SongPageClient(props: Props) {
     else goPrev();
   }
 
-  // ------------------------------------------------------------
-  // Keyboard navigation (desktop): ← / →
-  // ------------------------------------------------------------
   useEffect(() => {
     if (!hasListContext) return;
 
@@ -482,16 +480,12 @@ export default function SongPageClient(props: Props) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [hasListContext, listNav]);
 
-  // ------------------------------------------------------------
-  // Panels logic (scores ONLY from assets)
-  // ------------------------------------------------------------
   const hasChords = Boolean(song.chords && song.chords.trim() !== "");
 
   const allAssets: any[] = Array.isArray((song as any).assets) ? (song as any).assets : [];
   const hasAssets = allAssets.length > 0;
-
-  // ✅ score υπάρχει μόνο αν υπάρχει SCORE asset
-  const hasScores = allAssets.some((a) => String(a?.type ?? "").toUpperCase() === "SCORE");
+  const hasScores =
+    Boolean((song as any).hasScore) || allAssets.some((a) => isMxlScoreAsset(a));
 
   const initialPanels = useMemo(
     () => computeInitialPanels(hasChords, hasScores, hasAssets, defaultPanelsOpen),
@@ -646,9 +640,6 @@ export default function SongPageClient(props: Props) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [listPickerOpen, listPickerSubmittingListId]);
 
-  // ------------------------------------------------------------
-  // Room action
-  // ------------------------------------------------------------
   const roomAction = A.room({
     onClick: () => {
       if (typeof window === "undefined") return;
@@ -683,9 +674,6 @@ export default function SongPageClient(props: Props) {
   const backLabel = hasListContext ? "Λίστα" : "Τραγούδια";
   const backTitle = hasListContext ? "Επιστροφή στη λίστα" : "Επιστροφή στα φιλτραρισμένα τραγούδια";
 
-  // ------------------------------------------------------------
-  // Draggable "Room" floating button + persistence (localStorage)
-  // ------------------------------------------------------------
   const [roomPos, setRoomPos] = useState<{ x: number | null; y: number | null }>({
     x: null,
     y: null,
@@ -708,9 +696,7 @@ export default function SongPageClient(props: Props) {
       const y = Number(parsed?.y);
 
       if (Number.isFinite(x) && Number.isFinite(y)) setRoomPos({ x, y });
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, []);
 
   function handleRoomPointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -799,9 +785,6 @@ export default function SongPageClient(props: Props) {
     }
   }
 
-  // ------------------------------------------------------------
-  // Lyrics zoom
-  // ------------------------------------------------------------
   const lyricsPreRef = useRef<HTMLPreElement | null>(null);
   const [lyricsScale, setLyricsScale] = useState(1);
   const pinchRef = useRef<{ dist0: number; scale0: number; active: boolean } | null>(null);
@@ -925,9 +908,6 @@ export default function SongPageClient(props: Props) {
     applyLyricsScale(1);
   }
 
-  // ------------------------------------------------------------
-  // Tour steps
-  // ------------------------------------------------------------
   const tourSteps: Step[] = useMemo(() => {
     const steps: Step[] = [
       {
@@ -1237,7 +1217,31 @@ export default function SongPageClient(props: Props) {
       ) : null}
 
       <header id="song-title" style={{ marginBottom: 16 }}>
-        <h1 style={{ fontSize: "1.8rem", fontWeight: 700, marginBottom: 8 }}>{song.title}</h1>
+        <div style={{ marginBottom: 8 }}>
+          <h1
+            style={{
+              fontSize: "1.8rem",
+              fontWeight: 700,
+              margin: 0,
+              lineHeight: 1.1,
+            }}
+          >
+            {song.title}
+          </h1>
+
+          {song.rythmTitle ? (
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: "0.9rem",
+                lineHeight: 1.1,
+                color: "#aaa",
+              }}
+            >
+              {song.rythmTitle}
+            </div>
+          ) : null}
+        </div>
 
         {listNav ? (
           <div
@@ -1335,7 +1339,6 @@ export default function SongPageClient(props: Props) {
         </div>
       ) : null}
 
-      {/* Panel buttons */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6, marginBottom: 14 }}>
         <span data-tour="btn-tunes" style={{ display: "inline-flex" }}>
           <Button
@@ -1390,7 +1393,7 @@ export default function SongPageClient(props: Props) {
             onClick={() => togglePanel("scores")}
             title={
               !hasScores
-                ? "Δεν υπάρχει παρτιτούρα (SCORE asset) για αυτό το τραγούδι"
+                ? "Δεν υπάρχει παρτιτούρα MXL για αυτό το τραγούδι"
                 : panels.scores
                   ? "Απόκρυψη παρτιτούρας"
                   : "Εμφάνιση παρτιτούρας"
@@ -1464,7 +1467,7 @@ export default function SongPageClient(props: Props) {
       />
 
       {hasChords && panels.chords ? (
-        <section id="song-chords">
+        <section id="song-chords" style={{ marginTop: 0, marginBottom: 0 }}>
           <SongChordsClient
             chords={song.chords}
             originalKey={song.originalKey}
@@ -1473,7 +1476,7 @@ export default function SongPageClient(props: Props) {
         </section>
       ) : null}
 
-      <section id="song-lyrics" style={{ marginTop: 4, marginBottom: 28 }}>
+      <section id="song-lyrics" style={{ marginTop: 0, marginBottom: 24 }}>
         <pre
           data-tour="lyrics-zoom"
           ref={lyricsPreRef}
@@ -1481,39 +1484,25 @@ export default function SongPageClient(props: Props) {
             whiteSpace: "pre-wrap",
             overflowWrap: "anywhere",
             wordBreak: "break-word",
-            padding: 8,
+            padding: "6px 10px",
             margin: 0,
             borderRadius: 10,
             border: "1px solid #333",
             background: "#0b0b0b",
             fontSize: Math.round(LYRICS_BASE_FONT_SIZE * lyricsScale),
-            lineHeight: 1.6,
+            lineHeight: 1.12,
             touchAction: "pan-y",
             WebkitTextSizeAdjust: "100%",
           }}
         >
           {finalLyrics}
         </pre>
-
-        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-          <Button type="button" variant="secondary" onClick={lyricsZoomOut} title="Zoom out">
-            A-
-          </Button>
-          <Button type="button" variant="secondary" onClick={lyricsZoomIn} title="Zoom in">
-            A+
-          </Button>
-          <Button type="button" variant="secondary" onClick={lyricsZoomReset} title="Reset">
-            Reset
-          </Button>
-        </div>
       </section>
 
-      {/* ✅ Scores panel (ONLY from assets) */}
       <SongScoresPanel open={panels.scores} assets={(song as any).assets ?? []} />
 
       {schemaNode}
 
-      {/* Draggable floating Room button (fixed) */}
       <div
         data-no-swipe
         data-tour="room-button"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 // Bring in tonicity definitions and helpers from the central index module.
 // We rely solely on the exported values from `index.tsx` to drive the UI for
 // tonicity selection. This avoids duplicating note arrays here and keeps
@@ -64,6 +64,23 @@ const CHORD_INDEX_MAP_SMALL: Record<string, number> = ALL_CHORDS_SMALL.reduce((a
   acc[chord] = index;
   return acc;
 }, {} as Record<string, number>);
+
+const CHORDS_SCALE_STORAGE_KEY = "repertorio_chords_scale_v1";
+const CHORDS_BASE_FONT_SIZE = 14;
+const CHORDS_SCALE_MIN = 0.75;
+const CHORDS_SCALE_MAX = 2.2;
+
+function clampScale(x: number): number {
+  if (!Number.isFinite(x) || x <= 0) return 1;
+  return Math.min(CHORDS_SCALE_MAX, Math.max(CHORDS_SCALE_MIN, x));
+}
+
+function distance2(a: Touch, b: Touch): number {
+  const dx = a.clientX - b.clientX;
+  const dy = a.clientY - b.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
 function originalKeyCodeStringToBaseChord(codeStr: string | null | undefined): string | null {
   const s = (codeStr ?? "").toString().trim();
   if (!s) return null;
@@ -274,10 +291,13 @@ function dispatchTonicityChanged(detail: { tonicity: string | null; sign: "+" | 
 
 
 export default function SongChordsClient({ chords, originalKey, originalKeySign }: SongChordsClientProps) {
+  const chordsBlockRef = useRef<HTMLDivElement | null>(null);
+  const pinchRef = useRef<{ dist0: number; scale0: number; active: boolean } | null>(null);
 
   const [baseChord, setBaseChord] = useState<string | null>(null);
   const [lastSign, setLastSign] = useState<"+" | "-" | null>(null);
   const [selectedTonicity, setSelectedTonicity] = useState<string | null>(null);
+  const [chordsScale, setChordsScale] = useState(1);
 
   // ✅ 1) Κεντρική συνάρτηση εφαρμογής τονικότητας
   function applySelectedTonicity(input: unknown) {
@@ -373,17 +393,132 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
     return colorizeChords(transported);
   }, [chords, baseChord, selectedTonicity]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(CHORDS_SCALE_STORAGE_KEY);
+      if (!raw) return;
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > 0) setChordsScale(clampScale(n));
+    } catch {}
+  }, []);
+
+  function persistChordsScale(x: number) {
+    try {
+      window.localStorage.setItem(CHORDS_SCALE_STORAGE_KEY, String(x));
+    } catch {}
+  }
+
+  function applyChordsScale(next: number) {
+    const clamped = clampScale(next);
+    setChordsScale(clamped);
+    persistChordsScale(clamped);
+  }
+
+  useEffect(() => {
+    const el = chordsBlockRef.current;
+    if (!el) return;
+
+    function onWheel(e: WheelEvent) {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+
+      const step = 0.08;
+      const direction = e.deltaY > 0 ? -1 : 1;
+
+      setChordsScale((prev) => {
+        const next = clampScale(prev + direction * step);
+        persistChordsScale(next);
+        return next;
+      });
+    }
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel as any);
+  }, []);
+
+  useEffect(() => {
+    const el = chordsBlockRef.current;
+    if (!el) return;
+
+    function onTouchStartNative(e: TouchEvent) {
+      if (e.touches.length !== 2) return;
+      const d0 = distance2(e.touches[0], e.touches[1]);
+      pinchRef.current = { dist0: d0, scale0: chordsScale, active: true };
+      e.preventDefault();
+    }
+
+    function onTouchMoveNative(e: TouchEvent) {
+      const p = pinchRef.current;
+      if (!p?.active || e.touches.length !== 2) return;
+      e.preventDefault();
+
+      const d1 = distance2(e.touches[0], e.touches[1]);
+      if (p.dist0 <= 0) return;
+
+      const factor = d1 / p.dist0;
+      const next = clampScale(p.scale0 * factor);
+      setChordsScale(next);
+    }
+
+    function onTouchEndNative() {
+      const p = pinchRef.current;
+      if (!p?.active) return;
+      pinchRef.current = null;
+
+      setChordsScale((prev) => {
+        persistChordsScale(prev);
+        return prev;
+      });
+    }
+
+    function onGesture(e: Event) {
+      e.preventDefault();
+    }
+
+    el.addEventListener("touchstart", onTouchStartNative, { passive: false });
+    el.addEventListener("touchmove", onTouchMoveNative, { passive: false });
+    el.addEventListener("touchend", onTouchEndNative, { passive: true });
+    el.addEventListener("touchcancel", onTouchEndNative, { passive: true });
+
+    el.addEventListener("gesturestart", onGesture as any, { passive: false } as any);
+    el.addEventListener("gesturechange", onGesture as any, { passive: false } as any);
+    el.addEventListener("gestureend", onGesture as any, { passive: false } as any);
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStartNative as any);
+      el.removeEventListener("touchmove", onTouchMoveNative as any);
+      el.removeEventListener("touchend", onTouchEndNative as any);
+      el.removeEventListener("touchcancel", onTouchEndNative as any);
+      el.removeEventListener("gesturestart", onGesture as any);
+      el.removeEventListener("gesturechange", onGesture as any);
+      el.removeEventListener("gestureend", onGesture as any);
+    };
+  }, [chordsScale]);
+
+  function chordsZoomIn() {
+    applyChordsScale(chordsScale + 0.12);
+  }
+
+  function chordsZoomOut() {
+    applyChordsScale(chordsScale - 0.12);
+  }
+
+  function chordsZoomReset() {
+    applyChordsScale(1);
+  }
+
   return (
     <section
       id="chords"
       data-base-tonicity={baseChord || ""}
       data-base-sign={lastSign ?? ""}
       className="song-chords-container"
-      style={{ marginBottom: 24 }}
+      style={{ marginBottom: 0 }}
     >
       {/* Κουμπιά Τονικοτήτων */}
       {baseChord && (
-        <div className="tonicities-wrapper" style={{ marginTop: 8, marginBottom: 8 }}>
+        <div className="tonicities-wrapper" style={{ marginTop: 4, marginBottom: 4 }}>
           <div className="tonicities-row">
             {NATURAL_TONICITIES.map((ton) => {
               const selected = selectedTonicity === ton;
@@ -423,19 +558,36 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
         </div>
       )}
 
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 6,
+          marginTop: 2,
+          marginBottom: 2,
+          flexWrap: "wrap",
+        }}
+      >
+
+      </div>
+
       {/* Μπλοκ συγχορδιών */}
       <div
         id="chords-block"
+        ref={chordsBlockRef}
         className="chords-block"
         style={{
           whiteSpace: "pre-wrap",
-          backgroundColor: "#111",
-          padding: "16px",
-          borderRadius: 8,
+          backgroundColor: "#0b0b0b",
+          padding: "6px 10px",
+          borderRadius: 10,
           border: "1px solid #333",
-          lineHeight: 1.6,
+          lineHeight: 1.12,
           fontFamily: "monospace",
-          fontSize: "0.95rem",
+          fontSize: Math.round(CHORDS_BASE_FONT_SIZE * chordsScale),
+          touchAction: "pan-y",
+          WebkitTextSizeAdjust: "100%",
         }}
         dangerouslySetInnerHTML={{ __html: renderedChordsHtml }}
       />
@@ -445,14 +597,14 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
           display: flex;
           flex-wrap: wrap;
           gap: 4px;
-          margin-bottom: 4px;
+          margin-bottom: 2px;
         }
         .tonicity-button {
           background: #222;
           color: #fff;
           border: 1px solid #444;
           border-radius: 8px;
-          padding: 4px 8px;
+          padding: 3px 7px;
           cursor: pointer;
           font-size: 0.85rem;
           transition: 0.2s;

@@ -61,25 +61,21 @@ type CreateOrUpdateSongBody = {
   categoryId?: number | null;
   rythmId?: number | null;
   basedOnSongId?: number | null;
-  scoreFile?: string | null;
   highestVocalNote?: string | null;
-  createdByUserId?: number | null; // ✅ add
+  createdByUserId?: number | null;
   tagIds?: number[] | null;
   assets?: SongAssetBody[] | null;
   versions?: SongVersionBody[] | null;
 };
 
 type SongFullMultipartBody = Record<string, any> & {
-  // optional: a single JSON field with the whole payload
   json?: string;
   payload?: string;
 
-  // optional: credits payload (JSON string) or direct arrays/CSV
   credits?: string;
   composerArtistIds?: unknown;
   lyricistArtistIds?: unknown;
 
-  // optionally sent as JSON string fields
   tagIds?: unknown;
   assets?: unknown;
   versions?: unknown;
@@ -123,10 +119,10 @@ function normalizeIds(input: unknown): number[] {
   if (typeof input === 'string') {
     const raw = input.trim();
     if (!raw) return [];
-    // JSON array?
+
     const jsonArr = parseJsonSafe<unknown>(raw, null);
     if (Array.isArray(jsonArr)) return normalizeIds(jsonArr);
-    // CSV
+
     return raw
       .split(/[,\s]+/g)
       .map((x) => toNumberOrNull(x))
@@ -159,14 +155,12 @@ function normalizeSongBodyFromMultipart(body: SongFullMultipartBody): {
   song: CreateOrUpdateSongBody;
   credits: { composerArtistIds: number[]; lyricistArtistIds: number[] } | null;
 } {
-  // Support a single JSON field that contains the whole song body.
   const jsonEnvelope =
     parseJsonSafe<Record<string, any>>(body.json, {}) ??
     parseJsonSafe<Record<string, any>>(body.payload, {});
 
   const src = jsonEnvelope ?? body;
 
-  // tags/assets/versions may be sent as JSON strings by multipart forms.
   const tagIds =
     Array.isArray((src as any).tagIds) ||
     typeof (src as any).tagIds === 'string'
@@ -216,19 +210,12 @@ function normalizeSongBodyFromMultipart(body: SongFullMultipartBody): {
       src.basedOnSongId === ''
         ? null
         : (toNumberOrNull(src.basedOnSongId) ?? src.basedOnSongId ?? undefined),
-
-    // ✅ ADD HERE
     createdByUserId:
       src.createdByUserId === ''
         ? null
         : (toNumberOrNull(src.createdByUserId) ??
           src.createdByUserId ??
           undefined),
-
-    scoreFile:
-      typeof src.scoreFile === 'string'
-        ? src.scoreFile
-        : (src.scoreFile ?? undefined),
     highestVocalNote:
       typeof src.highestVocalNote === 'string'
         ? src.highestVocalNote
@@ -239,7 +226,6 @@ function normalizeSongBodyFromMultipart(body: SongFullMultipartBody): {
     versions: versions ?? (src.versions === null ? null : undefined),
   };
 
-  // Credits may be sent as a JSON string `credits` or direct fields
   const creditsJson =
     parseJsonSafe<Record<string, any>>((body as any).credits, {}) ??
     parseJsonSafe<Record<string, any>>((body as any).creditsJson, {});
@@ -277,14 +263,6 @@ export class SongsController {
     return this.songsService.findOne(id, noInc);
   }
 
-  /**
-   * ✅ NEW ARCHITECTURE
-   * Create a song (full payload) via multipart/form-data.
-   *
-   * - Supports either individual fields OR a single JSON envelope field (json/payload).
-   * - Supports optional `credits` JSON field or direct composer/lyricist ids.
-   * - Optional file is accepted for forward compatibility; currently unused.
-   */
   @Post('full')
   @UseInterceptors(FileInterceptor('file'))
   async createSongFull(
@@ -298,15 +276,9 @@ export class SongsController {
       await this.songCreditsService.replaceSongCredits(created.id, credits);
     }
 
-    // Return fresh detail including credits set above (and without incrementing views).
     return this.songsService.findOne(created.id, true);
   }
 
-  /**
-   * ✅ NEW ARCHITECTURE
-   * Update a song (full payload) via multipart/form-data.
-   * See createSongFull for supported body formats.
-   */
   @Patch(':id/full')
   @UseInterceptors(FileInterceptor('file'))
   async updateSongFull(
@@ -324,24 +296,17 @@ export class SongsController {
 
     return this.songsService.findOne(id, true);
   }
+
   @Delete(':id')
   async deleteSong(@Param('id', ParseIntPipe) id: number) {
     return this.songsService.deleteSong(id);
   }
 
-  /**
-   * ❌ DEPRECATED (legacy split architecture)
-   * Use POST /songs/full instead.
-   */
   @Post()
   async createSongLegacy() {
     throw new GoneException('Deprecated endpoint. Use POST /songs/full.');
   }
 
-  /**
-   * ❌ DEPRECATED (legacy split architecture)
-   * Use PATCH /songs/:id/full instead.
-   */
   @Patch(':id')
   async updateSongLegacy() {
     throw new GoneException('Deprecated endpoint. Use PATCH /songs/:id/full.');

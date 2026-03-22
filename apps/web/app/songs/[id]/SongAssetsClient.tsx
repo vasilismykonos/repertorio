@@ -40,14 +40,50 @@ type Props = {
   assets: SongAssetDto[];
 };
 
+function normalizePublicAssetPath(input: string): string | null {
+  const raw = String(input ?? "").trim();
+  if (!raw) return null;
+
+  const value = raw.replace(/\\/g, "/");
+
+  // External URLs
+  if (/^https?:\/\//i.test(value)) return value;
+  if (/^\/\//.test(value)) return value;
+
+  // Legacy absolute filesystem path -> public path
+  if (value.startsWith("/home/reperto/uploads/")) {
+    return value.replace(/^\/home\/reperto\/uploads/, "");
+  }
+
+  // Already a valid public path
+  if (value.startsWith("/assets/")) return value;
+
+  // Relative stored asset path
+  if (value.startsWith("assets/")) return `/${value}`;
+
+  // Generic root-relative path
+  if (value.startsWith("/")) return value;
+
+  // Fallback: treat as relative public path
+  return `/${value}`;
+}
+
 function resolveHref(a: SongAssetDto): string | null {
   if (a.kind === "LINK") {
     const u = String(a.url ?? "").trim();
-    return u ? u : null;
+    if (!u) return null;
+
+    if (/^https?:\/\//i.test(u) || /^mailto:/i.test(u) || /^tel:/i.test(u)) {
+      return u;
+    }
+
+    if (u.startsWith("//")) return u;
+    if (u.startsWith("/")) return u;
+
+    return `https://${u}`;
   }
-  const fp = String(a.filePath ?? "").trim();
-  if (!fp) return null;
-  return fp;
+
+  return normalizePublicAssetPath(a.filePath ?? "");
 }
 
 function iconForType(type: string) {

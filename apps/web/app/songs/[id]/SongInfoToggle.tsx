@@ -84,7 +84,7 @@ export default function SongInfoToggle(props: SongInfoToggleProps) {
     ? props.characteristics.split(",").map((c) => c.trim())
     : [];
 
-  const rythmText = props.rythmTitle || "Χωρίς ρυθμό";
+  
   const categoryText = props.categoryTitle || "Χωρίς κατηγορία";
   const composerText = props.composerName || "Χωρίς συνθέτη";
   const lyricistText = props.lyricistName || "Χωρίς στιχουργό";
@@ -97,11 +97,11 @@ export default function SongInfoToggle(props: SongInfoToggleProps) {
           padding: "14px",
           borderRadius: 8,
           border: "1px solid #333",
-          lineHeight: 1.5,
+          lineHeight: 1,
           fontSize: "0.95rem",
         }}
       >
-        <div style={{ color: "darkgray" }}>Ρυθμός: {rythmText}</div>
+        
         <div style={{ color: "darkgray" }}>Κατηγορία: {categoryText}</div>
         <div style={{ color: "darkgray" }}>Συνθέτης: {composerText}</div>
         <div style={{ color: "darkgray" }}>Στιχουργός: {lyricistText}</div>
