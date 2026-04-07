@@ -177,11 +177,17 @@ export class ListsController {
     @Query("groupId") groupIdStr?: string,
     @Query("page") pageStr?: string,
     @Query("pageSize") pageSizeStr?: string,
+    @Query("songId") songIdStr?: string,
   ) {
     const userId = requireUserId(userIdStr);
     const groupId = parseGroupIdParam(groupIdStr);
     const page = parsePageParam(pageStr);
     const pageSize = parsePageSizeParam(pageSizeStr);
+
+    const songId =
+      songIdStr && String(songIdStr).trim() !== ""
+        ? parsePositiveIntOrThrow(String(songIdStr), "songId")
+        : undefined;
 
     return this.listsService.getListsIndex({
       userId,
@@ -189,6 +195,7 @@ export class ListsController {
       groupId,
       page,
       pageSize,
+      songId,
     });
   }
 

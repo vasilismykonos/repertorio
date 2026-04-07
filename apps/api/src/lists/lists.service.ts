@@ -17,30 +17,25 @@ export type ListSummaryDto = {
   title: string;
   groupId: number | null;
   marked: boolean;
-  /**
-   * Ο ρόλος του χρήστη σε αυτή τη λίστα.  Μετά τον διαχωρισμό
-   * δικαιωμάτων επεξεργασίας λίστας/τραγουδιών, τα valid values
-   * είναι:
-   * - "OWNER": Δημιουργός με πλήρη δικαιώματα.
-   * - "LIST_EDITOR": Μπορεί να επεξεργαστεί την ίδια τη λίστα.
-   * - "SONGS_EDITOR": Μπορεί να επεξεργαστεί μόνο τα τραγούδια της λίστας.
-   * - "VIEWER": Μπορεί να δει τη λίστα (χωρίς δικαίωμα επεξεργασίας).
-   */
   role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
 
   // ✅ lightweight count από DB (COUNT ListItem)
   itemsCount: number;
 
+  // ✅ NEW
+  containsSong?: boolean;
+
   // aliases (UI compatibility)
   name?: string;
   listTitle?: string;
   list_title?: string;
+
   memberRoleCounts: {
-  OWNER: number;
-  LIST_EDITOR: number;
-  SONGS_EDITOR: number;
-  VIEWER: number;
-};
+    OWNER: number;
+    LIST_EDITOR: number;
+    SONGS_EDITOR: number;
+    VIEWER: number;
+  };
 };
 
 export type ListGroupSummaryDto = {
@@ -412,8 +407,9 @@ async getListsIndex(params: {
   groupId?: number | null;
   page?: number;
   pageSize?: number;
+  songId?: number;
 }): Promise<ListsIndexResponse> {
-  const { userId, search, groupId } = params;
+  const { userId, search, groupId, songId } = params;
 
   const page = this.normalizePage(params.page);
   const pageSize = this.normalizePageSize(params.pageSize);
@@ -447,7 +443,7 @@ async getListsIndex(params: {
         groupId: true,
         marked: true,
 
-        // role για τον viewer (όπως είχες)
+        // role για τον viewer
         members: { where: { userId }, select: { role: true } },
 
         _count: { select: { items: true } },
@@ -470,7 +466,6 @@ async getListsIndex(params: {
 
   const listIds = (rows ?? []).map((r: any) => r.id);
 
-  // ✅ aggregation: counts ανά (listId, role)
   const memberCountsRaw = listIds.length
     ? await this.prisma.listMember.groupBy({
         by: ["listId", "role"],
@@ -479,7 +474,6 @@ async getListsIndex(params: {
       })
     : [];
 
-  // map: listId -> role -> count
   const countsByListId = new Map<
     number,
     { OWNER: number; LIST_EDITOR: number; SONGS_EDITOR: number; VIEWER: number }
@@ -491,12 +485,32 @@ async getListsIndex(params: {
 
   for (const row of memberCountsRaw as any[]) {
     const listId = row.listId as number;
-    const role = row.role as "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
+    const normalizedRole = this.normalizeListRole(row.role);
     const c = Number(row._count?._all ?? 0) || 0;
 
     const current = countsByListId.get(listId) ?? emptyCounts();
-    if (role in current) current[role] = c;
+    current[normalizedRole] += c;
     countsByListId.set(listId, current);
+  }
+
+  // ✅ NEW: λίστες που περιέχουν ήδη το songId
+  const containsSongSet = new Set<number>();
+
+  if (typeof songId === "number" && songId > 0 && listIds.length > 0) {
+    const selectedRows = await this.prisma.listItem.findMany({
+      where: {
+        listId: { in: listIds },
+        songId,
+      },
+      select: { listId: true },
+      distinct: ["listId"],
+    });
+
+    for (const row of selectedRows) {
+      if (typeof row.listId === "number") {
+        containsSongSet.add(row.listId);
+      }
+    }
   }
 
   const groups: ListGroupSummaryDto[] = (groupsRaw ?? [])
@@ -522,6 +536,8 @@ async getListsIndex(params: {
         itemsCount: r._count?.items ?? 0,
 
         // ✅ NEW
+        containsSong: containsSongSet.has(r.id),
+
         memberRoleCounts,
 
         name: t,

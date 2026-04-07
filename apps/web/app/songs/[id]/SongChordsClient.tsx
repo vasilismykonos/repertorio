@@ -1,10 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-// Bring in tonicity definitions and helpers from the central index module.
-// We rely solely on the exported values from `index.tsx` to drive the UI for
-// tonicity selection. This avoids duplicating note arrays here and keeps
-// everything consistent across the application.
 import {
   TONICITY_VALUES,
   isValidTonicity,
@@ -16,9 +12,7 @@ type SongChordsClientProps = {
   originalKeySign?: "+" | "-" | null;
 };
 
-
-// Πίνακες συγχορδιών όπως στο PHP
-const ALL_CHORDS = [
+const CHORDS = [
   "Ντο",
   "Ντο#",
   "Ρε",
@@ -31,48 +25,32 @@ const ALL_CHORDS = [
   "Λα",
   "Λα#",
   "Σι",
-];
-const ALL_CHORDS_SMALL = [
-  "ντο",
-  "ντο#",
-  "ρε",
-  "ρε#",
-  "μι",
-  "φα",
-  "φα#",
-  "σολ",
-  "σολ#",
-  "λα",
-  "λα#",
-  "σι",
-];
+] as const;
 
-// Derive the natural and sharp tonicity lists from the central TONICITY_VALUES.
-// `TONICITY_VALUES` is ordered with all natural notes first and then sharps.
-// We filter on the presence of a "#" to split them into two groups. This
-// ensures that the UI uses the same source of truth as the rest of the app.
-const NATURAL_TONICITIES: string[] = TONICITY_VALUES.filter((v) => !v.includes("#"));
-const SHARP_TONICITIES: string[] = TONICITY_VALUES.filter((v) => v.includes("#"));
+const CHORDS_SMALL = CHORDS.map((c) => c.toLowerCase()) as string[];
 
-// Map για index → συγχορδία
-const CHORD_INDEX_MAP: Record<string, number> = ALL_CHORDS.reduce((acc, chord, index) => {
-  acc[chord] = index;
-  return acc;
-}, {} as Record<string, number>);
+const NATURAL_TONICITIES = TONICITY_VALUES.filter((v) => !v.includes("#"));
+const SHARP_TONICITIES = TONICITY_VALUES.filter((v) => v.includes("#"));
 
-const CHORD_INDEX_MAP_SMALL: Record<string, number> = ALL_CHORDS_SMALL.reduce((acc, chord, index) => {
-  acc[chord] = index;
-  return acc;
-}, {} as Record<string, number>);
+const CHORD_INDEX_MAP: Record<string, number> = Object.fromEntries(
+  CHORDS.map((chord, index) => [chord, index])
+);
+
+const CHORD_INDEX_MAP_SMALL: Record<string, number> = Object.fromEntries(
+  CHORDS_SMALL.map((chord, index) => [chord, index])
+);
 
 const CHORDS_SCALE_STORAGE_KEY = "repertorio_chords_scale_v1";
 const CHORDS_BASE_FONT_SIZE = 14;
 const CHORDS_SCALE_MIN = 0.75;
 const CHORDS_SCALE_MAX = 2.2;
 
-function clampScale(x: number): number {
-  if (!Number.isFinite(x) || x <= 0) return 1;
-  return Math.min(CHORDS_SCALE_MAX, Math.max(CHORDS_SCALE_MIN, x));
+const NOTE_TOKEN_REGEX =
+  /(Ντο#?|Ρε#?|Μι|Φα#?|Σολ#?|Λα#?|Σι|ντο#?|ρε#?|μι|φα#?|σολ#?|λα#?|σι)/g;
+
+function clampScale(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  return Math.min(CHORDS_SCALE_MAX, Math.max(CHORDS_SCALE_MIN, value));
 }
 
 function distance2(a: Touch, b: Touch): number {
@@ -82,7 +60,7 @@ function distance2(a: Touch, b: Touch): number {
 }
 
 function originalKeyCodeStringToBaseChord(codeStr: string | null | undefined): string | null {
-  const s = (codeStr ?? "").toString().trim();
+  const s = (codeStr ?? "").trim();
   if (!s) return null;
 
   const n = Number(s);
@@ -90,12 +68,11 @@ function originalKeyCodeStringToBaseChord(codeStr: string | null | undefined): s
 
   const code = Math.trunc(n);
   const idx = code - 101; // 101=Ντο ... 112=Σι
-  if (idx < 0 || idx >= ALL_CHORDS.length) return null;
 
-  return ALL_CHORDS[idx] ?? null;
+  if (idx < 0 || idx >= CHORDS.length) return null;
+  return CHORDS[idx] ?? null;
 }
 
-// Normalization helper για ελληνικά ονόματα συγχορδιών
 function normalizeGreekChordName(name: string): string | null {
   const t = name.trim().toLowerCase();
 
@@ -129,13 +106,9 @@ function normalizeGreekChordName(name: string): string | null {
   }
 }
 
-/**
- * Δέχεται input όπως:
- * - "Λα", "λα", "Λα+", "Λα -", "λα#", "Ρε#", κλπ
- * Επιστρέφει base τονικότητα (π.χ. "Λα", "Ρε#") ή null.
- */
 function normalizeTonicityInput(input: unknown): string | null {
   if (typeof input !== "string") return null;
+
   const raw = input.trim();
   if (!raw) return null;
 
@@ -145,65 +118,50 @@ function normalizeTonicityInput(input: unknown): string | null {
   return normalizeGreekChordName(match[1] ?? "");
 }
 
-
-
-// Εξαγωγή τελευταίας συγχορδίας + πρόσημο (+/-) από το κείμενο
-function detectLastChordAndSign(chords: string | null): { baseChord: string | null; sign: "+" | "-" | null } {
+function detectLastChordAndSign(
+  chords: string | null
+): { baseChord: string | null; sign: "+" | "-" | null } {
   const text = chords ?? "";
   if (!text) return { baseChord: null, sign: null };
 
-  const regexChord = /([Νν][το]|[Ρρ][ε]|[Μμ][ι]|[Φφ][α]|[Σσ][ολ]|[Λλ][α]|[Σσ][ι])(#?)[\+\-]?/g;
+  const regex = /((Ντο#?|Ρε#?|Μι|Φα#?|Σολ#?|Λα#?|Σι)|(ντο#?|ρε#?|μι|φα#?|σολ#?|λα#?|σι))([+-]?)/g;
+
   let match: RegExpExecArray | null;
-  let lastMatch: RegExpExecArray | null = null;
+  let last: RegExpExecArray | null = null;
 
-  while ((match = regexChord.exec(text)) !== null) lastMatch = match;
-
-  if (!lastMatch) return { baseChord: null, sign: null };
-
-  const full = lastMatch[0];
-  const sign: "+" | "-" | null = full.includes("-") ? "-" : full.includes("+") ? "+" : null;
-
-
-  const tonic = (lastMatch[1] || "").toLowerCase();
-  const sharp = lastMatch[2] || "";
-
-  let base: string | null = null;
-  switch (tonic) {
-    case "ντο":
-      base = "Ντο";
-      break;
-    case "ρε":
-      base = "Ρε";
-      break;
-    case "μι":
-      base = "Μι";
-      break;
-    case "φα":
-      base = "Φα";
-      break;
-    case "σολ":
-      base = "Σολ";
-      break;
-    case "λα":
-      base = "Λα";
-      break;
-    case "σι":
-      base = "Σι";
-      break;
-    default:
-      base = null;
+  while ((match = regex.exec(text)) !== null) {
+    last = match;
   }
 
-  if (!base) return { baseChord: null, sign: null };
+  if (!last) return { baseChord: null, sign: null };
 
-  if (sharp === "#") base += "#";
-  return { baseChord: base, sign };
+  const chordToken = last[1] ?? "";
+  const signToken = last[4] ?? "";
+
+  const normalized = normalizeGreekChordName(chordToken);
+  if (!normalized) return { baseChord: null, sign: null };
+
+  const sign: "+" | "-" | null =
+    signToken === "+" ? "+" : signToken === "-" ? "-" : null;
+
+  return { baseChord: normalized, sign };
 }
 
-// Transport συγχορδιών όπως στο PHP transportChords
+function transposeChordToken(token: string, offset: number): string {
+  const isLower = token === token.toLowerCase();
+  const index = isLower ? CHORD_INDEX_MAP_SMALL[token] : CHORD_INDEX_MAP[token];
+
+  if (index === undefined) return token;
+
+  const nextIndex = (index + offset + 12) % 12;
+  return isLower ? CHORDS_SMALL[nextIndex] : CHORDS[nextIndex];
+}
+
 function transportChords(originalChord: string, targetChord: string, chordsContent: string): string {
-  const originalIndex = CHORD_INDEX_MAP[originalChord] ?? CHORD_INDEX_MAP_SMALL[originalChord];
-  const targetIndex = CHORD_INDEX_MAP[targetChord] ?? CHORD_INDEX_MAP_SMALL[targetChord];
+  const originalIndex =
+    CHORD_INDEX_MAP[originalChord] ?? CHORD_INDEX_MAP_SMALL[originalChord];
+  const targetIndex =
+    CHORD_INDEX_MAP[targetChord] ?? CHORD_INDEX_MAP_SMALL[targetChord];
 
   if (
     originalIndex === undefined ||
@@ -215,82 +173,30 @@ function transportChords(originalChord: string, targetChord: string, chordsConte
   }
 
   const offset = targetIndex - originalIndex;
-  let result = chordsContent;
 
-  const placeholders = ALL_CHORDS.map((_chord, index) => `__CHORD_${index}__`);
-  const placeholdersSmall = ALL_CHORDS_SMALL.map((_chord, index) => `__chord_${index}__`);
-
-  // 1. Αντικατάσταση πρώτα των # (κεφαλαίων)
-  ALL_CHORDS.forEach((chord, index) => {
-    const placeholder = placeholders[index];
-    const escaped = chord.replace("#", "\\#");
-    const regex = new RegExp(escaped + "(?![A-Za-zΑ-Ωα-ω0-9])", "g");
-    result = result.replace(regex, placeholder);
+  return chordsContent.replace(NOTE_TOKEN_REGEX, (token) => {
+    return transposeChordToken(token, offset);
   });
-
-  // 2. Αντικατάσταση απλών (κεφαλαίων)
-  ALL_CHORDS.forEach((chord, index) => {
-    const placeholder = placeholders[index];
-    const escaped = chord.replace("#", "\\#");
-    const regex = new RegExp(escaped, "g");
-    result = result.replace(regex, placeholder);
-  });
-
-  // 3. Μικρά με # (για να ταιριάζουν σε πεζά)
-  ALL_CHORDS_SMALL.forEach((chord, index) => {
-    const placeholder = placeholdersSmall[index];
-    const escaped = chord.replace("#", "\\#");
-    const regex = new RegExp(escaped + "(?![A-Za-zΑ-Ωα-ω0-9])", "g");
-    result = result.replace(regex, placeholder);
-  });
-
-  // 4. Μικρά χωρίς #
-  ALL_CHORDS_SMALL.forEach((chord, index) => {
-    const placeholder = placeholdersSmall[index];
-    const escaped = chord.replace("#", "\\#");
-    const regex = new RegExp(escaped, "g");
-    result = result.replace(regex, placeholder);
-  });
-
-  // 5. Τελική αντικατάσταση placeholders με νέες συγχορδίες (κεφαλαία)
-  ALL_CHORDS.forEach((chord, index) => {
-    const placeholder = placeholders[index];
-    const baseIndex = CHORD_INDEX_MAP[chord];
-    if (baseIndex === undefined) return;
-    const newIndex = (baseIndex + offset + 12) % 12;
-    const newChord = ALL_CHORDS[newIndex];
-    result = result.split(placeholder).join(newChord);
-  });
-
-  // 6. Τελική αντικατάσταση placeholders με νέες συγχορδίες (πεζά)
-  ALL_CHORDS_SMALL.forEach((chord, index) => {
-    const placeholder = placeholdersSmall[index];
-    const cap = chord.charAt(0).toUpperCase() + chord.slice(1);
-    const baseIndex = CHORD_INDEX_MAP[cap];
-    if (baseIndex === undefined) return;
-    const newIndex = (baseIndex + offset + 12) % 12;
-    const newChord = ALL_CHORDS_SMALL[newIndex];
-    result = result.split(placeholder).join(newChord);
-  });
-
-  return result;
 }
 
-// Χρωματισμός συγχορδιών
 function colorizeChords(chords: string): string {
   if (!chords) return "";
-  let result = chords;
-  result = result.replace(/(\[[^\]]+\])/g, '<span class="SpTune">$1</span>');
-  return result;
+  return chords.replace(/(\[[^\]]+\])/g, '<span class="SpTune">$1</span>');
 }
 
-function dispatchTonicityChanged(detail: { tonicity: string | null; sign: "+" | "-" | null }) {
+function dispatchTonicityChanged(detail: {
+  tonicity: string | null;
+  sign: "+" | "-" | null;
+}) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("rep:tonicityChanged", { detail }));
 }
 
-
-export default function SongChordsClient({ chords, originalKey, originalKeySign }: SongChordsClientProps) {
+export default function SongChordsClient({
+  chords,
+  originalKey,
+  originalKeySign,
+}: SongChordsClientProps) {
   const chordsBlockRef = useRef<HTMLDivElement | null>(null);
   const pinchRef = useRef<{ dist0: number; scale0: number; active: boolean } | null>(null);
 
@@ -299,73 +205,58 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
   const [selectedTonicity, setSelectedTonicity] = useState<string | null>(null);
   const [chordsScale, setChordsScale] = useState(1);
 
-  // ✅ 1) Κεντρική συνάρτηση εφαρμογής τονικότητας
   function applySelectedTonicity(input: unknown) {
-    const norm = normalizeTonicityInput(input);
-    if (!norm) return;
+    const normalized = normalizeTonicityInput(input);
+    if (!normalized) return;
+    if (!isValidTonicity(normalized)) return;
 
-    // δέχεται μόνο tonicity values που γνωρίζει η εφαρμογή.  Χρησιμοποιούμε
-    // την helper `isValidTonicity` από το index για να ελέγξουμε αν το
-    // normalized input ανήκει στο καθορισμένο σύνολο TONICITY_VALUES. Αν δεν
-    // είναι έγκυρο, δεν θα ενημερώσουμε την επιλογή.
-    if (!isValidTonicity(norm)) return;
-
-    setSelectedTonicity(norm);
+    setSelectedTonicity(normalized);
 
     if (typeof window !== "undefined") {
-      (window as any).__repSelectedTonicity = norm;
+      (window as any).__repSelectedTonicity = normalized;
     }
 
-    dispatchTonicityChanged({ tonicity: norm, sign: lastSign });
-
+    dispatchTonicityChanged({
+      tonicity: normalized,
+      sign: lastSign,
+    });
   }
 
-  // Init: βάση + πρόσημο + default selected (και ενημέρωση global + event)
   useEffect(() => {
-  let initBase: string | null = null;
-  let initSign: "+" | "-" | null = null;
+    let initBase: string | null = null;
+    let initSign: "+" | "-" | null = null;
 
-  const fromDbBase = originalKeyCodeStringToBaseChord(originalKey);
-  const fromDbSign =
-    originalKeySign === "+" || originalKeySign === "-" ? originalKeySign : null;
+    const fromDbBase = originalKeyCodeStringToBaseChord(originalKey);
+    const fromDbSign =
+      originalKeySign === "+" || originalKeySign === "-" ? originalKeySign : null;
 
-  if (fromDbBase) {
-    initBase = fromDbBase;
-    initSign = fromDbSign; // μπορεί να είναι null
-  }
-
-  if (!initBase || initSign == null) {
-    const { baseChord: autoBase, sign: autoSign } = detectLastChordAndSign(chords ?? "");
-
-    if (!initBase) initBase = autoBase;
-
-    // πάρε sign από chords μόνο αν βρέθηκε chord + δεν είχες sign
-    if (initSign == null && autoBase && (autoSign === "+" || autoSign === "-")) {
-      initSign = autoSign;
+    if (fromDbBase) {
+      initBase = fromDbBase;
+      initSign = fromDbSign;
     }
-  }
 
-  setBaseChord(initBase);
-  setLastSign(initSign);
+    if (!initBase || initSign == null) {
+      const auto = detectLastChordAndSign(chords);
 
-  if (initBase) {
+      if (!initBase) initBase = auto.baseChord;
+      if (initSign == null && auto.sign) initSign = auto.sign;
+    }
+
+    setBaseChord(initBase);
+    setLastSign(initSign);
+
+    if (typeof window !== "undefined") {
+      (window as any).__repSelectedTonicity = initBase;
+    }
+
     setSelectedTonicity(initBase);
-    if (typeof window !== "undefined") (window as any).__repSelectedTonicity = initBase;
 
-    // αν initSign είναι null, στείλε "+" μόνο στο event αν το χρειάζεσαι,
-    // αλλιώς άλλαξε και το event να δέχεται null.
-   dispatchTonicityChanged({ tonicity: initBase, sign: initSign });
-  } else {
-    setSelectedTonicity(null);
-    if (typeof window !== "undefined") (window as any).__repSelectedTonicity = null;
-    dispatchTonicityChanged({ tonicity: null, sign: initSign });
+    dispatchTonicityChanged({
+      tonicity: initBase,
+      sign: initSign,
+    });
+  }, [chords, originalKey, originalKeySign]);
 
-  }
-}, [chords, originalKey, originalKeySign]);
-
-
-
-  // Expose setter για άλλα components (SingerTunes, Rooms, κτλ.)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -382,7 +273,6 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
         w.__repSetSelectedTonicity = undefined;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastSign]);
 
   const renderedChordsHtml = useMemo(() => {
@@ -395,17 +285,21 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
     try {
       const raw = window.localStorage.getItem(CHORDS_SCALE_STORAGE_KEY);
       if (!raw) return;
+
       const n = Number(raw);
-      if (Number.isFinite(n) && n > 0) setChordsScale(clampScale(n));
+      if (Number.isFinite(n) && n > 0) {
+        setChordsScale(clampScale(n));
+      }
     } catch {}
   }, []);
 
-  function persistChordsScale(x: number) {
+  function persistChordsScale(next: number) {
     try {
-      window.localStorage.setItem(CHORDS_SCALE_STORAGE_KEY, String(x));
+      window.localStorage.setItem(CHORDS_SCALE_STORAGE_KEY, String(next));
     } catch {}
   }
 
@@ -421,6 +315,7 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
 
     function onWheel(e: WheelEvent) {
       if (!e.ctrlKey) return;
+
       e.preventDefault();
 
       const step = 0.08;
@@ -434,7 +329,7 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
     }
 
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel as any);
+    return () => el.removeEventListener("wheel", onWheel as EventListener);
   }, []);
 
   useEffect(() => {
@@ -443,14 +338,21 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
 
     function onTouchStartNative(e: TouchEvent) {
       if (e.touches.length !== 2) return;
+
       const d0 = distance2(e.touches[0], e.touches[1]);
-      pinchRef.current = { dist0: d0, scale0: chordsScale, active: true };
+      pinchRef.current = {
+        dist0: d0,
+        scale0: chordsScale,
+        active: true,
+      };
+
       e.preventDefault();
     }
 
     function onTouchMoveNative(e: TouchEvent) {
       const p = pinchRef.current;
       if (!p?.active || e.touches.length !== 2) return;
+
       e.preventDefault();
 
       const d1 = distance2(e.touches[0], e.touches[1]);
@@ -464,6 +366,7 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
     function onTouchEndNative() {
       const p = pinchRef.current;
       if (!p?.active) return;
+
       pinchRef.current = null;
 
       setChordsScale((prev) => {
@@ -481,18 +384,18 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
     el.addEventListener("touchend", onTouchEndNative, { passive: true });
     el.addEventListener("touchcancel", onTouchEndNative, { passive: true });
 
-    el.addEventListener("gesturestart", onGesture as any, { passive: false } as any);
-    el.addEventListener("gesturechange", onGesture as any, { passive: false } as any);
-    el.addEventListener("gestureend", onGesture as any, { passive: false } as any);
+    el.addEventListener("gesturestart", onGesture as EventListener, { passive: false } as AddEventListenerOptions);
+    el.addEventListener("gesturechange", onGesture as EventListener, { passive: false } as AddEventListenerOptions);
+    el.addEventListener("gestureend", onGesture as EventListener, { passive: false } as AddEventListenerOptions);
 
     return () => {
-      el.removeEventListener("touchstart", onTouchStartNative as any);
-      el.removeEventListener("touchmove", onTouchMoveNative as any);
-      el.removeEventListener("touchend", onTouchEndNative as any);
-      el.removeEventListener("touchcancel", onTouchEndNative as any);
-      el.removeEventListener("gesturestart", onGesture as any);
-      el.removeEventListener("gesturechange", onGesture as any);
-      el.removeEventListener("gestureend", onGesture as any);
+      el.removeEventListener("touchstart", onTouchStartNative as EventListener);
+      el.removeEventListener("touchmove", onTouchMoveNative as EventListener);
+      el.removeEventListener("touchend", onTouchEndNative as EventListener);
+      el.removeEventListener("touchcancel", onTouchEndNative as EventListener);
+      el.removeEventListener("gesturestart", onGesture as EventListener);
+      el.removeEventListener("gesturechange", onGesture as EventListener);
+      el.removeEventListener("gestureend", onGesture as EventListener);
     };
   }, [chordsScale]);
 
@@ -516,13 +419,13 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
       className="song-chords-container"
       style={{ marginBottom: 0 }}
     >
-      {/* Κουμπιά Τονικοτήτων */}
       {baseChord && (
         <div className="tonicities-wrapper" style={{ marginTop: 4, marginBottom: 4 }}>
           <div className="tonicities-row">
             {NATURAL_TONICITIES.map((ton) => {
               const selected = selectedTonicity === ton;
               const label = `${ton}${lastSign ?? ""}`;
+
               return (
                 <button
                   key={ton}
@@ -539,9 +442,9 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
 
           <div className="tonicities-row">
             {SHARP_TONICITIES.map((ton) => {
-              if (!ton) return null;
               const selected = selectedTonicity === ton;
               const label = `${ton}${lastSign ?? ""}`;
+
               return (
                 <button
                   key={ton}
@@ -568,11 +471,8 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
           marginBottom: 2,
           flexWrap: "wrap",
         }}
-      >
+      />
 
-      </div>
-
-      {/* Μπλοκ συγχορδιών */}
       <div
         id="chords-block"
         ref={chordsBlockRef}
@@ -599,6 +499,7 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
           gap: 4px;
           margin-bottom: 2px;
         }
+
         .tonicity-button {
           background: #222;
           color: #fff;
@@ -609,9 +510,11 @@ export default function SongChordsClient({ chords, originalKey, originalKeySign 
           font-size: 0.85rem;
           transition: 0.2s;
         }
+
         .tonicity-button:hover {
           background: #444;
         }
+
         .tonicity-button.selected {
           background: #ff4747 !important;
           border-color: #ff4747 !important;

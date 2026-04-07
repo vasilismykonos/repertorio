@@ -460,9 +460,18 @@
       const res = await fetch(state.fileUrl);
 
       const ct = (res.headers.get("Content-Type") || "").toLowerCase();
+      const url = String(state.fileUrl || "").toLowerCase();
+
       const isMxl =
+        url.endsWith(".mxl") ||
+        ct.includes("application/vnd.recordare.musicxml") ||
+        ct.includes("application/vnd.recordare.musicxml+xml") ||
+        ct.includes("application/x-mxl") ||
         ct.includes("application/zip") ||
-        ct.includes("application/x-zip-compressed");
+        ct.includes("application/x-zip-compressed") ||
+        ct.includes("application/octet-stream") ||
+        ct.includes("musicxml") ||
+        ct.includes("mxl");
 
 
       if (isMxl) {

@@ -23,7 +23,7 @@ import SongInfoToggle from "./SongInfoToggle";
 import SongSingerTunesClient from "./SongSingerTunesClient";
 import SongScoresPanel from "./SongScoresPanel";
 import SongAssetsPanel from "./SongAssetsPanel";
-
+import SongListPickerModal from "./SongListPickerModal";
 import type { Step } from "react-joyride";
 import type { SongDetail } from "./page";
 
@@ -58,6 +58,9 @@ type SongListOption = {
   marked: boolean;
   role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
   itemsCount: number;
+  containsSong?: boolean;
+  selected?: boolean;
+  isSelected?: boolean;
   name?: string;
   listTitle?: string;
   list_title?: string;
@@ -550,7 +553,10 @@ export default function SongPageClient(props: Props) {
     setListPickerError(null);
 
     try {
-      const res = await fetch("/api/lists?page=1&pageSize=200", { cache: "no-store" });
+      const res = await fetch(
+        `/api/lists?page=1&pageSize=200&songId=${encodeURIComponent(String(song.id))}`,
+        { cache: "no-store" },
+      );
       const data = (await readJson(res)) as ListsIndexResponse | { error?: string } | null;
 
       if (!res.ok) {
@@ -610,7 +616,26 @@ export default function SongPageClient(props: Props) {
         throw new Error(msg);
       }
 
-      setLastAddedList(list);
+      setAvailableLists((prev) =>
+        prev.map((x) =>
+          x.id === list.id
+            ? {
+                ...x,
+                containsSong: true,
+                selected: true,
+                isSelected: true,
+              }
+            : x,
+        ),
+      );
+
+      setLastAddedList({
+        ...list,
+        containsSong: true,
+        selected: true,
+        isSelected: true,
+      });
+
       setListPickerOpen(false);
       setListPickerQuery("");
     } catch (e: any) {
@@ -1029,188 +1054,20 @@ export default function SongPageClient(props: Props) {
 
       <GuidedTour storageKey={TOUR_STORAGE_KEY} steps={tourSteps} openSignal={tourOpenSignal} />
 
-      {listPickerOpen ? (
-        <div
-          data-no-swipe
-          onClick={() => {
-            if (listPickerSubmittingListId === null) closeListPicker();
-          }}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1400,
-            background: "rgba(0, 0, 0, 0.72)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Επιλογή λίστας"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "100%",
-              maxWidth: 640,
-              maxHeight: "85vh",
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column",
-              borderRadius: 18,
-              border: "1px solid #333",
-              background: "#0b0b0b",
-              boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                padding: "14px 16px",
-                borderBottom: "1px solid #222",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 700 }}>Προσθήκη σε λίστα</div>
-                <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>{song.title}</div>
-              </div>
-
-              <Button
-                type="button"
-                variant="secondary"
-                action="cancel"
-                onClick={closeListPicker}
-                disabled={listPickerSubmittingListId !== null}
-                title="Κλείσιμο"
-                aria-label="Κλείσιμο"
-                iconOnly
-              >
-                Κλείσιμο
-              </Button>
-            </div>
-
-            <div style={{ padding: 16, borderBottom: "1px solid #222" }}>
-              <input
-                type="text"
-                value={listPickerQuery}
-                onChange={(e) => setListPickerQuery(e.target.value)}
-                placeholder="Αναζήτηση λίστας..."
-                autoFocus
-                style={{
-                  width: "100%",
-                  borderRadius: 10,
-                  border: "1px solid #333",
-                  background: "#111",
-                  color: "inherit",
-                  padding: "10px 12px",
-                  outline: "none",
-                }}
-              />
-            </div>
-
-            {listPickerError ? (
-              <div
-                style={{
-                  margin: 16,
-                  marginBottom: 0,
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid #6f1f1f",
-                  background: "#1f1010",
-                  color: "#ffd7d7",
-                }}
-              >
-                {listPickerError}
-              </div>
-            ) : null}
-
-            <div
-              style={{
-                padding: 16,
-                overflowY: "auto",
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-              }}
-            >
-              {listPickerLoading ? (
-                <div style={{ opacity: 0.85 }}>Φόρτωση λιστών...</div>
-              ) : filteredLists.length === 0 ? (
-                <div style={{ opacity: 0.85 }}>
-                  {availableLists.length === 0
-                    ? "Δεν βρέθηκαν διαθέσιμες λίστες."
-                    : "Δεν βρέθηκαν λίστες για αυτό το φίλτρο."}
-                </div>
-              ) : (
-                filteredLists.map((list) => {
-                  const busy = listPickerSubmittingListId === list.id;
-                  const title = normalizeListTitle(list);
-
-                  return (
-                    <button
-                      key={list.id}
-                      type="button"
-                      onClick={() => void handleAddSongToList(list)}
-                      disabled={listPickerSubmittingListId !== null}
-                      style={{
-                        width: "100%",
-                        textAlign: "left",
-                        borderRadius: 14,
-                        border: "1px solid #333",
-                        background: busy ? "#18221a" : "#111",
-                        color: "inherit",
-                        padding: "12px 14px",
-                        cursor: listPickerSubmittingListId !== null ? "not-allowed" : "pointer",
-                        opacity: listPickerSubmittingListId !== null && !busy ? 0.7 : 1,
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 12,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, overflowWrap: "anywhere" }}>{title}</div>
-                          <div style={{ fontSize: 13, opacity: 0.78, marginTop: 4 }}>
-                            {list.itemsCount} τραγούδια · ρόλος {list.role}
-                            {list.marked ? " · pinned" : ""}
-                          </div>
-                        </div>
-
-                        <div style={{ flexShrink: 0 }}>{busy ? "Προσθήκη..." : "Επιλογή"}</div>
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-
-            <div
-              style={{
-                padding: 16,
-                borderTop: "1px solid #222",
-                display: "flex",
-                justifyContent: "flex-end",
-              }}
-            >
-              {A.cancel({
-                title: "Κλείσιμο",
-                label: "Κλείσιμο",
-                disabled: listPickerSubmittingListId !== null,
-                onClick: closeListPicker,
-              })}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <SongListPickerModal
+        open={listPickerOpen}
+        songTitle={song.title}
+        query={listPickerQuery}
+        onQueryChange={setListPickerQuery}
+        loading={listPickerLoading}
+        error={listPickerError}
+        availableLists={availableLists}
+        filteredLists={filteredLists}
+        submittingListId={listPickerSubmittingListId}
+        onClose={closeListPicker}
+        onSelectList={handleAddSongToList}
+        normalizeListTitle={normalizeListTitle}
+      />
 
       <header id="song-title" style={{ marginBottom: 16 }}>
         <div style={{ marginBottom: 8 }}>

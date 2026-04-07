@@ -10,6 +10,7 @@ type ListSummaryDto = {
   marked: boolean;
   role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
   itemsCount: number;
+  containsSong?: boolean;
   name?: string;
   listTitle?: string;
   list_title?: string;
@@ -42,7 +43,10 @@ type ListsIndexResponse = {
 export async function GET(req: NextRequest) {
   const user = await getCurrentUserFromApi(req);
   if (!user) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401, headers: NO_STORE_HEADERS });
+    return NextResponse.json(
+      { error: "Not authenticated" },
+      { status: 401, headers: NO_STORE_HEADERS },
+    );
   }
 
   const sp = req.nextUrl.searchParams;
@@ -50,6 +54,7 @@ export async function GET(req: NextRequest) {
   const groupId = sp.get("groupId")?.trim();
   const page = sp.get("page")?.trim() ?? "1";
   const pageSize = sp.get("pageSize")?.trim() ?? "200";
+  const songId = sp.get("songId")?.trim();
 
   const qs = new URLSearchParams();
   qs.set("userId", String(user.id));
@@ -58,6 +63,7 @@ export async function GET(req: NextRequest) {
 
   if (search) qs.set("search", search);
   if (groupId) qs.set("groupId", groupId);
+  if (songId) qs.set("songId", songId);
 
   try {
     const data = await fetchJson<ListsIndexResponse>(`/lists?${qs.toString()}`);
