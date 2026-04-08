@@ -215,7 +215,7 @@ export default function Button(props: Props) {
       {effectiveShowLabel ? <span className="btn__label">{children}</span> : null}
 
       {/* ✅ Icon-only: keep accessible text (won't be affected by your .btn__label css) */}
-      {!effectiveShowLabel && srLabel ? <span className="sr-only">{srLabel}</span> : null}
+      {!effectiveShowLabel && srLabel ? <span className="btn__sr">{srLabel}</span>: null}
     </button>
   );
 }
