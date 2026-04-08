@@ -15,7 +15,7 @@ function prefersReducedMotion() {
 }
 
 export default function PpSplash(props: Props) {
-  const { durationMs = 650, showOnWebAlso = true } = props;
+  const { durationMs = 650, showOnWebAlso = false } = props;
 
   const [visible, setVisible] = useState(true);
   const [fadeOut, setFadeOut] = useState(false);

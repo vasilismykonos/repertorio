@@ -315,7 +315,7 @@ function renderSongSchema(song: SongDetail) {
         ? song.lyrics
         : "Χωρίς διαθέσιμους στίχους",
     isAccessibleForFree: true,
-    url: `https://repertorio.net/songs/song/${song.id}-${slugify(song.title)}/`,
+    url: `https://repertorio.net/songs/${song.id}`,
   };
 
   const json = JSON.stringify(schema, null, 2);
@@ -363,7 +363,7 @@ export async function generateMetadata({ params }: SongPageProps) {
     title: `${baseTitle} | Repertorio Next`,
     description: firstLyrics || lyrics || undefined,
     alternates: {
-      canonical: `https://repertorio.net/songs/song/${songId}-${slugify(title)}/`,
+      canonical: `https://repertorio.net/songs/${songId}`,
     },
   };
 }
