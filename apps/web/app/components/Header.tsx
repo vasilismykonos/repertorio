@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Recycle } from "lucide-react";
+import { Mic, Recycle, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
@@ -459,8 +459,10 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
                     className="button-style"
                     style={{ marginLeft: 5, border: "none", background: "none", cursor: "pointer" }}
                     onClick={handleVoiceSearchClick}
+                    aria-label="Φωνητική αναζήτηση"
+                    title="Φωνητική αναζήτηση"
                   >
-                    <i className="fas fa-microphone" />
+                    <Mic size={18} aria-hidden="true" />
                   </button>
                 )}
 
@@ -468,8 +470,10 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
                   type="submit"
                   className="button-style search-button"
                   style={{ marginLeft: 5, border: "none", background: "none", cursor: "pointer" }}
+                  aria-label="Αναζήτηση"
+                  title="Αναζήτηση"
                 >
-                  <i className="fas fa-search" />
+                  <Search size={18} aria-hidden="true" />
                 </button>
               </form>
             </div>
