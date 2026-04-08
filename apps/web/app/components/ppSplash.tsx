@@ -86,7 +86,7 @@ export default function PpSplash(props: Props) {
         <div style={{ position: "relative", width: 160, height: 160 }}>
           {/* Το icon σου */}
           <img
-            src="/icons/icon-512x512.png"
+            src="/icons/icon-192x192.png"
             alt=""
             width={160}
             height={160}
