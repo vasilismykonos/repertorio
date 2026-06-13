@@ -190,6 +190,16 @@
 }
 
 /* Σελίδες – λίγο κενό μεταξύ */
+.sp-empty-voices {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555;
+  font-size: 16px;
+  font-weight: 600;
+}
+
 .sp-page { margin-bottom: 16px; }
 
 /* Icon font για απλά σύμβολα */
@@ -302,6 +312,59 @@ rect.stem, g.stem rect {
 
 .sp-view-label { font-size: 14px; margin-right: 2px; white-space: nowrap; }
 .sp-view-toggle { display: inline-flex; gap: 4px; }
+
+.sp-voice-filter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 90%;
+  color: #fff;
+  font-size: 13px;
+}
+
+.sp-voice-filter[hidden] {
+  display: none !important;
+}
+
+.sp-voice-filter-title {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sp-voice-filter-list {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sp-voice-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: #1e1e1e;
+  color: #fff;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sp-voice-option:hover {
+  background: #2e2e2e;
+}
+
+.sp-voice-option input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #00bcd4;
+}
 
 /* Ενεργό view κουμπί */
 .sp-controls .sp-view-toggle .sp-btn[aria-pressed="true"],

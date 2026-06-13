@@ -35,6 +35,8 @@
       tVal:     wrap.querySelector(".sp-transpose-val"),
       tempoInp: wrap.querySelector(".sp-tempo"),
       tempoVal: wrap.querySelector(".sp-tempo-val"),
+      voiceFilterEl: wrap.querySelector(".sp-voice-filter"),
+      voiceListEl: wrap.querySelector(".sp-voice-filter-list"),
 
       // view toggles
       btnViewH: wrap.querySelector(".sp-view-h"),
@@ -65,12 +67,457 @@
       currentXmlDoc: null,
       _decidedTonality: null,
       _baseKeyInfo: null,
+      _activeVoiceKeys: null,
+      _voiceOptions: [],
+      _voiceOptionsSig: '',
 
       // flags
       lastTransport: null,
       _osmdRenderPatched: false
     };
   }
+
+  function _xmlLocalName(el) {
+    return (el && (el.localName || el.nodeName) || '').toLowerCase();
+  }
+
+  function _xmlChildren(el, name) {
+    if (!el) return [];
+    const target = String(name || '').toLowerCase();
+    return Array.from(el.children || []).filter(child => _xmlLocalName(child) === target);
+  }
+
+  function _xmlFirst(el, name) {
+    return _xmlChildren(el, name)[0] || null;
+  }
+
+  function _xmlText(el, name) {
+    const node = name ? _xmlFirst(el, name) : el;
+    return (node && node.textContent || '').trim();
+  }
+
+  function makeVoiceKey(partIndex, voice, staff) {
+    return [partIndex, staff || '1'].join('|');
+  }
+
+  function readScorePartNames(xmlDoc) {
+    const names = new Map();
+    const scoreParts = Array.from(xmlDoc.getElementsByTagName('score-part'));
+    scoreParts.forEach((scorePart, index) => {
+      const id = scorePart.getAttribute('id') || '';
+      const name = _xmlText(scorePart, 'part-name') || _xmlText(scorePart, 'part-abbreviation') || `Μέρος ${index + 1}`;
+      if (id) names.set(id, name);
+    });
+    return names;
+  }
+
+  function collectVoiceOptions(xmlDoc) {
+    if (!xmlDoc || xmlDoc.getElementsByTagName('parsererror').length) return [];
+
+    const score = xmlDoc.documentElement;
+    const rootName = _xmlLocalName(score);
+    const partNames = readScorePartNames(xmlDoc);
+    const parts = new Map();
+
+    function ensurePart(partIndex, partId) {
+      if (parts.has(partIndex)) return parts.get(partIndex);
+      const partLabel = partNames.get(partId || '') || `Μέρος ${partIndex + 1}`;
+      const meta = { partIndex, partId, partLabel, staves: new Set(), maxStaff: 1 };
+      parts.set(partIndex, meta);
+      return meta;
+    }
+
+    function addDeclaredStaves(partIndex, partId, container) {
+      const meta = ensurePart(partIndex, partId);
+      Array.from(container.getElementsByTagName('staves')).forEach(staves => {
+        const count = Number.parseInt(_xmlText(staves), 10);
+        if (!Number.isFinite(count) || count < 1) return;
+        meta.maxStaff = Math.max(meta.maxStaff, count);
+        for (let i = 1; i <= count; i += 1) meta.staves.add(String(i));
+      });
+    }
+
+    function addStaff(partIndex, partId, staff) {
+      const staffName = String(staff || '1').trim() || '1';
+      const meta = ensurePart(partIndex, partId);
+      const staffNumber = Number.parseInt(staffName, 10);
+      if (Number.isFinite(staffNumber)) meta.maxStaff = Math.max(meta.maxStaff, staffNumber);
+      meta.staves.add(staffName);
+    }
+
+    if (rootName === 'score-partwise') {
+      _xmlChildren(score, 'part').forEach((part, partIndex) => {
+        const partId = part.getAttribute('id') || '';
+        addDeclaredStaves(partIndex, partId, part);
+        Array.from(part.getElementsByTagName('note')).forEach(note => {
+          addStaff(partIndex, partId, _xmlText(note, 'staff') || '1');
+        });
+      });
+    } else if (rootName === 'score-timewise') {
+      const partIndexById = new Map();
+      _xmlChildren(score, 'measure').forEach(measure => {
+        _xmlChildren(measure, 'part').forEach(part => {
+          const partId = part.getAttribute('id') || `P${partIndexById.size + 1}`;
+          if (!partIndexById.has(partId)) partIndexById.set(partId, partIndexById.size);
+          const partIndex = partIndexById.get(partId);
+          addDeclaredStaves(partIndex, partId, part);
+          Array.from(part.getElementsByTagName('note')).forEach(note => {
+            addStaff(partIndex, partId, _xmlText(note, 'staff') || '1');
+          });
+        });
+      });
+    }
+
+    return Array.from(parts.values())
+      .flatMap(meta => Array.from(meta.staves).map(staff => {
+        const staffName = String(staff || '1').trim() || '1';
+        return {
+          key: makeVoiceKey(meta.partIndex, null, staffName),
+          partIndex: meta.partIndex,
+          voice: staffName,
+          staff: staffName,
+          label: meta.maxStaff > 1 ? `${meta.partLabel} · Πεντ. ${staffName}` : meta.partLabel
+        };
+      }))
+      .sort((a, b) =>
+        (a.partIndex - b.partIndex) ||
+        String(a.staff).localeCompare(String(b.staff), undefined, { numeric: true })
+      );
+  }
+
+  function getVisibleVoiceSet(state) {
+    if (!state?._activeVoiceKeys) return null;
+    return new Set(state._activeVoiceKeys);
+  }
+
+  function hasNoVisibleVoices(state) {
+    const active = getVisibleVoiceSet(state);
+    return !!active && active.size === 0;
+  }
+
+  function activePartIndexes(active) {
+    const indexes = new Set();
+    if (!active) return indexes;
+    active.forEach(key => {
+      const idx = Number.parseInt(String(key).split('|')[0], 10);
+      if (Number.isFinite(idx)) indexes.add(idx);
+    });
+    return indexes;
+  }
+
+  function removeScorePart(score, partId) {
+    if (!score || !partId) return;
+    Array.from(score.getElementsByTagName('score-part')).forEach(scorePart => {
+      if (scorePart.getAttribute('id') === partId) scorePart.remove();
+    });
+  }
+
+  function activeStavesForPart(active, partIndex) {
+    const staves = new Set();
+    if (!active) return staves;
+
+    active.forEach(key => {
+      const parts = String(key).split('|');
+      const idx = Number.parseInt(parts[0], 10);
+      if (idx === partIndex) staves.add(parts[1] || '1');
+    });
+
+    return staves;
+  }
+
+  function compareStaffNames(a, b) {
+    return String(a).localeCompare(String(b), undefined, { numeric: true });
+  }
+
+  function partStaffNames(part) {
+    const staves = new Set();
+
+    Array.from(part.getElementsByTagName('staves')).forEach(stavesEl => {
+      const count = Number.parseInt(_xmlText(stavesEl), 10);
+      if (!Number.isFinite(count) || count < 1) return;
+      for (let i = 1; i <= count; i += 1) staves.add(String(i));
+    });
+
+    Array.from(part.getElementsByTagName('note')).forEach(note => {
+      staves.add(_xmlText(note, 'staff') || '1');
+    });
+
+    if (!staves.size) staves.add('1');
+    return Array.from(staves).sort(compareStaffNames);
+  }
+
+  function setXmlChildText(parent, name, value) {
+    if (!parent) return;
+    let child = _xmlFirst(parent, name);
+    if (!child) {
+      child = parent.ownerDocument.createElement(name);
+      parent.appendChild(child);
+    }
+    child.textContent = String(value);
+  }
+
+  function suppressNoteForHiddenVoice(note, replacementStaff) {
+    if (!note) return;
+
+    if (_xmlFirst(note, 'chord') || !_xmlFirst(note, 'duration')) {
+      note.remove();
+      return;
+    }
+
+    const doc = note.ownerDocument;
+    const keepNames = new Set(['duration', 'voice', 'type', 'time-modification', 'staff']);
+    const kept = Array.from(note.children)
+      .filter(child => keepNames.has(_xmlLocalName(child)))
+      .map(child => child.cloneNode(true));
+
+    while (note.firstChild) note.removeChild(note.firstChild);
+
+    note.setAttribute('print-object', 'no');
+    note.setAttribute('print-spacing', 'yes');
+    note.appendChild(doc.createElement('rest'));
+    kept.forEach(child => note.appendChild(child));
+
+    if (replacementStaff) setXmlChildText(note, 'staff', replacementStaff);
+  }
+
+  function remapStaffNumberedAttributes(attributes, activeStaves, staffMap) {
+    const numberedNames = new Set(['clef', 'staff-details', 'staff-layout']);
+
+    Array.from(attributes.children || []).forEach(child => {
+      const name = _xmlLocalName(child);
+      if (name === 'staves') {
+        child.textContent = String(staffMap.size);
+        return;
+      }
+      if (!numberedNames.has(name)) return;
+
+      const originalStaff = child.getAttribute('number') || '1';
+      if (!activeStaves.has(originalStaff)) {
+        child.remove();
+        return;
+      }
+
+      child.setAttribute('number', staffMap.get(originalStaff) || originalStaff);
+    });
+  }
+
+  function remapOrRemoveStaffedElement(element, activeStaves, staffMap) {
+    const staffEl = _xmlFirst(element, 'staff');
+    if (!staffEl) return;
+
+    const originalStaff = _xmlText(staffEl) || '1';
+    if (!activeStaves.has(originalStaff)) {
+      element.remove();
+      return;
+    }
+
+    staffEl.textContent = staffMap.get(originalStaff) || originalStaff;
+  }
+
+  function compactPartToActiveStaves(part, activeStaves) {
+    if (!part || !activeStaves || !activeStaves.size) return false;
+
+    const allStaves = partStaffNames(part);
+    const selectedStaves = allStaves.filter(staff => activeStaves.has(staff));
+    if (!selectedStaves.length || selectedStaves.length === allStaves.length) return false;
+
+    const staffMap = new Map(selectedStaves.map((staff, index) => [staff, String(index + 1)]));
+
+    _xmlChildren(part, 'measure').forEach(measure => {
+      _xmlChildren(measure, 'attributes').forEach(attributes => {
+        remapStaffNumberedAttributes(attributes, activeStaves, staffMap);
+      });
+
+      Array.from(measure.children || []).forEach(child => {
+        const name = _xmlLocalName(child);
+        if (name === 'note') {
+          const originalStaff = _xmlText(child, 'staff') || '1';
+          if (activeStaves.has(originalStaff)) {
+            setXmlChildText(child, 'staff', staffMap.get(originalStaff) || originalStaff);
+          } else {
+            suppressNoteForHiddenVoice(child, '1');
+          }
+        } else if (name === 'direction' || name === 'harmony' || name === 'figured-bass') {
+          remapOrRemoveStaffedElement(child, activeStaves, staffMap);
+        }
+      });
+    });
+
+    return true;
+  }
+
+  function filteredXmlForVisibleVoices(state) {
+    const source = state?._xmlText;
+    if (!source || !source.trim().startsWith('<')) return source;
+
+    const active = getVisibleVoiceSet(state);
+    if (!active) return source;
+
+    let doc;
+    try {
+      doc = new DOMParser().parseFromString(source, 'application/xml');
+    } catch {
+      return source;
+    }
+    if (!doc || doc.getElementsByTagName('parsererror').length) return source;
+
+    const score = doc.documentElement;
+    const rootName = _xmlLocalName(score);
+    const activeParts = activePartIndexes(active);
+    const pruneInactiveParts = active.size > 0 && activeParts.size > 0;
+
+    function markNote(note, partIndex) {
+      const voice = _xmlText(note, 'voice') || '1';
+      const staff = _xmlText(note, 'staff') || '1';
+      if (!active.has(makeVoiceKey(partIndex, voice, staff))) {
+        suppressNoteForHiddenVoice(note);
+      }
+    }
+
+    if (rootName === 'score-partwise') {
+      _xmlChildren(score, 'part').forEach((part, partIndex) => {
+        const partId = part.getAttribute('id') || '';
+        if (pruneInactiveParts && !activeParts.has(partIndex)) {
+          part.remove();
+          removeScorePart(score, partId);
+          return;
+        }
+        const activeStaves = activeStavesForPart(active, partIndex);
+        const compacted = compactPartToActiveStaves(part, activeStaves);
+        if (!compacted) Array.from(part.getElementsByTagName('note')).forEach(note => markNote(note, partIndex));
+      });
+    } else if (rootName === 'score-timewise') {
+      const partIndexById = new Map();
+      _xmlChildren(score, 'measure').forEach(measure => {
+        _xmlChildren(measure, 'part').forEach(part => {
+          const partId = part.getAttribute('id') || `P${partIndexById.size + 1}`;
+          if (!partIndexById.has(partId)) partIndexById.set(partId, partIndexById.size);
+          const partIndex = partIndexById.get(partId);
+          if (pruneInactiveParts && !activeParts.has(partIndex)) {
+            part.remove();
+            removeScorePart(score, partId);
+            return;
+          }
+          Array.from(part.getElementsByTagName('note')).forEach(note => markNote(note, partIndex));
+        });
+      });
+    }
+
+    try {
+      return new XMLSerializer().serializeToString(doc);
+    } catch {
+      return source;
+    }
+  }
+
+  async function handleVoiceFilterChange(state) {
+    const checked = Array.from(state.voiceListEl.querySelectorAll('input[type="checkbox"]:checked'))
+      .map(input => input.value);
+    state._activeVoiceKeys = new Set(checked);
+
+    const wasPlaying = !!state.playing;
+    try {
+      if (typeof NS.stopAudio === 'function') NS.stopAudio(state);
+    } catch {}
+
+    await NS.loadAndRenderScore(state);
+    NS.updateTransportUI(state);
+
+    if (wasPlaying && typeof NS.playAudio === 'function') {
+      await NS.playAudio(state);
+      NS.updateTransportUI(state);
+    }
+  }
+
+  NS.getActiveVoiceKeys = function (state) {
+    return getVisibleVoiceSet(state);
+  };
+
+  NS.makeVoiceKey = makeVoiceKey;
+
+  NS.ensureVoiceFilterUI = function (state) {
+    if (!state || !state.currentXmlDoc) return;
+
+    if (!state.voiceFilterEl) {
+      const panel = document.createElement('div');
+      panel.className = 'sp-voice-filter';
+      panel.setAttribute('aria-live', 'polite');
+
+      const title = document.createElement('div');
+      title.className = 'sp-voice-filter-title';
+      title.textContent = 'Φωνές:';
+
+      const list = document.createElement('div');
+      list.className = 'sp-voice-filter-list';
+
+      panel.appendChild(title);
+      panel.appendChild(list);
+
+      if (state.renderEl && state.renderEl.parentNode) {
+        state.renderEl.parentNode.insertBefore(panel, state.renderEl);
+      } else {
+        state.wrap.appendChild(panel);
+      }
+
+      state.voiceFilterEl = panel;
+      state.voiceListEl = list;
+    } else if (!state.voiceListEl) {
+      state.voiceListEl = state.voiceFilterEl.querySelector('.sp-voice-filter-list');
+    }
+
+    if (!state.voiceListEl) return;
+
+    const options = collectVoiceOptions(state.currentXmlDoc);
+    state._voiceOptions = options;
+
+    if (!options.length) {
+      state.voiceFilterEl.hidden = true;
+      state._activeVoiceKeys = null;
+      state._voiceOptionsSig = '';
+      return;
+    }
+
+    const optionKeys = options.map(option => option.key);
+    if (!state._activeVoiceKeys) {
+      state._activeVoiceKeys = new Set(optionKeys);
+    } else {
+      const allowed = new Set(optionKeys);
+      state._activeVoiceKeys = new Set(Array.from(state._activeVoiceKeys).filter(key => allowed.has(key)));
+    }
+
+    const activeSig = Array.from(state._activeVoiceKeys).sort().join(',');
+    const nextSig = options.map(option => `${option.key}:${option.label}`).join('|') + `::${activeSig}`;
+    if (state._voiceOptionsSig === nextSig) {
+      state.voiceFilterEl.hidden = false;
+      return;
+    }
+    state._voiceOptionsSig = nextSig;
+
+    state.voiceListEl.innerHTML = '';
+    options.forEach(option => {
+      const label = document.createElement('label');
+      label.className = 'sp-voice-option';
+
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = option.key;
+      input.checked = state._activeVoiceKeys.has(option.key);
+      input.addEventListener('change', () => {
+        handleVoiceFilterChange(state).catch(e => {
+          console.warn('[score-player] voice filter change error', e);
+        });
+      });
+
+      const text = document.createElement('span');
+      text.textContent = option.label;
+
+      label.appendChild(input);
+      label.appendChild(text);
+      state.voiceListEl.appendChild(label);
+    });
+
+    state.voiceFilterEl.hidden = false;
+  };
 
 
 
@@ -452,6 +899,46 @@
     return binary;
   }
 
+  async function unzipMxlBufferToXml(buffer) {
+    try {
+      const JSZip = w.JSZip || (w.opensheetmusicdisplay && w.opensheetmusicdisplay.JSZip);
+      if (!JSZip) return null;
+
+      const zip = await JSZip.loadAsync(buffer);
+      const candidates = [];
+      zip.forEach((relPath, file) => {
+        const lower = relPath.toLowerCase();
+        if (file.dir) return;
+        if (lower.endsWith(".xml") || lower.endsWith(".musicxml")) {
+          candidates.push({ relPath, lower, file });
+        }
+      });
+
+      if (!candidates.length) return null;
+
+      let xmlEntry =
+        candidates.find((c) => c.lower.endsWith(".musicxml")) ||
+        candidates.find((c) => !c.lower.includes("meta-inf/") && !c.lower.endsWith("container.xml")) ||
+        candidates[0];
+
+      return await xmlEntry.file.async("text");
+    } catch (e) {
+      console.warn("[score-player] unzip MXL error", e);
+      return null;
+    }
+  }
+
+  function parseCurrentXmlDoc(state) {
+    try {
+      state.currentXmlDoc = new DOMParser().parseFromString(
+        state._xmlText,
+        "application/xml"
+      );
+    } catch {
+      state.currentXmlDoc = null;
+    }
+  }
+
 
     // --------------------------- OSMD renderWithOsmd ---------------------------
   async function renderWithOsmd(state, horizontal) {
@@ -462,36 +949,42 @@
       const ct = (res.headers.get("Content-Type") || "").toLowerCase();
       const url = String(state.fileUrl || "").toLowerCase();
 
+      const isXmlContent =
+        url.endsWith(".xml") ||
+        url.endsWith(".musicxml") ||
+        ct.includes("application/vnd.recordare.musicxml+xml") ||
+        ct.includes("application/xml") ||
+        ct.includes("text/xml");
+
       const isMxl =
+        !isXmlContent && (
         url.endsWith(".mxl") ||
         ct.includes("application/vnd.recordare.musicxml") ||
-        ct.includes("application/vnd.recordare.musicxml+xml") ||
         ct.includes("application/x-mxl") ||
         ct.includes("application/zip") ||
         ct.includes("application/x-zip-compressed") ||
         ct.includes("application/octet-stream") ||
         ct.includes("musicxml") ||
-        ct.includes("mxl");
+        ct.includes("mxl")
+        );
 
 
       if (isMxl) {
-        // MXL (zip) → διαβάζουμε binary και το κάνουμε binary string για την OSMD
+        // MXL (zip) -> προτιμάμε καθαρό MusicXML ώστε να δουλεύει και το voice filter.
         const buffer = await res.arrayBuffer();
-        state._xmlText = arrayBufferToBinaryString(buffer);
+        const xmlText = await unzipMxlBufferToXml(buffer);
 
-        // ΔΕΝ προσπαθούμε να κάνουμε DOMParser εδώ, δεν είναι XML string
-        state.currentXmlDoc = null;
+        if (xmlText) {
+          state._xmlText = xmlText;
+          parseCurrentXmlDoc(state);
+        } else {
+          state._xmlText = arrayBufferToBinaryString(buffer);
+          state.currentXmlDoc = null;
+        }
       } else {
         // Καθαρό MusicXML → text
         state._xmlText = await res.text();
-        try {
-          state.currentXmlDoc = new DOMParser().parseFromString(
-            state._xmlText,
-            "application/xml"
-          );
-        } catch {
-          state.currentXmlDoc = null;
-        }
+        parseCurrentXmlDoc(state);
       }
     }
 
@@ -547,9 +1040,18 @@
       state.osmd.clear();
     } catch {}
 
+    if (hasNoVisibleVoices(state)) {
+      if (state.renderEl) {
+        state.renderEl.innerHTML = '<div class="sp-empty-voices" role="status">Επίλεξε φωνή</div>';
+      }
+      return;
+    }
+
+    const osmdInput = filteredXmlForVisibleVoices(state);
+
     // 5. Φόρτωση δεδομένων στην OSMD (είτε MXL binary-string είτε XML string)
     try {
-      await state.osmd.load(state._xmlText);
+      await state.osmd.load(osmdInput);
       setupOsmdTranspose(state);
 
       try {
@@ -707,6 +1209,10 @@ async function renderAccordingToMode(state) {
   updateViewButtons(state);
 
   await renderWithOsmd(state, state.viewMode === 'horizontal');
+
+  if (typeof NS.ensureVoiceFilterUI === 'function') {
+    try { NS.ensureVoiceFilterUI(state); } catch (e) { console.warn('[score-player] voice filter UI error', e); }
+  }
 
   const _appliedSvgTempo = applyTempoFromSvg(state);
   if (_appliedSvgTempo && state.tempoVal) state.tempoVal.style.visibility = "visible";
@@ -1259,4 +1765,3 @@ function ensureViewToggleUI(state) {
   });
 
 })(window);
-

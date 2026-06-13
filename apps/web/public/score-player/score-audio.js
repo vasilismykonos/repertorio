@@ -413,6 +413,37 @@
       if (w.Tone?.Transport) w.Tone.Transport.bpm.value = clamp(_num(bpm, 120), 20, 300);
     }
 
+    function _voiceEventKey(ev) {
+      if (typeof NS.makeVoiceKey === 'function') {
+        return NS.makeVoiceKey(ev.part, ev.voice || '1', ev.staff || '1');
+      }
+      return [ev.part, ev.voice || '1', ev.staff || '1'].join('|');
+    }
+
+    function _getActiveVoiceKeys(state) {
+      try {
+        if (typeof NS.getActiveVoiceKeys === 'function') {
+          return NS.getActiveVoiceKeys(state);
+        }
+      } catch {}
+      return null;
+    }
+
+    function _recomputeOnsetTicks(events) {
+      const onsetTicks = [];
+      let last = -1;
+      events
+        .slice()
+        .sort((a, b) => a.tTone - b.tTone || (a.isRest - b.isRest))
+        .forEach((e) => {
+          if (e.tTone !== last) {
+            onsetTicks.push(e.tTone);
+            last = e.tTone;
+          }
+        });
+      return onsetTicks;
+    }
+
     async function _loadXmlText(state) {
       // 1) Αν έχουμε ήδη κάτι στο state._xmlText (από score-player.js)
       if (state._xmlText && state._xmlText.length > 40) {
@@ -1099,7 +1130,14 @@
       }
 
 
-      state._onsetTicks = parsed.onsetTicks || [];
+      const activeVoiceKeys = _getActiveVoiceKeys(state);
+      const scoreEvents = activeVoiceKeys
+        ? parsed.events.filter(ev => activeVoiceKeys.has(_voiceEventKey(ev)))
+        : parsed.events;
+
+      state._onsetTicks = activeVoiceKeys
+        ? _recomputeOnsetTicks(scoreEvents)
+        : (parsed.onsetTicks || []);
 
       try { w.Tone.Transport.PPQ = parsed.ppq || DEFAULT_PPQ; } catch {}
       state.baseBpm = parsed.bpm || 120;
@@ -1115,8 +1153,13 @@
       NS.__globalTranspose = transposeNow;
       NS.updateTransposeUI?.(state);
 
+      if (!scoreEvents.length) {
+        console.log('[score-audio] Δεν υπάρχουν ενεργές νότες για τις επιλεγμένες φωνές.');
+        return true;
+      }
+
       // Χτίσε audio events με transporto
-      const partEvents = parsed.events.map(ev => {
+      const partEvents = scoreEvents.map(ev => {
         if (ev.isRest) {
           return { time: w.Tone.Ticks(ev.tTone), durationTicks: ev.dTone, rest: true };
         }

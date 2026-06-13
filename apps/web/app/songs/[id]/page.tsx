@@ -545,7 +545,7 @@ export default async function SongPage({ params }: SongPageProps) {
 
   const defaultPanelsOpen = currentUser?.profile
     ? readSongToggleDefaultsFromProfile(currentUser.profile, hasChords)
-    : { info: true, singerTunes: true, chords: hasChords, scores: true };
+    : { info: true, singerTunes: true, chords: hasChords, scores: false };
 
   const redirectDefault = currentUser?.profile
     ? readSongsRedirectDefaultFromProfile(currentUser.profile)

@@ -23,6 +23,12 @@ type ListGroupSummaryDto = {
   listsCount: number;
 };
 
+type CreateListBody = {
+  title?: string;
+  marked?: boolean;
+  groupId?: number | string | null;
+};
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -68,6 +74,66 @@ export async function GET(req: NextRequest) {
   try {
     const data = await fetchJson<ListsIndexResponse>(`/lists?${qs.toString()}`);
     return NextResponse.json(data, { status: 200, headers: NO_STORE_HEADERS });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: String(e?.message || e || "Failed") },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
+  }
+}
+export async function POST(req: NextRequest) {
+  const user = await getCurrentUserFromApi(req);
+  if (!user) {
+    return NextResponse.json(
+      { error: "Not authenticated" },
+      { status: 401, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  let body: CreateListBody | null = null;
+  try {
+    body = (await req.json()) as CreateListBody;
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid JSON body" },
+      { status: 400, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  const title = String(body?.title || "").trim();
+  if (!title) {
+    return NextResponse.json(
+      { error: "Title is required" },
+      { status: 400, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  const groupId =
+    body?.groupId === null || body?.groupId === undefined || body?.groupId === ""
+      ? null
+      : Number(body.groupId);
+
+  if (groupId !== null && (!Number.isFinite(groupId) || groupId <= 0)) {
+    return NextResponse.json(
+      { error: "Invalid groupId" },
+      { status: 400, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  try {
+    const data = await fetchJson(
+      `/lists?userId=${encodeURIComponent(String(user.id))}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          marked: Boolean(body?.marked),
+          groupId,
+        }),
+      },
+    );
+
+    return NextResponse.json(data, { status: 201, headers: NO_STORE_HEADERS });
   } catch (e: any) {
     return NextResponse.json(
       { error: String(e?.message || e || "Failed") },

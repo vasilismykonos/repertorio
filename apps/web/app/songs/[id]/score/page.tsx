@@ -174,6 +174,11 @@ export default async function SongScorePage({ params }: PageProps) {
             </div>
           </div>
 
+          <div className="sp-voice-filter" aria-live="polite">
+            <div className="sp-voice-filter-title">Φωνές:</div>
+            <div className="sp-voice-filter-list" />
+          </div>
+
           {/* Εκεί μέσα θα ρίξει ο OSMD το SVG, όπως παλιά */}
           <div className="sp-renderer" aria-live="polite" />
         </div>
@@ -216,7 +221,7 @@ export default async function SongScorePage({ params }: PageProps) {
         strategy="afterInteractive"
       />
       <Script
-        src="/score-player/score-player.js"
+        src="/score-player/score-player.js?v=voice-filter-20260613c"
         strategy="afterInteractive"
       />
 

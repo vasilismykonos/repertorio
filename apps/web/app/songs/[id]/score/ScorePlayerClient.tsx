@@ -151,13 +151,21 @@ export default function ScorePlayerClient({ fileUrl, title }: Props) {
             </button>
           </div>
 
+          <div className="sp-voice-filter" aria-live="polite">
+            <div className="sp-voice-filter-title">Φωνές:</div>
+            <div className="sp-voice-filter-list" />
+          </div>
+
           {/* εδώ ζωγραφίζει ο OSMD το SVG */}
           <div className="sp-renderer" aria-live="polite" />
         </div>
       </div>
 
       {/* CSS του player */}
-      <link rel="stylesheet" href="/score-player/score-player.css" />
+      <link
+        rel="stylesheet"
+        href="/score-player/score-player.css?v=voice-filter-20260613c"
+      />
 
       {/* OSMD + Tone + JSZip + modules */}
       <Script
@@ -184,7 +192,10 @@ export default function ScorePlayerClient({ fileUrl, title }: Props) {
         strategy="afterInteractive"
       />
       <Script src="/score-player/score-audio.js" strategy="afterInteractive" />
-      <Script src="/score-player/score-player.js" strategy="afterInteractive" />
+      <Script
+        src="/score-player/score-player.js?v=voice-filter-20260613c"
+        strategy="afterInteractive"
+      />
 
       {/* Αρχικοποίηση plugin (ξύπνημα μετά το φόρτωμα των scripts) */}
       <Script id="score-player-init" strategy="afterInteractive">

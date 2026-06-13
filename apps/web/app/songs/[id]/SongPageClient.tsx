@@ -66,11 +66,19 @@ type SongListOption = {
   list_title?: string;
 };
 
+type ListGroupOption = {
+  id: number;
+  title: string;
+  fullTitle?: string | null;
+  listsCount?: number;
+};
+
 type ListsIndexResponse = {
   items: SongListOption[];
   total: number;
   page: number;
   pageSize: number;
+  groups?: ListGroupOption[];
 };
 
 type AddSongToListResponse = {
@@ -79,6 +87,7 @@ type AddSongToListResponse = {
   sortId: number;
   songId: number | null;
   title: string | null;
+  itemsCount?: number;
 };
 
 const HEADER_OFFSET_PX = 0;
@@ -88,6 +97,7 @@ const ROOM_MARGIN = 16;
 const DRAG_CLICK_THRESHOLD_PX = 6;
 
 const TOUR_STORAGE_KEY = "tour_song_page_v1";
+const LIST_PICKER_LAST_SELECTED_STORAGE_KEY = "repertorio_last_selected_list_id_v1";
 
 const LYRICS_SCALE_STORAGE_KEY = "repertorio_lyrics_scale_v1";
 const LYRICS_BASE_FONT_SIZE = 15;
@@ -178,6 +188,43 @@ function sortListsForPicker(items: SongListOption[]): SongListOption[] {
   });
 }
 
+function stripTrailingCount(label: string): string {
+  return String(label || "").replace(/\s*\(\d+\)\s*$/, "").trim();
+}
+
+function normalizeGroupTitle(group: Partial<ListGroupOption> | null | undefined): string {
+  const raw = group?.fullTitle || group?.title || "";
+  return stripTrailingCount(raw);
+}
+
+function sortGroupsForPicker(items: ListGroupOption[]): ListGroupOption[] {
+  const seen = new Set<number>();
+  const out: ListGroupOption[] = [];
+
+  for (const group of items) {
+    const id = Number(group?.id);
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      ...group,
+      id,
+      title: normalizeGroupTitle(group) || group.title || `Ομάδα #${id}`,
+    });
+  }
+
+  return out.sort((a, b) =>
+    normalizeGroupTitle(a).localeCompare(normalizeGroupTitle(b), "el", {
+      sensitivity: "base",
+    }),
+  );
+}
+
+function toNullablePositiveInt(value: unknown, fallback: number | null = null): number | null {
+  if (value === null || value === undefined || value === "") return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 function isSafeExternalHttpUrl(value: string): boolean {
   const raw = String(value || "").trim();
   if (!raw) return false;
@@ -217,7 +264,19 @@ export default function SongPageClient(props: Props) {
   const [listPickerError, setListPickerError] = useState<string | null>(null);
   const [listPickerQuery, setListPickerQuery] = useState("");
   const [availableLists, setAvailableLists] = useState<SongListOption[]>([]);
+  const [availableListGroups, setAvailableListGroups] = useState<ListGroupOption[]>([]);
+  const [lastSelectedListId, setLastSelectedListId] = useState<number | null>(null);
   const [lastAddedList, setLastAddedList] = useState<SongListOption | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const raw = window.localStorage.getItem(LIST_PICKER_LAST_SELECTED_STORAGE_KEY);
+      const id = Number(raw);
+      if (Number.isFinite(id) && id > 0) setLastSelectedListId(id);
+    } catch {}
+  }, []);
 
   const listId = useMemo(() => {
     const v = sp.get("listId") ?? "";
@@ -536,17 +595,33 @@ export default function SongPageClient(props: Props) {
     setPanels((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
+  const listGroupTitleById = useMemo(() => {
+    const titles = new Map<number, string>();
+
+    for (const group of availableListGroups) {
+      const id = Number(group.id);
+      if (!Number.isFinite(id) || id <= 0 || titles.has(id)) continue;
+      titles.set(id, normalizeGroupTitle(group));
+    }
+
+    return titles;
+  }, [availableListGroups]);
+
   const filteredLists = useMemo(() => {
     const q = listPickerQuery.trim().toLocaleLowerCase("el");
     const base = sortListsForPicker(availableLists);
-
     if (!q) return base;
 
     return base.filter((list) => {
       const title = normalizeListTitle(list).toLocaleLowerCase("el");
-      return title.includes(q);
+      const groupTitle =
+        list.groupId === null
+          ? "χωρίς ομάδα"
+          : (listGroupTitleById.get(list.groupId) || "").toLocaleLowerCase("el");
+
+      return title.includes(q) || groupTitle.includes(q);
     });
-  }, [availableLists, listPickerQuery]);
+  }, [availableLists, listGroupTitleById, listPickerQuery]);
 
   async function loadAvailableLists() {
     setListPickerLoading(true);
@@ -571,10 +646,16 @@ export default function SongPageClient(props: Props) {
         data && typeof data === "object" && Array.isArray((data as any).items)
           ? ((data as any).items as SongListOption[])
           : [];
+      const groupsRaw =
+        data && typeof data === "object" && Array.isArray((data as any).groups)
+          ? ((data as any).groups as ListGroupOption[])
+          : [];
 
       setAvailableLists(sortListsForPicker(itemsRaw));
+      setAvailableListGroups(sortGroupsForPicker(groupsRaw));
     } catch (e: any) {
       setAvailableLists([]);
+      setAvailableListGroups([]);
       setListPickerError(String(e?.message || e || "Αποτυχία φόρτωσης λιστών."));
     } finally {
       setListPickerLoading(false);
@@ -593,6 +674,69 @@ export default function SongPageClient(props: Props) {
     setListPickerOpen(false);
     setListPickerError(null);
     setListPickerQuery("");
+  }
+
+  async function handleCreateList(input: {
+    title: string;
+    groupId: number | null;
+    marked: boolean;
+  }): Promise<SongListOption> {
+    const title = input.title.trim();
+    if (!title) throw new Error("Ο τίτλος λίστας είναι υποχρεωτικός.");
+
+    setListPickerError(null);
+
+    const res = await fetch("/api/lists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        title,
+        groupId: input.groupId,
+        marked: input.marked,
+      }),
+    });
+
+    const body = await readJson(res);
+
+    if (!res.ok) {
+      const msg = (body as any)?.error || (body as any)?.message || `Αποτυχία δημιουργίας λίστας (HTTP ${res.status})`;
+      throw new Error(Array.isArray(msg) ? msg.join(", ") : String(msg));
+    }
+
+    const raw = (body as any)?.list ?? body;
+    const id = Number((raw as any)?.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      throw new Error("Η δημιουργία λίστας δεν επέστρεψε έγκυρο id.");
+    }
+
+    const list: SongListOption = {
+      id,
+      title: normalizeListTitle(raw as Partial<SongListOption>) || title,
+      groupId: toNullablePositiveInt((raw as any)?.groupId, input.groupId),
+      marked: Boolean((raw as any)?.marked ?? input.marked),
+      role: ((raw as any)?.role as SongListOption["role"]) || "OWNER",
+      itemsCount: Number((raw as any)?.itemsCount ?? 0),
+      containsSong: false,
+      selected: false,
+      isSelected: false,
+    };
+
+    setAvailableLists((prev) => sortListsForPicker([...prev.filter((x) => x.id !== id), list]));
+
+    if (list.groupId !== null) {
+      setAvailableListGroups((prev) =>
+        sortGroupsForPicker(
+          prev.map((group) =>
+            group.id === list.groupId
+              ? { ...group, listsCount: Number(group.listsCount ?? 0) + 1 }
+              : group,
+          ),
+        ),
+      );
+    }
+
+    return list;
   }
 
   async function handleAddSongToList(list: SongListOption) {
@@ -616,25 +760,42 @@ export default function SongPageClient(props: Props) {
         throw new Error(msg);
       }
 
-      setAvailableLists((prev) =>
-        prev.map((x) =>
-          x.id === list.id
-            ? {
-                ...x,
-                containsSong: true,
-                selected: true,
-                isSelected: true,
-              }
-            : x,
-        ),
-      );
+      const nextItemsCount =
+        data && typeof data === "object" && typeof (data as any).itemsCount === "number"
+          ? Number((data as any).itemsCount)
+          : list.itemsCount + 1;
+
+      setAvailableLists((prev) => {
+        let found = false;
+        const selectedList = {
+          ...list,
+          itemsCount: nextItemsCount,
+          containsSong: true,
+          selected: true,
+          isSelected: true,
+        };
+
+        const next = prev.map((x) => {
+          if (x.id !== list.id) return x;
+          found = true;
+          return { ...x, ...selectedList };
+        });
+
+        return sortListsForPicker(found ? next : [...next, selectedList]);
+      });
 
       setLastAddedList({
         ...list,
+        itemsCount: nextItemsCount,
         containsSong: true,
         selected: true,
         isSelected: true,
       });
+      setLastSelectedListId(list.id);
+
+      try {
+        window.localStorage.setItem(LIST_PICKER_LAST_SELECTED_STORAGE_KEY, String(list.id));
+      } catch {}
 
       setListPickerOpen(false);
       setListPickerQuery("");
@@ -1062,10 +1223,13 @@ export default function SongPageClient(props: Props) {
         loading={listPickerLoading}
         error={listPickerError}
         availableLists={availableLists}
+        availableGroups={availableListGroups}
         filteredLists={filteredLists}
+        lastSelectedListId={lastSelectedListId}
         submittingListId={listPickerSubmittingListId}
         onClose={closeListPicker}
         onSelectList={handleAddSongToList}
+        onCreateList={handleCreateList}
         normalizeListTitle={normalizeListTitle}
       />
 

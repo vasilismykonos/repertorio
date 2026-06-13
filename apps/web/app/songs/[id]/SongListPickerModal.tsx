@@ -1,24 +1,37 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Button from "../../components/buttons/Button";
 import { A } from "../../components/buttons";
+
+type ListRole = "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
 
 type SongListOption = {
   id: number;
   title: string;
   groupId: number | null;
   marked: boolean;
-  role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
+  role: ListRole;
   itemsCount: number;
   name?: string;
   listTitle?: string;
   list_title?: string;
-
-  // Νέα optional flags ώστε το modal να ξέρει αν η λίστα περιέχει ήδη το τραγούδι
   containsSong?: boolean;
   selected?: boolean;
   isSelected?: boolean;
+};
+
+type ListGroupOption = {
+  id: number;
+  title: string;
+  fullTitle?: string | null;
+  listsCount?: number;
+};
+
+type CreateListInput = {
+  title: string;
+  groupId: number | null;
+  marked: boolean;
 };
 
 type Props = {
@@ -29,16 +42,40 @@ type Props = {
   loading: boolean;
   error: string | null;
   availableLists: SongListOption[];
+  availableGroups: ListGroupOption[];
   filteredLists: SongListOption[];
+  lastSelectedListId: number | null;
   submittingListId: number | null;
   onClose: () => void;
   onSelectList: (list: SongListOption) => void | Promise<void>;
+  onCreateList: (input: CreateListInput) => Promise<SongListOption>;
   normalizeListTitle: (list: Partial<SongListOption> | null | undefined) => string;
 };
 
 function isListAlreadySelected(list: SongListOption): boolean {
   return Boolean(list.containsSong || list.selected || list.isSelected);
 }
+
+function stripTrailingCount(label: string): string {
+  return String(label || "").replace(/\s*\(\d+\)\s*$/, "").trim();
+}
+
+function normalizeGroupTitle(group: Partial<ListGroupOption> | null | undefined): string {
+  const raw = group?.fullTitle || group?.title || "";
+  return stripTrailingCount(raw);
+}
+
+const inputStyle: React.CSSProperties = {
+  width: "28ch",
+  maxWidth: "100%",
+  boxSizing: "border-box",
+  borderRadius: 10,
+  border: "1px solid #d0d0d0",
+  background: "#fff",
+  color: "#111",
+  padding: "10px 12px",
+  outline: "none",
+};
 
 export default function SongListPickerModal({
   open,
@@ -48,26 +85,84 @@ export default function SongListPickerModal({
   loading,
   error,
   availableLists,
+  availableGroups,
   filteredLists,
+  lastSelectedListId,
   submittingListId,
   onClose,
   onSelectList,
+  onCreateList,
   normalizeListTitle,
 }: Props) {
+  const [creatingList, setCreatingList] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setCreatingList(false);
+    setLocalError(null);
+  }, [open]);
+
+  const groupLabelById = useMemo(() => {
+    const labels = new Map<number, string>();
+
+    for (const group of availableGroups) {
+      const id = Number(group.id);
+      if (!Number.isFinite(id) || id <= 0 || labels.has(id)) continue;
+      labels.set(id, normalizeGroupTitle(group) || `Ομάδα #${id}`);
+    }
+
+    return labels;
+  }, [availableGroups]);
+
   const sortedFilteredLists = useMemo(() => {
     return [...filteredLists].sort((a, b) => {
+      const aLastSelected = a.id === lastSelectedListId;
+      const bLastSelected = b.id === lastSelectedListId;
       const aSelected = isListAlreadySelected(a);
       const bSelected = isListAlreadySelected(b);
 
+      if (aLastSelected !== bLastSelected) return aLastSelected ? -1 : 1;
       if (aSelected !== bSelected) return aSelected ? -1 : 1;
-
       if (Boolean(a.marked) !== Boolean(b.marked)) return a.marked ? -1 : 1;
 
       return normalizeListTitle(a).localeCompare(normalizeListTitle(b), "el", {
         sensitivity: "base",
       });
     });
-  }, [filteredLists, normalizeListTitle]);
+  }, [filteredLists, lastSelectedListId, normalizeListTitle]);
+
+  const searchTitle = query.trim();
+  const mutating = submittingListId !== null || creatingList;
+  const shownError = localError || error;
+  const canCreateFromSearch =
+    searchTitle.length > 0 && !loading && !error && sortedFilteredLists.length === 0;
+
+  async function handleCreateListAndAdd() {
+    if (mutating) return;
+
+    const title = searchTitle;
+    if (!title) {
+      setLocalError("Συμπλήρωσε τίτλο λίστας.");
+      return;
+    }
+
+    setCreatingList(true);
+    setLocalError(null);
+
+    try {
+      const list = await onCreateList({
+        title,
+        groupId: null,
+        marked: false,
+      });
+      await onSelectList(list);
+    } catch (e: any) {
+      setLocalError(String(e?.message || e || "Αποτυχία δημιουργίας λίστας."));
+    } finally {
+      setCreatingList(false);
+    }
+  }
 
   if (!open) return null;
 
@@ -75,7 +170,7 @@ export default function SongListPickerModal({
     <div
       data-no-swipe
       onClick={() => {
-        if (submittingListId === null) onClose();
+        if (!mutating) onClose();
       }}
       style={{
         position: "fixed",
@@ -95,8 +190,8 @@ export default function SongListPickerModal({
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",
-          maxWidth: 640,
-          maxHeight: "85vh",
+          maxWidth: 760,
+          maxHeight: "88vh",
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
@@ -126,7 +221,7 @@ export default function SongListPickerModal({
             variant="secondary"
             action="cancel"
             onClick={onClose}
-            disabled={submittingListId !== null}
+            disabled={mutating}
             title="Κλείσιμο"
             aria-label="Κλείσιμο"
             iconOnly
@@ -135,26 +230,18 @@ export default function SongListPickerModal({
           </Button>
         </div>
 
-        <div style={{ padding: 16, borderBottom: "1px solid #222" }}>
+        <div style={{ padding: 16, borderBottom: "1px solid #222", display: "grid", gap: 10 }}>
           <input
             type="text"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Αναζήτηση λίστας..."
+            placeholder="Αναζήτηση λίστας ή ομάδας..."
             autoFocus
-            style={{
-              width: "100%",
-              borderRadius: 10,
-              border: "1px solid #333",
-              background: "#111",
-              color: "inherit",
-              padding: "10px 12px",
-              outline: "none",
-            }}
+            style={inputStyle}
           />
         </div>
 
-        {error ? (
+        {shownError ? (
           <div
             style={{
               margin: 16,
@@ -166,7 +253,7 @@ export default function SongListPickerModal({
               color: "#ffd7d7",
             }}
           >
-            {error}
+            {shownError}
           </div>
         ) : null}
 
@@ -174,111 +261,143 @@ export default function SongListPickerModal({
           style={{
             padding: 16,
             overflowY: "auto",
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
+            display: "grid",
+            gap: 14,
           }}
         >
-          {loading ? (
-            <div style={{ opacity: 0.85 }}>Φόρτωση λιστών...</div>
-          ) : sortedFilteredLists.length === 0 ? (
-            <div style={{ opacity: 0.85 }}>
-              {availableLists.length === 0
-                ? "Δεν βρέθηκαν διαθέσιμες λίστες."
-                : "Δεν βρέθηκαν λίστες για αυτό το φίλτρο."}
-            </div>
-          ) : (
-            sortedFilteredLists.map((list) => {
-              const busy = submittingListId === list.id;
-              const alreadySelected = isListAlreadySelected(list);
-              const title = normalizeListTitle(list);
+          <div style={{ display: "grid", gap: 10 }}>
+            {loading ? (
+              <div style={{ opacity: 0.85 }}>Φόρτωση λιστών...</div>
+            ) : sortedFilteredLists.length === 0 ? (
+              <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ opacity: 0.85 }}>
+                  {searchTitle
+                    ? `Δεν βρέθηκε λίστα ή ομάδα για "${searchTitle}".`
+                    : availableLists.length === 0
+                      ? "Δεν βρέθηκαν διαθέσιμες λίστες."
+                      : "Πληκτρολόγησε για αναζήτηση λίστας ή ομάδας."}
+                </div>
 
-              const disabled = submittingListId !== null || alreadySelected;
+                {canCreateFromSearch ? (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      action="new"
+                      showLabel
+                      disabled={mutating}
+                      onClick={() => void handleCreateListAndAdd()}
+                    >
+                      {creatingList ? "Δημιουργία..." : "Δημιουργία και προσθήκη"}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              sortedFilteredLists.map((list) => {
+                const busy = submittingListId === list.id;
+                const alreadySelected = isListAlreadySelected(list);
+                const isLastSelected = list.id === lastSelectedListId;
+                const title = normalizeListTitle(list);
+                const groupLabel =
+                  list.groupId === null
+                    ? "Χωρίς ομάδα"
+                    : groupLabelById.get(list.groupId) || `Ομάδα #${list.groupId}`;
+                const disabled = mutating || alreadySelected;
 
-              return (
-                <button
-                  key={list.id}
-                  type="button"
-                  onClick={() => {
-                    if (alreadySelected) return;
-                    void onSelectList(list);
-                  }}
-                  disabled={disabled}
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    borderRadius: 14,
-                    border: alreadySelected ? "1px solid #1f6f45" : "1px solid #333",
-                    background: busy
-                      ? "#18221a"
-                      : alreadySelected
-                        ? "#0f1f17"
-                        : "#111",
-                    color: alreadySelected ? "#d7ffe8" : "inherit",
-                    padding: "12px 14px",
-                    cursor: disabled ? "default" : "pointer",
-                    opacity:
-                      submittingListId !== null && !busy
-                        ? 0.7
-                        : 1,
-                  }}
-                >
-                  <div
+                return (
+                  <button
+                    key={list.id}
+                    type="button"
+                    onClick={() => {
+                      if (alreadySelected) return;
+                      void onSelectList(list);
+                    }}
+                    disabled={disabled}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 12,
-                      flexWrap: "wrap",
+                      width: "100%",
+                      textAlign: "left",
+                      borderRadius: 14,
+                      border: alreadySelected ? "1px solid #1f6f45" : "1px solid #333",
+                      background: busy ? "#18221a" : alreadySelected ? "#0f1f17" : "#111",
+                      color: alreadySelected ? "#d7ffe8" : "inherit",
+                      padding: "12px 14px",
+                      cursor: disabled ? "default" : "pointer",
+                      opacity: mutating && !busy ? 0.7 : 1,
                     }}
                   >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, overflowWrap: "anywhere" }}>
-                        {title}
-                      </div>
-
-                      <div style={{ fontSize: 13, opacity: 0.78, marginTop: 4 }}>
-                        {list.itemsCount} τραγούδια · ρόλος {list.role}
-                        {list.marked ? " · ⭐" : ""}
-                        {alreadySelected ? "" : ""}
-                      </div>
-                    </div>
-
                     <div
                       style={{
-                        flexShrink: 0,
-                        fontWeight: alreadySelected ? 700 : 400,
-                        color: alreadySelected ? "#9df0ba" : undefined,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        flexWrap: "wrap",
                       }}
                     >
-                      {busy
-                        ? "Προσθήκη..."
-                        : alreadySelected
-                          ? "Επιλεγμένο"
-                          : "Επιλογή"}
+                      <div style={{ minWidth: 0 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            flexWrap: "wrap",
+                            fontWeight: 700,
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          <span>{title}</span>
+
+                          {isLastSelected ? (
+                            <span
+                              title="Πιο πρόσφατη επιλογή"
+                              aria-label="Πιο πρόσφατη επιλογή"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                borderRadius: 999,
+                                border: "1px solid #315a66",
+                                background: "#0d252c",
+                                color: "#9ee8f5",
+                                padding: "2px 8px",
+                                fontSize: 12,
+                                fontWeight: 700,
+                                lineHeight: 1.2,
+                              }}
+                            >
+                              ↺ Πρόσφατη
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div style={{ fontSize: 13, opacity: 0.78, marginTop: 4 }}>
+                          {groupLabel}
+                        </div>
+
+                        <div style={{ fontSize: 13, opacity: 0.68, marginTop: 2 }}>
+                          {list.itemsCount} τραγούδια · ρόλος {list.role}
+                          {list.marked ? " · ★" : ""}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          flexShrink: 0,
+                          fontWeight: alreadySelected ? 700 : 400,
+                          color: alreadySelected ? "#9df0ba" : undefined,
+                        }}
+                      >
+                        {busy ? "Προσθήκη..." : alreadySelected ? "Επιλεγμένο" : "Επιλογή"}
+                      </div>
                     </div>
-                  </div>
-                </button>
-              );
-            })
-          )}
+                  </button>
+                );
+              })
+            )}
+          </div>
         </div>
 
-        <div
-          style={{
-            padding: 16,
-            borderTop: "1px solid #222",
-            display: "flex",
-            justifyContent: "flex-end",
-          }}
-        >
-          {A.cancel({
-            title: "Κλείσιμο",
-            label: "Κλείσιμο",
-            disabled: submittingListId !== null,
-            onClick: onClose,
-          })}
-        </div>
       </div>
     </div>
   );
