@@ -1,4 +1,4 @@
-const APP_VERSION = "3.0.6";
+const APP_VERSION = "3.0.12";
 const VERSION = `repertorio-${APP_VERSION}`;
 const STATIC_CACHE = `repertorio-static-${VERSION}`;
 const PAGE_CACHE = `repertorio-pages-${VERSION}`;
@@ -15,12 +15,7 @@ const WARM_PAGE_URLS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    Promise.all([
-      cachePages(WARM_PAGE_URLS),
-      self.skipWaiting(),
-    ]),
-  );
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
@@ -34,7 +29,6 @@ self.addEventListener("activate", (event) => {
           return ours && !current ? caches.delete(name) : Promise.resolve(false);
         }),
       );
-      await cachePages(WARM_PAGE_URLS);
       await self.clients.claim();
       await reloadWindowClients();
     })(),

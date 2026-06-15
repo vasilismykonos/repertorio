@@ -17,11 +17,13 @@ export const OFFLINE_STATUS_EVENT = "repertorio:offline-status";
 
 const SONGS_SYNC_AGE_MS = 20 * 60 * 1000;
 const LISTS_SYNC_AGE_MS = 10 * 60 * 1000;
-const BACKGROUND_SYNC_DELAY_MS = 1800;
-const BACKGROUND_SYNC_INTERVAL_MS = 20 * 60 * 1000;
-const SONG_DETAIL_CONCURRENCY = 4;
-const SINGER_TUNE_CONCURRENCY = 4;
-const LIST_DETAIL_CONCURRENCY = 4;
+const BACKGROUND_SYNC_DELAY_MS = 30 * 1000;
+const BACKGROUND_IDLE_TIMEOUT_MS = 8 * 1000;
+const BACKGROUND_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const SONG_DETAIL_CONCURRENCY = 2;
+const SINGER_TUNE_CONCURRENCY = 1;
+const SINGER_TUNE_BATCH_SIZE = 25;
+const LIST_DETAIL_CONCURRENCY = 2;
 
 export type OfflineRuntimeStatus = {
   online: boolean;
@@ -39,6 +41,7 @@ type SyncOptions = {
   includeLists: boolean;
   userEmail?: string | null;
   force?: boolean;
+  includeSingerTunes?: boolean;
 };
 
 let runningSync: Promise<OfflineRuntimeStatus> | null = null;
@@ -306,7 +309,8 @@ async function syncSingerTunesForOffline(force = false) {
 
   const previous = snapshot?.singerTunesBySongId || {};
   const ids = Array.from(new Set(items.map(songIdFromSearchItem).filter((id): id is number => id !== null)));
-  const pending = force ? ids : ids.filter((id) => !Object.prototype.hasOwnProperty.call(previous, String(id)));
+  const pendingAll = force ? ids : ids.filter((id) => !Object.prototype.hasOwnProperty.call(previous, String(id)));
+  const pending = force ? pendingAll : pendingAll.slice(0, SINGER_TUNE_BATCH_SIZE);
   const fresh: Record<string, any[]> = {};
   let nextIndex = 0;
 
@@ -435,10 +439,9 @@ async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
       !hasListDetailSnapshot);
   const needsSingerTunes =
     canSyncUserData &&
-    (options.force ||
-      cachedSongCount === 0 ||
-      cachedSingerTunesCount < cachedSongCount ||
-      ageMs(meta?.listsSyncedAt) > LISTS_SYNC_AGE_MS);
+    (options.force || Boolean(options.includeSingerTunes)) &&
+    cachedSongCount > 0 &&
+    cachedSingerTunesCount < cachedSongCount;
 
   if (!needsSongs && !needsLists && !needsSingerTunes) return emitStatus(await buildStatus(false));
 
@@ -466,6 +469,32 @@ export function runOfflineSync(options: SyncOptions): Promise<OfflineRuntimeStat
   return runningSync;
 }
 
+function scheduleBackgroundSync(callback: () => void): () => void {
+  if (!isBrowser()) return () => {};
+
+  let idleId: number | null = null;
+  const timeoutId = window.setTimeout(() => {
+    const run = () => {
+      if (document.visibilityState === "hidden") return;
+      callback();
+    };
+
+    const requestIdle = (window as any).requestIdleCallback;
+    if (typeof requestIdle === "function") {
+      idleId = requestIdle(run, { timeout: BACKGROUND_IDLE_TIMEOUT_MS });
+      return;
+    }
+
+    run();
+  }, BACKGROUND_SYNC_DELAY_MS);
+
+  return () => {
+    window.clearTimeout(timeoutId);
+    const cancelIdle = (window as any).cancelIdleCallback;
+    if (idleId !== null && typeof cancelIdle === "function") cancelIdle(idleId);
+  };
+}
+
 export function useOfflineRuntime(includeLists: boolean, userEmail?: string | null) {
   const [status, setStatus] = useState<OfflineRuntimeStatus>(() => baseStatus());
 
@@ -484,7 +513,9 @@ export function useOfflineRuntime(includeLists: boolean, userEmail?: string | nu
 
     const onNetworkChange = () => {
       void refreshOfflineStatus();
-      if (browserOnline()) void runOfflineSync({ includeLists, userEmail });
+      if (browserOnline()) {
+        void runOfflineSync({ includeLists, userEmail });
+      }
     };
 
     window.addEventListener(OFFLINE_STATUS_EVENT, onStatus as EventListener);
@@ -493,17 +524,17 @@ export function useOfflineRuntime(includeLists: boolean, userEmail?: string | nu
 
     void refreshOfflineStatus().then(apply).catch(() => null);
 
-    const startTimer = window.setTimeout(() => {
+    const cancelInitialSync = scheduleBackgroundSync(() => {
       void runOfflineSync({ includeLists, userEmail });
-    }, BACKGROUND_SYNC_DELAY_MS);
+    });
 
     const interval = window.setInterval(() => {
-      void runOfflineSync({ includeLists, userEmail });
+      void runOfflineSync({ includeLists, userEmail, includeSingerTunes: true });
     }, BACKGROUND_SYNC_INTERVAL_MS);
 
     return () => {
       cancelled = true;
-      window.clearTimeout(startTimer);
+      cancelInitialSync();
       window.clearInterval(interval);
       window.removeEventListener(OFFLINE_STATUS_EVENT, onStatus as EventListener);
       window.removeEventListener("online", onNetworkChange);

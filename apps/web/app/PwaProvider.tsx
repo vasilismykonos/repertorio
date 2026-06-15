@@ -6,6 +6,8 @@ import { APP_VERSION } from "@/lib/appVersion";
 const PAGE_SHELL_URLS = ["/", "/songs", "/lists", "/songs/offline-shell?offlineShell=1", "/lists/offline-shell?offlineShell=1"];
 const APP_VERSION_STORAGE_KEY = "repertorio_app_version";
 const CACHE_PREFIXES = ["repertorio-static-", "repertorio-pages-"];
+const PWA_WARMUP_DELAY_MS = 45 * 1000;
+const PWA_WARMUP_IDLE_TIMEOUT_MS = 10 * 1000;
 
 async function clearOldAppCaches() {
   if (typeof window === "undefined" || !("caches" in window)) return;
@@ -33,6 +35,31 @@ function warmPageShells(registration: ServiceWorkerRegistration) {
     });
 }
 
+function schedulePwaWarmup(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  let idleId: number | null = null;
+  const timeoutId = window.setTimeout(() => {
+    const run = () => {
+      if (document.visibilityState === "hidden") return;
+      callback();
+    };
+
+    const requestIdle = (window as any).requestIdleCallback;
+    if (typeof requestIdle === "function") {
+      idleId = requestIdle(run, { timeout: PWA_WARMUP_IDLE_TIMEOUT_MS });
+      return;
+    }
+
+    run();
+  }, PWA_WARMUP_DELAY_MS);
+
+  return () => {
+    window.clearTimeout(timeoutId);
+    const cancelIdle = (window as any).cancelIdleCallback;
+    if (idleId !== null && typeof cancelIdle === "function") cancelIdle(idleId);
+  };
+}
 
 export function PwaProvider() {
   useEffect(() => {
@@ -52,6 +79,8 @@ export function PwaProvider() {
 
     if ("serviceWorker" in navigator) {
       let reloading = false;
+      let disposed = false;
+      let cancelWarmup = () => {};
 
       const onControllerChange = () => {
         if (reloading) return;
@@ -65,6 +94,8 @@ export function PwaProvider() {
       navigator.serviceWorker
         .register("/sw.js", { updateViaCache: "none" })
         .then((registration) => {
+          if (disposed) return;
+
           console.log(
             "[PWA] Service worker registered with scope:",
             registration.scope
@@ -78,7 +109,7 @@ export function PwaProvider() {
               }
             });
           });
-          warmPageShells(registration);
+          cancelWarmup = schedulePwaWarmup(() => warmPageShells(registration));
           void registration.update().catch(() => null);
         })
         .catch((error) => {
@@ -86,6 +117,8 @@ export function PwaProvider() {
         });
 
       return () => {
+        disposed = true;
+        cancelWarmup();
         navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
       };
     }

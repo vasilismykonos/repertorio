@@ -6,9 +6,70 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.6";
+export const APP_VERSION = "3.0.12";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.12",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Γρηγορότερο service worker update",
+    items: [
+      "Η εγκατάσταση/ενεργοποίηση του service worker δεν προθερμαίνει πλέον τις offline σελίδες στην πρώτη φόρτωση.",
+      "Το offline cache warmup γίνεται αργότερα από το idle background μονοπάτι, ώστε το άνοιγμα της εφαρμογής να μένει ελαφρύ.",
+    ],
+  },
+  {
+    version: "3.0.11",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Ελαφρύτερη εκκίνηση PWA",
+    items: [
+      "Η προθέρμανση των offline shell σελίδων μεταφέρθηκε σε background idle χρόνο, ώστε να μη βαραίνει το αρχικό άνοιγμα.",
+      "Το service worker συνεχίζει να ελέγχει για νέα έκδοση, αλλά δεν ξεκινά επιπλέον cache warmup πάνω στην πρώτη οθόνη.",
+    ],
+  },
+  {
+    version: "3.0.10",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Ελαφρύτερος offline συγχρονισμός",
+    items: [
+      "Ο offline συγχρονισμός ξεκινά αργότερα και μόνο όταν ο browser είναι idle, ώστε να μη βαραίνει την εκκίνηση.",
+      "Οι προσωπικές τονικότητες/singer-tunes δεν συγχρονίζονται πλέον μαζικά στο πρώτο background pass.",
+      "Τα singer-tunes γεμίζουν σε μικρά batches σε περιοδικό sync ή όταν ανοίγει σχετικό τραγούδι.",
+    ],
+  },
+  {
+    version: "3.0.9",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Ελαφρύτερη εκκίνηση",
+    items: [
+      "Το loading με το βιολί δεν μπλοκάρει πλέον το αρχικό server-rendered άνοιγμα της σελίδας.",
+      "Αν η εκκίνηση έχει ήδη αργήσει, το splash παραλείπεται ώστε να εμφανίζεται η σελίδα πιο άμεσα.",
+    ],
+  },
+  {
+    version: "3.0.8",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Responsive loading",
+    items: [
+      "Το loading με το βιολί κεντράρεται σωστά και δεν ξεχειλίζει σε μικρές οθόνες.",
+      "Το splash προσαρμόζεται στο διαθέσιμο πλάτος και ύψος της οθόνης χωρίς να βαραίνει η εκκίνηση.",
+    ],
+  },
+  {
+    version: "3.0.7",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Νέο loading icon",
+    items: [
+      "Το αρχικό loading δείχνει πλέον βιολί με δοξάρι που κινείται πάνω-κάτω.",
+      "Το animation είναι ελαφρύ inline SVG, χωρίς επιπλέον εικόνες, φίλτρα ή βαριά effects.",
+    ],
+  },
   {
     version: "3.0.6",
     date: "2026-06-15",
