@@ -6,9 +6,21 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.12";
+export const APP_VERSION = "3.0.13";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.13",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Πιο ελαφρύ live άνοιγμα",
+    items: [
+      "Ο offline συγχρονισμός εκτελείται σε μικρά batches και μόνο όταν ο χρήστης είναι αδρανής.",
+      "Οι λεπτομέρειες τραγουδιών, λιστών και προσωπικών τονικοτήτων δεν κατεβαίνουν πλέον μαζικά πάνω στη live χρήση.",
+      "Το PWA warmup των offline σελίδων περιμένει πλέον μεγαλύτερη αδράνεια και δεν τρέχει σε save-data σύνδεση.",
+      "Το βιολί loading παραλείπεται αν η σελίδα έχει ήδη εμφανίσει περιεχόμενο, ώστε να μην εμφανίζεται μετά το λογότυπο.",
+    ],
+  },
   {
     version: "3.0.12",
     date: "2026-06-15",

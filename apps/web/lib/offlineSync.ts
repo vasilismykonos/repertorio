@@ -17,13 +17,18 @@ export const OFFLINE_STATUS_EVENT = "repertorio:offline-status";
 
 const SONGS_SYNC_AGE_MS = 20 * 60 * 1000;
 const LISTS_SYNC_AGE_MS = 10 * 60 * 1000;
-const BACKGROUND_SYNC_DELAY_MS = 30 * 1000;
-const BACKGROUND_IDLE_TIMEOUT_MS = 8 * 1000;
+const BACKGROUND_SYNC_DELAY_MS = 90 * 1000;
+const BACKGROUND_IDLE_TIMEOUT_MS = 15 * 1000;
 const BACKGROUND_SYNC_INTERVAL_MS = 60 * 60 * 1000;
-const SONG_DETAIL_CONCURRENCY = 2;
+const BACKGROUND_RETRY_DELAY_MS = 20 * 1000;
+const USER_IDLE_GRACE_MS = 20 * 1000;
+const LOW_PRIORITY_WORK_DELAY_MS = 45 * 1000;
+const SONG_DETAIL_CONCURRENCY = 1;
+const SONG_DETAIL_BATCH_SIZE = 30;
 const SINGER_TUNE_CONCURRENCY = 1;
-const SINGER_TUNE_BATCH_SIZE = 25;
-const LIST_DETAIL_CONCURRENCY = 2;
+const SINGER_TUNE_BATCH_SIZE = 10;
+const LIST_DETAIL_CONCURRENCY = 1;
+const LIST_DETAIL_BATCH_SIZE = 15;
 
 export type OfflineRuntimeStatus = {
   online: boolean;
@@ -42,9 +47,13 @@ type SyncOptions = {
   userEmail?: string | null;
   force?: boolean;
   includeSingerTunes?: boolean;
+  detailBudget?: number;
+  listDetailBudget?: number;
+  warmShells?: boolean;
 };
 
 let runningSync: Promise<OfflineRuntimeStatus> | null = null;
+let lastUserActivityAt = Date.now();
 
 function isBrowser() {
   return typeof window !== "undefined";
@@ -52,6 +61,26 @@ function isBrowser() {
 
 function browserOnline() {
   return !isBrowser() || typeof navigator.onLine === "undefined" ? true : navigator.onLine;
+}
+
+function markUserActivity() {
+  lastUserActivityAt = Date.now();
+}
+
+function userIsIdle() {
+  if (!isBrowser()) return false;
+  if (document.visibilityState === "hidden") return false;
+  return Date.now() - lastUserActivityAt >= USER_IDLE_GRACE_MS;
+}
+
+function installActivityTracking(): () => void {
+  if (!isBrowser()) return () => {};
+  markUserActivity();
+  const events = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as const;
+  events.forEach((eventName) => window.addEventListener(eventName, markUserActivity, { passive: true }));
+  return () => {
+    events.forEach((eventName) => window.removeEventListener(eventName, markUserActivity));
+  };
 }
 
 function baseStatus(): OfflineRuntimeStatus {
@@ -237,9 +266,15 @@ function mergeSongDetails(songs: any[], previous: Record<string, any>, fresh: Re
   return merged;
 }
 
-async function fetchSongDetailsForOffline(songs: any[], previous: Record<string, any>, force: boolean): Promise<Record<string, any>> {
+async function fetchSongDetailsForOffline(
+  songs: any[],
+  previous: Record<string, any>,
+  force: boolean,
+  limit = SONG_DETAIL_BATCH_SIZE,
+): Promise<Record<string, any>> {
   const ids = Array.from(new Set(songs.map(songIdFromSearchItem).filter((id): id is number => id !== null)));
-  const pending = force ? ids : ids.filter((id) => !isFullSongDetail(previous[String(id)]));
+  const pendingAll = force ? ids : ids.filter((id) => !isFullSongDetail(previous[String(id)]));
+  const pending = pendingAll.slice(0, Math.max(0, limit));
   const detailsById: Record<string, any> = {};
   let nextIndex = 0;
 
@@ -263,7 +298,7 @@ async function fetchSongDetailsForOffline(songs: any[], previous: Record<string,
   return detailsById;
 }
 
-async function syncSongsAndFilters(force = false) {
+async function syncSongsAndFilters(force = false, detailBudget = SONG_DETAIL_BATCH_SIZE) {
   const pageSize = 200;
   const [firstPage, categories, rythms, tags] = await Promise.all([
     fetchJson<any>(`/api/v1/songs-es/search?take=${pageSize}&skip=0`),
@@ -284,7 +319,12 @@ async function syncSongsAndFilters(force = false) {
 
   const normalizedTags = Array.isArray(tags) ? tags : Array.isArray(tags?.items) ? tags.items : [];
   const previous = await readOfflineSongs().catch(() => null);
-  const freshDetailsById = await fetchSongDetailsForOffline(items, previous?.detailsById || {}, force);
+  const freshDetailsById = await fetchSongDetailsForOffline(
+    items,
+    previous?.detailsById || {},
+    force,
+    force ? Number.POSITIVE_INFINITY : detailBudget,
+  );
   const detailsById = mergeSongDetails(items, previous?.detailsById || {}, freshDetailsById);
 
   await writeOfflineSongs({
@@ -296,6 +336,28 @@ async function syncSongsAndFilters(force = false) {
     searchesByKey: previous?.searchesByKey || {},
   });
   await writeOfflineStaticFilters({ categories, rythms, tags: normalizedTags });
+}
+
+async function syncSongDetailsChunk(limit = SONG_DETAIL_BATCH_SIZE) {
+  const snapshot = await readOfflineSongs().catch(() => null);
+  const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+  if (items.length === 0) return;
+
+  const previous = snapshot?.detailsById || {};
+  const freshDetailsById = await fetchSongDetailsForOffline(items, previous, false, limit);
+  if (Object.keys(freshDetailsById).length === 0) return;
+
+  await writeOfflineSongs(
+    {
+      total: typeof snapshot?.total === "number" ? snapshot.total : items.length,
+      items,
+      aggs: snapshot?.aggs || null,
+      detailsById: mergeSongDetails(items, previous, freshDetailsById),
+      singerTunesBySongId: snapshot?.singerTunesBySongId || {},
+      searchesByKey: snapshot?.searchesByKey || {},
+    },
+    { markSynced: false },
+  );
 }
 
 async function syncSingerTunesForOffline(force = false) {
@@ -338,14 +400,17 @@ async function syncSingerTunesForOffline(force = false) {
 
   if (Object.keys(fresh).length === 0) return;
 
-  await writeOfflineSongs({
-    total: typeof snapshot?.total === "number" ? snapshot.total : items.length,
-    items,
-    aggs: snapshot?.aggs || null,
-    detailsById: snapshot?.detailsById || {},
-    singerTunesBySongId: { ...previous, ...fresh },
-    searchesByKey: snapshot?.searchesByKey || {},
-  });
+  await writeOfflineSongs(
+    {
+      total: typeof snapshot?.total === "number" ? snapshot.total : items.length,
+      items,
+      aggs: snapshot?.aggs || null,
+      detailsById: snapshot?.detailsById || {},
+      singerTunesBySongId: { ...previous, ...fresh },
+      searchesByKey: snapshot?.searchesByKey || {},
+    },
+    { markSynced: false },
+  );
 }
 
 function listIdFromSummary(list: any): number | null {
@@ -353,14 +418,21 @@ function listIdFromSummary(list: any): number | null {
   return Number.isFinite(id) && id > 0 ? id : null;
 }
 
-async function fetchListDetailsForOffline(userId: number, lists: any[]): Promise<Record<string, any>> {
+async function fetchListDetailsForOffline(
+  userId: number,
+  lists: any[],
+  previous: Record<string, any> = {},
+  limit = LIST_DETAIL_BATCH_SIZE,
+  force = false,
+): Promise<Record<string, any>> {
   const ids = Array.from(new Set(lists.map(listIdFromSummary).filter((id): id is number => id !== null)));
+  const pending = (force ? ids : ids.filter((id) => !previous[String(id)])).slice(0, Math.max(0, limit));
   const detailsById: Record<string, any> = {};
   let nextIndex = 0;
 
   async function worker() {
     for (;;) {
-      const id = ids[nextIndex];
+      const id = pending[nextIndex];
       nextIndex += 1;
       if (!id) return;
 
@@ -374,7 +446,7 @@ async function fetchListDetailsForOffline(userId: number, lists: any[]): Promise
     }
   }
 
-  await Promise.all(Array.from({ length: Math.min(LIST_DETAIL_CONCURRENCY, ids.length) }, () => worker()));
+  await Promise.all(Array.from({ length: Math.min(LIST_DETAIL_CONCURRENCY, pending.length) }, () => worker()));
   return detailsById;
 }
 
@@ -390,7 +462,11 @@ function mergeListDetails(lists: any[], previous: Record<string, any>, fresh: Re
   return merged;
 }
 
-async function syncLists(userEmail?: string | null) {
+function countListDetails(detailsById: Record<string, any> | undefined): number {
+  return Object.keys(detailsById || {}).length;
+}
+
+async function syncLists(userEmail?: string | null, detailBudget = LIST_DETAIL_BATCH_SIZE, force = false) {
   const me = await fetchJson<any>("/api/current-user");
   const user = me?.user || null;
   const userId = Number(user?.id);
@@ -404,15 +480,51 @@ async function syncLists(userEmail?: string | null) {
   ]);
   const lists = Array.isArray(data?.items) ? data.items : [];
   const previous = await readOfflineListsForEmail(email).catch(() => null);
-  const freshDetailsById = await fetchListDetailsForOffline(userId, lists);
+  const freshDetailsById = await fetchListDetailsForOffline(
+    userId,
+    lists,
+    previous?.detailsById || {},
+    force ? Number.POSITIVE_INFINITY : detailBudget,
+    force,
+  );
   const detailsById = mergeListDetails(lists, previous?.detailsById || {}, freshDetailsById);
 
   await writeOfflineListsForUser({ userId, userEmail: email, data, facets, groupsIndex, detailsById });
 }
 
+async function syncListDetailsChunk(userEmail?: string | null, limit = LIST_DETAIL_BATCH_SIZE) {
+  const me = await fetchJson<any>("/api/current-user").catch(() => null);
+  const user = me?.user || null;
+  const userId = Number(user?.id);
+  if (!Number.isFinite(userId) || userId <= 0) return;
+
+  const email = user?.email || userEmail || null;
+  const snapshot = await readOfflineListsForEmail(email).catch(() => null);
+  const lists = Array.isArray(snapshot?.data?.items) ? snapshot.data.items : [];
+  if (lists.length === 0) return;
+
+  const previous = snapshot?.detailsById || {};
+  const freshDetailsById = await fetchListDetailsForOffline(userId, lists, previous, limit, false);
+  if (Object.keys(freshDetailsById).length === 0) return;
+
+  await writeOfflineListsForUser(
+    {
+      userId,
+      userEmail: email,
+      data: snapshot?.data,
+      facets: snapshot?.facets,
+      groupsIndex: snapshot?.groupsIndex,
+      detailsById: mergeListDetails(lists, previous, freshDetailsById),
+    },
+    { markSynced: false },
+  );
+}
+
 async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
   if (!browserOnline()) return emitStatus(await buildStatus(false));
 
+  const detailBudget = options.force ? Number.POSITIVE_INFINITY : (options.detailBudget ?? SONG_DETAIL_BATCH_SIZE);
+  const listDetailBudget = options.force ? Number.POSITIVE_INFINITY : (options.listDetailBudget ?? LIST_DETAIL_BATCH_SIZE);
   const currentUser =
     options.includeLists
       ? ((await fetchJson<any>("/api/current-user").catch(() => null))?.user || null)
@@ -426,32 +538,48 @@ async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
   const cachedSongCount = Number(meta?.songsCount || 0);
   const cachedSongDetailsCount = countFullSongDetails(cachedSongs?.detailsById);
   const cachedSingerTunesCount = Object.keys(cachedSongs?.singerTunesBySongId || {}).length;
-  const cachedLists = options.includeLists ? await readOfflineListsForEmail(options.userEmail).catch(() => null) : null;
+  const cachedLists = options.includeLists ? await readOfflineListsForEmail(normalizedEmail || options.userEmail).catch(() => null) : null;
+  const cachedListItems = Array.isArray(cachedLists?.data?.items) ? cachedLists.data.items : [];
+  const cachedListDetailsCount = countListDetails(cachedLists?.detailsById);
   const hasListDetailSnapshot = !cachedLists || Object.prototype.hasOwnProperty.call(cachedLists, "detailsById");
   const needsSongDetails = cachedSongCount > 0 && cachedSongDetailsCount < cachedSongCount;
-  const needsSongs = options.force || cachedSongCount < 250 || needsSongDetails || ageMs(meta?.songsSyncedAt) > SONGS_SYNC_AGE_MS;
+  const needsSongs = options.force || cachedSongCount < 250 || ageMs(meta?.songsSyncedAt) > SONGS_SYNC_AGE_MS;
   const canSyncUserData = options.includeLists && Boolean(currentUser?.id || normalizedEmail || cachedEmail);
   const needsLists =
     options.includeLists &&
     (options.force ||
+      !cachedLists ||
       ageMs(meta?.listsSyncedAt) > LISTS_SYNC_AGE_MS ||
       (!!normalizedEmail && normalizedEmail !== cachedEmail) ||
       !hasListDetailSnapshot);
+  const needsListDetails =
+    canSyncUserData &&
+    !needsLists &&
+    cachedListItems.length > 0 &&
+    cachedListDetailsCount < cachedListItems.length;
   const needsSingerTunes =
     canSyncUserData &&
     (options.force || Boolean(options.includeSingerTunes)) &&
     cachedSongCount > 0 &&
     cachedSingerTunesCount < cachedSongCount;
 
-  if (!needsSongs && !needsLists && !needsSingerTunes) return emitStatus(await buildStatus(false));
+  if (!needsSongs && !needsSongDetails && !needsLists && !needsListDetails && !needsSingerTunes) {
+    return emitStatus(await buildStatus(false));
+  }
 
   emitStatus(await buildStatus(true));
 
   try {
-    if (needsSongs) await syncSongsAndFilters(Boolean(options.force));
-    if (needsLists) await syncLists(options.userEmail);
+    if (needsSongs) await syncSongsAndFilters(Boolean(options.force), detailBudget);
+    else if (needsSongDetails) await syncSongDetailsChunk(detailBudget);
+
+    if (needsLists) await syncLists(options.userEmail, listDetailBudget, Boolean(options.force));
+    else if (needsListDetails) await syncListDetailsChunk(options.userEmail, listDetailBudget);
+
     if (needsSingerTunes) await syncSingerTunesForOffline(Boolean(options.force));
-    warmOfflineShells(options.includeLists);
+    if (options.warmShells) {
+      scheduleLowPriorityWork(() => warmOfflineShells(options.includeLists));
+    }
     return emitStatus(await buildStatus(false));
   } catch (error) {
     await recordOfflineSyncError(error).catch(() => null);
@@ -469,7 +597,7 @@ export function runOfflineSync(options: SyncOptions): Promise<OfflineRuntimeStat
   return runningSync;
 }
 
-function scheduleBackgroundSync(callback: () => void): () => void {
+function scheduleLowPriorityWork(callback: () => void, delayMs = LOW_PRIORITY_WORK_DELAY_MS): () => void {
   if (!isBrowser()) return () => {};
 
   let idleId: number | null = null;
@@ -495,6 +623,32 @@ function scheduleBackgroundSync(callback: () => void): () => void {
   };
 }
 
+function scheduleBackgroundSync(callback: () => void, delayMs = BACKGROUND_SYNC_DELAY_MS): () => void {
+  if (!isBrowser()) return () => {};
+
+  let cancelled = false;
+  let cancelPending = () => {};
+
+  const schedule = (nextDelay: number) => {
+    cancelPending();
+    cancelPending = scheduleLowPriorityWork(() => {
+      if (cancelled) return;
+      if (!userIsIdle()) {
+        schedule(BACKGROUND_RETRY_DELAY_MS);
+        return;
+      }
+      callback();
+    }, nextDelay);
+  };
+
+  schedule(delayMs);
+
+  return () => {
+    cancelled = true;
+    cancelPending();
+  };
+}
+
 export function useOfflineRuntime(includeLists: boolean, userEmail?: string | null) {
   const [status, setStatus] = useState<OfflineRuntimeStatus>(() => baseStatus());
 
@@ -502,6 +656,9 @@ export function useOfflineRuntime(includeLists: boolean, userEmail?: string | nu
     if (!isBrowser()) return;
 
     let cancelled = false;
+    let cancelNetworkSync = () => {};
+    let cancelIntervalSync = () => {};
+    const removeActivityTracking = installActivityTracking();
     const apply = (next: OfflineRuntimeStatus) => {
       if (!cancelled) setStatus(next);
     };
@@ -514,7 +671,10 @@ export function useOfflineRuntime(includeLists: boolean, userEmail?: string | nu
     const onNetworkChange = () => {
       void refreshOfflineStatus();
       if (browserOnline()) {
-        void runOfflineSync({ includeLists, userEmail });
+        cancelNetworkSync();
+        cancelNetworkSync = scheduleBackgroundSync(() => {
+          void runOfflineSync({ includeLists, userEmail });
+        }, BACKGROUND_SYNC_DELAY_MS);
       }
     };
 
@@ -529,11 +689,17 @@ export function useOfflineRuntime(includeLists: boolean, userEmail?: string | nu
     });
 
     const interval = window.setInterval(() => {
-      void runOfflineSync({ includeLists, userEmail, includeSingerTunes: true });
+      cancelIntervalSync();
+      cancelIntervalSync = scheduleBackgroundSync(() => {
+        void runOfflineSync({ includeLists, userEmail, includeSingerTunes: true });
+      }, 0);
     }, BACKGROUND_SYNC_INTERVAL_MS);
 
     return () => {
       cancelled = true;
+      removeActivityTracking();
+      cancelNetworkSync();
+      cancelIntervalSync();
       cancelInitialSync();
       window.clearInterval(interval);
       window.removeEventListener(OFFLINE_STATUS_EVENT, onStatus as EventListener);

@@ -214,7 +214,7 @@ export async function writeOfflineSongs(payload: {
   detailsById?: Record<string, any>;
   singerTunesBySongId?: Record<string, any[]>;
   searchesByKey?: Record<string, OfflineSongsSearchSnapshot>;
-}): Promise<void> {
+}, options?: { markSynced?: boolean }): Promise<void> {
   const updatedAt = nowIso();
   const items = Array.isArray(payload.items) ? payload.items : [];
   await setKey<OfflineSongsSnapshot>(KEY_SONGS, {
@@ -226,7 +226,12 @@ export async function writeOfflineSongs(payload: {
     aggs: payload.aggs || null,
     updatedAt,
   });
-  await mergeMeta({ songsSyncedAt: updatedAt, lastSyncedAt: updatedAt, songsCount: items.length, lastError: null });
+  await mergeMeta({
+    lastSyncedAt: updatedAt,
+    songsCount: items.length,
+    lastError: null,
+    ...(options?.markSynced === false ? {} : { songsSyncedAt: updatedAt }),
+  });
 }
 
 export async function readOfflineSongs(): Promise<OfflineSongsSnapshot | null> {
@@ -386,7 +391,7 @@ export async function writeOfflineListsForUser(args: {
   facets?: any;
   groupsIndex?: any | null;
   detailsById?: Record<string, any>;
-}): Promise<void> {
+}, options?: { markSynced?: boolean }): Promise<void> {
   const userId = Number(args.userId);
   if (!Number.isFinite(userId) || userId <= 0) return;
 
@@ -407,10 +412,10 @@ export async function writeOfflineListsForUser(args: {
   await mergeMeta({
     userId,
     userEmail: args.userEmail || null,
-    listsSyncedAt: updatedAt,
     lastSyncedAt: updatedAt,
     listsCount: items.length,
     lastError: null,
+    ...(options?.markSynced === false ? {} : { listsSyncedAt: updatedAt }),
   });
 }
 

@@ -14,7 +14,7 @@ function prefersReducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
 }
 
-const BOOT_SPLASH_MAX_START_MS = 900;
+const BOOT_SPLASH_MAX_START_MS = 180;
 const SPLASH_FADE_MS = 160;
 
 function isStandalonePwa() {
@@ -24,6 +24,12 @@ function isStandalonePwa() {
     // @ts-expect-error - iOS standalone
     (window.navigator && window.navigator.standalone === true)
   );
+}
+
+function pageAlreadyPainted() {
+  if (typeof window === "undefined") return false;
+  const paints = window.performance?.getEntriesByType?.("paint") || [];
+  return paints.some((entry) => entry.name === "first-paint" || entry.name === "first-contentful-paint");
 }
 
 function ViolinLoadingMark({ reduce }: { reduce: boolean }) {
@@ -84,7 +90,9 @@ export default function PpSplash(props: Props) {
       return;
     }
 
-    const startedTooLate = !showOnWebAlso && (window.performance?.now?.() ?? 0) > BOOT_SPLASH_MAX_START_MS;
+    const startedTooLate =
+      !showOnWebAlso &&
+      ((window.performance?.now?.() ?? 0) > BOOT_SPLASH_MAX_START_MS || pageAlreadyPainted());
     if (startedTooLate) return;
 
     const reduce = prefersReducedMotion();
