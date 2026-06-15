@@ -3,10 +3,14 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import type { Step, CallBackProps } from "react-joyride";
-import { STATUS } from "react-joyride";
 
-// ✅ No SSR for Joyride (fixes hydration mismatch)
-const Joyride = dynamic(() => import("react-joyride"), { ssr: false });
+const Joyride = dynamic(
+  () =>
+    import("react-joyride").catch(() => ({
+      default: () => null,
+    })),
+  { ssr: false },
+);
 
 type Props = {
   storageKey: string;
@@ -21,13 +25,26 @@ type Props = {
 
 export default function GuidedTour({ storageKey, steps, openSignal = 0 }: Props) {
   const [mounted, setMounted] = useState(false);
+  const [online, setOnline] = useState(true);
   const [run, setRun] = useState(false);
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+
+    const updateOnline = () => setOnline(typeof navigator === "undefined" ? true : navigator.onLine !== false);
+    updateOnline();
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    return () => {
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+    };
+  }, []);
 
   // Auto-run μόνο την 1η φορά (βάσει localStorage)
   useEffect(() => {
     if (!mounted) return;
+    if (!online) return;
 
     try {
       const seen = window.localStorage.getItem(storageKey);
@@ -40,6 +57,7 @@ export default function GuidedTour({ storageKey, steps, openSignal = 0 }: Props)
   // Manual re-open (Help button)
   useEffect(() => {
     if (!mounted) return;
+    if (!online) return;
     if (openSignal <= 0) return;
 
     // ✅ force re-run even if it was running before
@@ -50,7 +68,7 @@ export default function GuidedTour({ storageKey, steps, openSignal = 0 }: Props)
 
   function handleCallback(data: CallBackProps) {
     const status = data.status;
-    if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
+    if (status === "finished" || status === "skipped") {
       try {
         window.localStorage.setItem(storageKey, "1");
       } catch {
@@ -61,7 +79,7 @@ export default function GuidedTour({ storageKey, steps, openSignal = 0 }: Props)
   }
 
   // ✅ extra safety: no render before mount
-  if (!mounted) return null;
+  if (!mounted || !online) return null;
 
   return (
     <Joyride

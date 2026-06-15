@@ -1,20 +1,83 @@
-//apps/web/lib/appVersion.ts
-import { readFileSync } from "fs";
-import path from "path";
+export type AppVersionChange = {
+  version: string;
+  date: string;
+  level: "major" | "minor" | "patch";
+  title: string;
+  items: string[];
+};
 
-let cached: string | null = null;
+export const APP_VERSION = "3.0.6";
+
+export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.6",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Πρόσφατες λίστες και ομάδες",
+    items: [
+      "Η πιο πρόσφατη λίστα εμφανίζεται με ειδικό εικονίδιο.",
+      "Το άνοιγμα λίστας από τη σελίδα /lists γίνεται με πιο αξιόπιστη πλοήγηση, ώστε να λειτουργεί και offline.",
+      "Οι ομάδες δείχνουν αρχικά τις 5 πιο πρόσφατες και οι υπόλοιπες ανοίγουν με κουμπί με τελείες.",
+    ],
+  },
+  {
+    version: "3.0.5",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Βελτιώσεις λιστών",
+    items: [
+      "Η αναζήτηση λιστών λειτουργεί και offline με το ίδιο /lists component.",
+      "Οι ομάδες δεν ξεχειλίζουν σε μικρές οθόνες όταν έχουν μεγάλους τίτλους.",
+      "Η τελευταία λίστα που προβλήθηκε εμφανίζεται πρώτη όπου υπάρχει στα αποτελέσματα.",
+    ],
+  },
+  {
+    version: "3.0.4",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Διόρθωση offline αναζήτησης",
+    items: [
+      "Η αναζήτηση τραγουδιών αποφεύγει hydration mismatch όταν ανοίγει offline URL με query params.",
+      "Το cached app shell φορτώνει πρώτα με το ίδιο HTML και μετά εφαρμόζει το πραγματικό URL της αναζήτησης.",
+    ],
+  },
+  {
+    version: "3.0.3",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Offline σύνδεση χρήστη",
+    items: [
+      "Όταν ο χρήστης έχει συνδεθεί online, η τελευταία πιστοποιημένη ταυτότητα αποθηκεύεται για offline χρήση.",
+      "Οι αποθηκευμένες λίστες του χρήστη ανοίγουν offline χωρίς νέα πιστοποίηση από τον server.",
+      "Η offline ταυτότητα χρησιμοποιείται μόνο για ανάγνωση αποθηκευμένων δεδομένων μέχρι να επιστρέψει η σύνδεση.",
+    ],
+  },
+  {
+    version: "3.0.2",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Αξιόπιστη ανανέωση PWA",
+    items: [
+      "Τα Next.js JavaScript και CSS assets ελέγχονται πρώτα από το δίκτυο όταν υπάρχει σύνδεση.",
+      "Η εφαρμογή καθαρίζει παλιά PWA caches όταν αλλάζει η έκδοση.",
+      "Η νέα έκδοση επιβάλλεται πιο αξιόπιστα στις εγκατεστημένες Android εφαρμογές.",
+    ],
+  },
+  {
+    version: "3.0.1",
+    date: "2026-06-15",
+    level: "patch",
+    title: "Offline λειτουργία και σύστημα εκδόσεων",
+    items: [
+      "Η αναζήτηση τραγουδιών λειτουργεί offline μέσα από την ίδια σελίδα με την online αναζήτηση.",
+      "Τα τραγούδια, οι λίστες και οι βασικές πληροφορίες συγχρονίζονται στο παρασκήνιο για χρήση χωρίς σύνδεση.",
+      "Το μενού δείχνει την τρέχουσα έκδοση δίπλα στην ένδειξη Online/Offline.",
+      "Με πάτημα στην έκδοση εμφανίζεται το ιστορικό αλλαγών.",
+      "Όταν αλλάζει η έκδοση, ο service worker ανανεώνει τα cache και επιβάλλει φόρτωση της νέας εφαρμογής.",
+    ],
+  },
+];
 
 export function getAppVersion(): string {
-  if (cached) return cached;
-
-  try {
-    // Στο runtime του Next, process.cwd() στο apps/web
-    const pkgPath = path.join(process.cwd(), "package.json");
-    const raw = readFileSync(pkgPath, "utf8");
-    const pkg = JSON.parse(raw);
-    cached = String(pkg.version || "0.0.0");
-    return cached;
-  } catch {
-    return "0.0.0";
-  }
+  return APP_VERSION;
 }

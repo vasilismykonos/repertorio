@@ -1,21 +1,89 @@
 // apps/web/app/lists/ListsPageClient.tsx
 "use client";
 
-import React, { useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 import ActionBar from "@/app/components/ActionBar";
 import { A } from "@/app/components/buttons";
+import { buildOfflineListsPage, readOfflineListsForEmail } from "@/lib/offlineStore";
+import { useOfflineIdentity } from "@/lib/useOfflineIdentity";
 
 import type { ListsIndexResponse } from "./page";
 
-import { Crown, Eye, Music2, Shield, Users } from "lucide-react";
+import { Clock, Crown, Eye, Music2, Shield, Users } from "lucide-react";
 
 import ListsGroupsBlock, { type ListGroupWithRole } from "./ListsGroupsBlock";
 
 /* =========================
    Types
 ========================= */
+
+const LAST_VIEWED_LIST_KEY = "repertorio:lastViewedListId";
+const RECENT_GROUPS_KEY = "repertorio:recentGroupIds";
+
+function listIdValue(value: any): number | null {
+  const id = Math.trunc(Number(value));
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function readLastViewedListId(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return listIdValue(window.localStorage.getItem(LAST_VIEWED_LIST_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function rememberLastViewedList(id: any) {
+  const listId = listIdValue(id);
+  if (!listId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LAST_VIEWED_LIST_KEY, String(listId));
+  } catch {
+    // Best-effort preference only.
+  }
+}
+
+function groupIdValue(value: any): number | null {
+  const id = Math.trunc(Number(value));
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function rememberRecentGroup(id: any) {
+  const groupId = groupIdValue(id);
+  if (!groupId || typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(RECENT_GROUPS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    const ids = Array.isArray(parsed) ? parsed : [];
+    const next = [groupId, ...ids.filter((item: any) => groupIdValue(item) !== groupId)]
+      .map(groupIdValue)
+      .filter((item): item is number => Boolean(item))
+      .slice(0, 20);
+    window.localStorage.setItem(RECENT_GROUPS_KEY, JSON.stringify(next));
+  } catch {
+    // Best-effort preference only.
+  }
+}
+
+function navigateDocument(event: React.MouseEvent<HTMLAnchorElement>, href: string) {
+  if (
+    typeof window === "undefined" ||
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return;
+  }
+  event.preventDefault();
+  window.location.assign(href);
+}
 
 type Role = "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER" | "ADMIN";
 
@@ -30,6 +98,9 @@ type Props = {
 
   groupsIndex?: { items: ListGroupWithRole[] } | null;
   viewerIsAdmin?: boolean;
+  allowOfflineFallback?: boolean;
+  initialError?: string | null;
+  requiresLogin?: boolean;
 };
 
 /* =========================
@@ -252,12 +323,96 @@ export default function ListsPageClient({
   facets,
   groupsIndex,
   viewerIsAdmin,
+  allowOfflineFallback,
+  initialError,
+  requiresLogin,
 }: Props) {
-  const search = (initialSearch ?? "").trim();
-  const groupId = initialGroupId ?? "";
+  const liveSearchParams = useSearchParams();
+  const [hydrated, setHydrated] = useState(false);
+  const identity = useOfflineIdentity();
+  const sessionStatus = identity.status;
+  const currentUserEmail = identity.userEmail;
 
-  const { items } = data;
-  const facetTotal = facets.total ?? 0;
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
+  const search = hydrated ? (liveSearchParams.get("search") || "").trim() : (initialSearch ?? "").trim();
+  const groupId = hydrated ? (liveSearchParams.get("groupId") || "") : (initialGroupId ?? "");
+  const pageFromUrl = hydrated ? Number(liveSearchParams.get("page") || "1") : page;
+  const currentPage = Number.isFinite(pageFromUrl) && pageFromUrl > 0 ? pageFromUrl : 1;
+  const shouldLoadOfflineLists = allowOfflineFallback || !identity.online;
+
+  const [activeData, setActiveData] = useState(data);
+  const [activeFacets, setActiveFacets] = useState(facets);
+  const [activeGroupsIndex, setActiveGroupsIndex] = useState(groupsIndex);
+  const [offlineFallbackTried, setOfflineFallbackTried] = useState(false);
+  const [lastViewedListId, setLastViewedListId] = useState<number | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  useEffect(() => {
+    setLastViewedListId(readLastViewedListId());
+  }, []);
+
+  useEffect(() => {
+    setActiveData(data);
+    setActiveFacets(facets);
+    setActiveGroupsIndex(groupsIndex);
+    setOfflineFallbackTried(false);
+  }, [data, facets, groupsIndex]);
+
+  useEffect(() => {
+    if (!shouldLoadOfflineLists) return;
+    if (sessionStatus === "loading") return;
+
+    let cancelled = false;
+
+    const loadOfflineLists = async () => {
+      if (sessionStatus !== "authenticated") {
+        setOfflineFallbackTried(true);
+        return;
+      }
+
+      const snapshot = await readOfflineListsForEmail(currentUserEmail).catch(() => null);
+      if (cancelled) return;
+
+      if (snapshot) {
+        const built = buildOfflineListsPage(snapshot, { search, groupId, page: currentPage, pageSize, recentListId: lastViewedListId });
+        setActiveData(built.data as any);
+        setActiveFacets(built.facets as any);
+        setActiveGroupsIndex(built.groupsIndex as any);
+      }
+
+      setOfflineFallbackTried(true);
+    };
+
+    void loadOfflineLists();
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldLoadOfflineLists, sessionStatus, currentUserEmail, search, groupId, currentPage, pageSize, lastViewedListId]);
+
+  if (requiresLogin && sessionStatus === "unauthenticated") {
+    return (
+      <section style={{ padding: "1rem" }}>
+        <h1>Λίστες</h1>
+        <p>Πρέπει να είστε συνδεδεμένος για να δείτε τις λίστες σας.</p>
+      </section>
+    );
+  }
+
+  const items = useMemo(() => {
+    if (!lastViewedListId) return activeData.items;
+    const listItems = Array.isArray(activeData.items) ? activeData.items : [];
+    const idx = listItems.findIndex((list: any) => Number(list?.id) === lastViewedListId);
+    if (idx <= 0) return listItems;
+    const next = listItems.slice();
+    const [recent] = next.splice(idx, 1);
+    next.unshift(recent);
+    return next;
+  }, [activeData.items, lastViewedListId]);
+
+  const facetTotal = activeFacets.total ?? 0;
 
   function buildPageUrl(params: { search?: string; groupId?: string; page?: number }) {
     const sp = new URLSearchParams();
@@ -268,10 +423,8 @@ export default function ListsPageClient({
     return qs ? `/lists?${qs}` : "/lists";
   }
 
-  const hasPrev = page > 1;
-  const hasNext = page * pageSize < (data.total ?? 0);
-
-  const formRef = useRef<HTMLFormElement | null>(null);
+  const hasPrev = currentPage > 1;
+  const hasNext = currentPage * pageSize < (activeData.total ?? 0);
 
   const titleFontSize = 18;
   const titleLineHeight = "22px";
@@ -320,6 +473,7 @@ export default function ListsPageClient({
           <input
             type="text"
             name="search"
+            key={`list-search-${search}`}
             defaultValue={search}
             placeholder="Αναζήτηση λίστας..."
             style={{
@@ -350,13 +504,17 @@ export default function ListsPageClient({
         search={search}
         groupId={groupId}
         facetTotal={facetTotal}
-        groupsIndex={groupsIndex}
-        facetsGroups={(facets as any)?.groups ?? []}
+        groupsIndex={activeGroupsIndex}
+        facetsGroups={(activeFacets as any)?.groups ?? []}
         viewerIsAdmin={viewerIsAdmin}
         groupsEditHref="/lists/groups"
       />
 
       {/* Lists */}
+      {allowOfflineFallback && initialError && offlineFallbackTried && items.length === 0 ? (
+        <p style={{ color: "#fca5a5", fontSize: 14 }}>Δεν υπάρχουν αποθηκευμένες λίστες για offline προβολή. ({initialError})</p>
+      ) : null}
+
       {items.length === 0 ? (
         <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 16 }}>Δεν βρέθηκαν λίστες.</p>
       ) : (
@@ -364,6 +522,7 @@ export default function ListsPageClient({
           {items.map((list: any) => {
             const title = list.title || `Λίστα #${list.id}`;
             const isMarked = Boolean(list.marked);
+            const isMostRecent = Boolean(lastViewedListId && listIdValue(list.id) === lastViewedListId);
 
             const itemsCount = Number.isFinite(list.itemsCount) ? Number(list.itemsCount) : 0;
             const countText = String(itemsCount);
@@ -382,6 +541,12 @@ export default function ListsPageClient({
               <Link
                 key={list.id}
                 href={`/lists/${list.id}`}
+                prefetch={false}
+                onClick={(event) => {
+                  rememberLastViewedList(list.id);
+                  rememberRecentGroup(list.groupId);
+                  navigateDocument(event, `/lists/${list.id}`);
+                }}
                 style={{
                   textDecoration: "none",
                   color: "#fff",
@@ -420,6 +585,28 @@ export default function ListsPageClient({
                   </div>
 
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {isMostRecent ? (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 900,
+                          padding: "6px 9px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(125,211,252,0.55)",
+                          background: "rgba(14,165,233,0.18)",
+                          color: "#fff",
+                          whiteSpace: "nowrap",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                        aria-label="Πιο πρόσφατη προβολή"
+                        title="Πιο πρόσφατη προβολή"
+                      >
+                        <Clock size={14} />
+                      </span>
+                    ) : null}
+
                     {isMarked ? (
                       <span
                         style={{
@@ -508,15 +695,15 @@ export default function ListsPageClient({
       )}
 
       {/* Pagination */}
-      {(data.total ?? 0) > pageSize && (
+      {(activeData.total ?? 0) > pageSize && (
         <div style={{ marginTop: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.98rem", color: "rgba(255,255,255,0.90)" }}>
           <div>
-            Σελίδα {page} από {Math.max(1, Math.ceil((data.total ?? 0) / pageSize))} ({data.total ?? 0} λίστες)
+            Σελίδα {currentPage} από {Math.max(1, Math.ceil((activeData.total ?? 0) / pageSize))} ({activeData.total ?? 0} λίστες)
           </div>
 
           <div style={{ display: "flex", gap: "0.75rem" }}>
             {hasPrev ? (
-              <Link href={buildPageUrl({ search, groupId, page: page - 1 })} style={{ color: "#fff", textDecoration: "none", fontWeight: 700 }}>
+              <Link href={buildPageUrl({ search, groupId, page: currentPage - 1 })} style={{ color: "#fff", textDecoration: "none", fontWeight: 700 }}>
                 ← Προηγούμενη
               </Link>
             ) : (
@@ -524,7 +711,7 @@ export default function ListsPageClient({
             )}
 
             {hasNext ? (
-              <Link href={buildPageUrl({ search, groupId, page: page + 1 })} style={{ color: "#fff", textDecoration: "none", fontWeight: 700 }}>
+              <Link href={buildPageUrl({ search, groupId, page: currentPage + 1 })} style={{ color: "#fff", textDecoration: "none", fontWeight: 700 }}>
                 Επόμενη →
               </Link>
             ) : (

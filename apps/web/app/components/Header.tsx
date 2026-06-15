@@ -1,22 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { Mic, Recycle, Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { useSession, signIn, signOut } from "next-auth/react";
+import { CloudOff, Mic, Recycle, RefreshCw, Search } from "lucide-react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { signIn, signOut } from "next-auth/react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import SideMenu from "./SideMenu";
+import { useOfflineRuntime } from "@/lib/offlineSync";
+import { useOfflineIdentity } from "@/lib/useOfflineIdentity";
 
 type HeaderProps = {
   appVersion?: string;
-  gitSha?: string | null;
 };
 
 export default function Header(props: HeaderProps) {
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   if (isEmbed) return null;
-  return <HeaderInner appVersion={props.appVersion} gitSha={props.gitSha} />;
+  return <HeaderInner appVersion={props.appVersion} />;
 }
 
 const STORAGE_KEY_ROOM = "repertorio_current_room";
@@ -41,7 +42,7 @@ type StatusResponse = {
   rooms?: StatusRoom[];
 };
 
-function HeaderInner({ appVersion, gitSha }: HeaderProps) {
+function HeaderInner({ appVersion }: HeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -49,13 +50,12 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
   const isSongsPage = pathname === "/songs";
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  const { data: session, status } = useSession();
-  const isLoggedIn = status === "authenticated";
+  const identity = useOfflineIdentity();
+  const isLoggedIn = identity.isAuthenticated;
+  const userEmail = identity.userEmail;
+  const offlineStatus = useOfflineRuntime(isLoggedIn, userEmail);
 
-  const avatarUrl =
-    (session?.user as any)?.image ||
-    (session?.user as any)?.picture ||
-    undefined;
+  const avatarUrl = identity.userImage || undefined;
 
   const [currentRoomName, setCurrentRoomName] = useState<string | null>(null);
   const [roomUserCount, setRoomUserCount] = useState<number | null>(null);
@@ -103,37 +103,6 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
     [isSongsPage, searchParams, router],
   );
 
-  const preservedHiddenInputs = useMemo(() => {
-    if (!isSongsPage) return [];
-
-    const keysToPreserve = [
-      "take",
-      "chords",
-      "partiture",
-      "category_id",
-      "rythm_id",
-      "tagIds",
-      "composerIds",
-      "lyricistIds",
-      "singerFrontIds",
-      "singerBackIds",
-      "yearFrom",
-      "yearTo",
-      "lyrics",
-      "status",
-      "popular",
-      "createdByUserId",
-    ];
-
-    const out: Array<{ name: string; value: string }> = [];
-    for (const k of keysToPreserve) {
-      const v = searchParams.get(k);
-      if (v && v.trim() !== "") out.push({ name: k, value: v });
-    }
-    out.push({ name: "skip", value: "0" });
-    return out;
-  }, [isSongsPage, searchParams]);
-
   useEffect(() => {
     const termFromUrl = searchParams.get("search_term") || "";
     setSearchValue(termFromUrl);
@@ -173,7 +142,7 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn || !currentRoomName) {
+    if (!isLoggedIn || identity.isOfflineAuthenticated || !currentRoomName) {
       setRoomUserCount(null);
       setRoomLoading(false);
       return;
@@ -224,7 +193,7 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [isLoggedIn, currentRoomName]);
+  }, [isLoggedIn, identity.isOfflineAuthenticated, currentRoomName]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -314,7 +283,7 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
   const avatarNode = avatarUrl ? (
     <img
       src={avatarUrl}
-      alt={(session?.user as any)?.name || (session?.user as any)?.email || "User avatar"}
+      alt={identity.userName || identity.userEmail || "User avatar"}
       style={{
         width: "100%",
         height: "100%",
@@ -337,7 +306,7 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
     </span>
   );
 
-  const isInRoom = isLoggedIn && !!currentRoomName;
+  const isInRoom = isLoggedIn && !identity.isOfflineAuthenticated && !!currentRoomName;
 
   return (
     <>
@@ -407,10 +376,6 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
                   marginLeft: 8,
                 }}
               >
-                {preservedHiddenInputs.map((x) => (
-                  <input key={x.name} type="hidden" name={x.name} value={x.value} />
-                ))}
-
                 <div style={{ position: "relative", flex: 1 }}>
                   <input
                     ref={searchInputRef}
@@ -480,6 +445,29 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
           </div>
 
           <div className="header-buttons">
+            {(!offlineStatus.online || offlineStatus.syncing) ? (
+              <span
+                title={
+                  offlineStatus.syncing
+                    ? "\u03a3\u03c5\u03b3\u03c7\u03c1\u03bf\u03bd\u03b9\u03c3\u03bc\u03cc\u03c2 offline δεδομένων"
+                    : "Offline: χρήση αποθηκευμένων δεδομένων όπου υπάρχουν"
+                }
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  color: offlineStatus.online ? "rgba(255,255,255,0.82)" : "#facc15",
+                  fontWeight: 800,
+                  fontSize: 12,
+                  marginLeft: 8,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {offlineStatus.syncing ? <RefreshCw size={17} aria-hidden="true" /> : <CloudOff size={17} aria-hidden="true" />}
+                <span>{offlineStatus.syncing ? "Sync" : "Offline"}</span>
+              </span>
+            ) : null}
+
             <Link
               href="/rooms"
               className="rooms-button"
@@ -585,15 +573,15 @@ function HeaderInner({ appVersion, gitSha }: HeaderProps) {
         isLoggedIn={isLoggedIn}
         onSignIn={doSignIn}
         onSignOut={doSignOut}
-        userName={(session?.user as any)?.name}
-        userEmail={(session?.user as any)?.email}
+        userName={identity.userName}
+        userEmail={userEmail}
         avatarNode={avatarNode}
+        offlineStatus={offlineStatus}
         isInRoom={isInRoom}
         currentRoomName={currentRoomName}
         roomUserCount={roomUserCount}
         roomLoading={roomLoading}
         appVersion={appVersion}
-        gitSha={gitSha}
         onNewSong={() => {
           window.location.href = "/songs/new";
         }}

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi } from "@/lib/currentUser";
 import ListDetailClient from "./ListDetailClient";
+import ListOfflineShellClient from "./ListOfflineShellClient";
 
 export const dynamic = "force-dynamic";
 
@@ -42,14 +43,24 @@ export type ListDetailDto = {
 
 type PageProps = {
   params: { id: string };
+  searchParams?: { offlineShell?: string };
 };
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  if (params.id === "offline-shell") {
+    return { title: "Offline λίστα | Repertorio Next" };
+  }
+
   return { title: `Λίστα #${params.id} | Repertorio Next` };
 }
 
-export default async function ListDetailPage({ params }: PageProps) {
+export default async function ListDetailPage({ params, searchParams }: PageProps) {
+  if (searchParams?.offlineShell === "1") {
+    return <ListOfflineShellClient />;
+  }
+
   const listId = Number(params.id);
+
   if (!Number.isFinite(listId) || listId <= 0) {
     return (
       <section style={{ padding: "1rem" }}>
@@ -59,7 +70,13 @@ export default async function ListDetailPage({ params }: PageProps) {
     );
   }
 
-  const currentUser = await getCurrentUserFromApi();
+  let currentUser: Awaited<ReturnType<typeof getCurrentUserFromApi>>;
+  try {
+    currentUser = await getCurrentUserFromApi();
+  } catch {
+    return <ListOfflineShellClient />;
+  }
+
   if (!currentUser) {
     return (
       <section style={{ padding: "1rem" }}>
@@ -74,15 +91,7 @@ export default async function ListDetailPage({ params }: PageProps) {
   try {
     data = await fetchJson<ListDetailDto>(apiUrl);
   } catch (err: any) {
-    return (
-      <section style={{ padding: "1rem" }}>
-        <h1>Λίστα</h1>
-        <p>
-          Η λίστα δεν βρέθηκε ή δεν έχετε δικαίωμα να τη δείτε (
-          {String(err?.message || err)})
-        </p>
-      </section>
-    );
+    return <ListOfflineShellClient />;
   }
 
   // Στέλνουμε και το viewerUserId στον client, ώστε τα links των τραγουδιών

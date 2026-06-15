@@ -26,10 +26,15 @@ import SongAssetsPanel from "./SongAssetsPanel";
 import SongListPickerModal from "./SongListPickerModal";
 import type { Step } from "react-joyride";
 import type { SongDetail } from "./page";
+import { writeOfflineSongDetail } from "@/lib/offlineStore";
 
-const GuidedTour = dynamic(() => import("../../components/GuidedTour"), {
-  ssr: false,
-});
+const GuidedTour = dynamic(
+  () =>
+    import("../../components/GuidedTour").catch(() => ({
+      default: () => null,
+    })),
+  { ssr: false },
+);
 
 type PanelsOpen = {
   info: boolean;
@@ -250,6 +255,11 @@ export default function SongPageClient(props: Props) {
 
   const router = useRouter();
   const sp = useSearchParams();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    void writeOfflineSongDetail(song).catch(() => null);
+  }, [song]);
 
   const safeYoutubeUrl = useMemo(() => {
     const raw = String(youtubeUrl || "").trim();

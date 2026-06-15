@@ -7,8 +7,21 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import FiltersModal, { FiltersPanel } from "./FiltersModal";
 
 import type { Option } from "./FilterSelectWithSearch";
+import {
+  readOfflineListsForEmail,
+  readOfflineStaticFilters,
+  searchOfflineSongs,
+  writeOfflineSongsSearch,
+} from "@/lib/offlineStore";
+import { useOfflineIdentity } from "@/lib/useOfflineIdentity";
 
 const API_BASE_URL = "/api/v1";
+
+function navigateDocumentWhenOffline(event: React.MouseEvent<HTMLAnchorElement>, href: string) {
+  if (typeof window === "undefined" || typeof navigator === "undefined" || navigator.onLine !== false) return;
+  event.preventDefault();
+  window.location.href = href;
+}
 
 type SongSearchItem = {
   id?: number;
@@ -640,6 +653,14 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const liveSearchParams = useSearchParams();
+  const [hydrated, setHydrated] = useState(false);
+  const identity = useOfflineIdentity();
+  const canLoadUserLists = identity.isAuthenticated;
+  const currentUserEmail = identity.userEmail;
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   const liveParamsObject = useMemo<SongsPageSearchParams>(() => {
     const p = liveSearchParams;
@@ -672,10 +693,10 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
   const effectiveSearchParams = useMemo(
     () =>
-      liveSearchParams && Array.from(liveSearchParams.keys()).length > 0
+      hydrated && liveSearchParams && Array.from(liveSearchParams.keys()).length > 0
         ? liveParamsObject
         : (searchParams || {}),
-    [liveParamsObject, liveSearchParams, searchParams],
+    [hydrated, liveParamsObject, liveSearchParams, searchParams],
   );
 
   const mode = getSingleParam(effectiveSearchParams?.mode);
@@ -785,49 +806,61 @@ export default function SongsSearchClient({ searchParams }: Props) {
     let cancelled = false;
 
     async function loadStaticFilters() {
+      let catsJson: CategoryDto[] = [];
+      let rythmsJson: RythmDto[] = [];
+      let tagsJson: any = [];
+      let listsJson: ListsIndexResponse | null = null;
+
       try {
-        const [catsRes, rythmsRes, tagsRes, listsRes] = await Promise.all([
+        const [catsRes, rythmsRes, tagsRes] = await Promise.all([
           fetch("/api/categories", { headers: { Accept: "application/json" } }),
           fetch("/api/rythms", { headers: { Accept: "application/json" } }),
           fetch("/api/songs/tags?take=1000", { headers: { Accept: "application/json" } }),
-          fetch("/api/lists?page=1&pageSize=1000", { headers: { Accept: "application/json" } }),
         ]);
 
-        const catsJson = catsRes.ok ? await parseJsonSafe<CategoryDto[]>(catsRes).catch(() => []) : [];
-        const rythmsJson = rythmsRes.ok ? await parseJsonSafe<RythmDto[]>(rythmsRes).catch(() => []) : [];
-        const tagsJson = tagsRes.ok ? await parseJsonSafe<any>(tagsRes).catch(() => []) : [];
-        const listsJson = listsRes.ok ? await parseJsonSafe<ListsIndexResponse>(listsRes).catch(() => null) : null;
+        catsJson = catsRes.ok ? await parseJsonSafe<CategoryDto[]>(catsRes).catch(() => []) : [];
+        rythmsJson = rythmsRes.ok ? await parseJsonSafe<RythmDto[]>(rythmsRes).catch(() => []) : [];
+        tagsJson = tagsRes.ok ? await parseJsonSafe<any>(tagsRes).catch(() => []) : [];
 
-        if (cancelled) return;
-
-        setCategories(Array.isArray(catsJson) ? catsJson : []);
-        setRythms(Array.isArray(rythmsJson) ? rythmsJson : []);
-
-        const normalizedTags: TagDto[] = Array.isArray(tagsJson)
-          ? tagsJson
-          : Array.isArray(tagsJson?.items)
-            ? tagsJson.items
-            : [];
-
-        const normalizedLists: ListDto[] = Array.isArray(listsJson?.items) ? listsJson.items : [];
-
-        setTags(normalizedTags);
-        setLists(normalizedLists);
-        setOrganikoTagId(findOrganikoTagId(normalizedTags));
+        if (canLoadUserLists) {
+          const listsRes = await fetch("/api/lists?page=1&pageSize=1000", { headers: { Accept: "application/json" } });
+          listsJson = listsRes.ok ? await parseJsonSafe<ListsIndexResponse>(listsRes).catch(() => null) : null;
+        }
       } catch {
-        if (cancelled) return;
-        setCategories([]);
-        setRythms([]);
-        setTags([]);
-        setLists([]);
+        const cachedFilters = await readOfflineStaticFilters().catch(() => null);
+        catsJson = Array.isArray(cachedFilters?.categories) ? cachedFilters.categories : [];
+        rythmsJson = Array.isArray(cachedFilters?.rythms) ? cachedFilters.rythms : [];
+        tagsJson = Array.isArray(cachedFilters?.tags) ? cachedFilters.tags : [];
       }
+
+      if (canLoadUserLists && !listsJson) {
+        const cachedLists = await readOfflineListsForEmail(currentUserEmail).catch(() => null);
+        listsJson = cachedLists?.data || null;
+      }
+
+      if (cancelled) return;
+
+      setCategories(Array.isArray(catsJson) ? catsJson : []);
+      setRythms(Array.isArray(rythmsJson) ? rythmsJson : []);
+
+      const normalizedTags: TagDto[] = Array.isArray(tagsJson)
+        ? tagsJson
+        : Array.isArray(tagsJson?.items)
+          ? tagsJson.items
+          : [];
+
+      const normalizedLists: ListDto[] = canLoadUserLists && Array.isArray(listsJson?.items) ? listsJson.items : [];
+
+      setTags(normalizedTags);
+      setLists(normalizedLists);
+      setOrganikoTagId(findOrganikoTagId(normalizedTags));
     }
 
     loadStaticFilters();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canLoadUserLists, currentUserEmail]);
 
   const patchFilters = (patch: Partial<FiltersState>) => {
     const next: FiltersState = { ...filters, ...patch };
@@ -978,19 +1011,30 @@ export default function SongsSearchClient({ searchParams }: Props) {
         const params = buildEsQueryFromFilters(filters, organikoTagId);
         const esUrl = `${API_BASE_URL}/songs-es/search?${params.toString()}`;
 
-        const resEs = await fetch(esUrl, { headers: { Accept: "application/json" } });
+        let data: SongsSearchResponse;
+        let offlineMode = false;
 
-        if (!resEs.ok) {
-          const bodyText = await resEs.text().catch(() => "");
-          throw new Error(
-            `ES /songs-es/search HTTP ${resEs.status} ${resEs.statusText} – url: ${esUrl} – body: ${bodyText.slice(0, 500)}`,
-          );
+        try {
+          const resEs = await fetch(esUrl, { headers: { Accept: "application/json" } });
+
+          if (!resEs.ok) {
+            const bodyText = await resEs.text().catch(() => "");
+            throw new Error(
+              `ES /songs-es/search HTTP ${resEs.status} ${resEs.statusText} – url: ${esUrl} – body: ${bodyText.slice(0, 500)}`,
+            );
+          }
+
+          data = await parseJsonSafe<SongsSearchResponse>(resEs);
+        } catch (onlineError) {
+          const offlineData = await searchOfflineSongs(filters);
+          if (!offlineData) throw onlineError;
+          data = offlineData as SongsSearchResponse;
+          offlineMode = true;
         }
 
-        const data = await parseJsonSafe<SongsSearchResponse>(resEs);
         let items = data.items ?? [];
 
-        if (filters.popular === "1") {
+        if (filters.popular === "1" && !offlineMode) {
           items = await Promise.all(
             items.map(async (song) => {
               const songId = getCanonicalSongId(song);
@@ -1016,6 +1060,10 @@ export default function SongsSearchClient({ searchParams }: Props) {
             const vb = typeof b.views === "number" && !Number.isNaN(b.views) ? b.views : -1;
             return vb - va;
           });
+        }
+
+        if (!offlineMode) {
+          void writeOfflineSongsSearch(filters, { ...data, items }).catch(() => null);
         }
 
         if (cancelled) return;
@@ -1597,7 +1645,13 @@ export default function SongsSearchClient({ searchParams }: Props) {
                             <img src={YOUTUBE_ICON_URL} alt="YouTube" style={{ width: 25, verticalAlign: "middle", display: "block" }} />
                           </a>
 
-                          <Link className="song-title" href={songHref} title={song.title || "(χωρίς τίτλο)"}>
+                          <Link
+                            className="song-title"
+                            href={songHref}
+                            title={song.title || "(χωρίς τίτλο)"}
+                            prefetch={false}
+                            onClick={(event) => navigateDocumentWhenOffline(event, songHref)}
+                          >
                             {song.chords ? (
                               <img
                                 src={GUITAR_ICON_URL}

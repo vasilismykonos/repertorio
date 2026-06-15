@@ -15,7 +15,11 @@ import {
   PlusSquare,
   LogIn,
   LogOut,
+  CloudOff,
+  RefreshCw,
 } from "lucide-react";
+import type { OfflineRuntimeStatus } from "@/lib/offlineSync";
+import { APP_CHANGELOG, APP_VERSION } from "@/lib/appVersion";
 
 type Props = {
   isOpen: boolean;
@@ -33,6 +37,9 @@ type Props = {
   userEmail?: string | null;
   avatarNode: React.ReactNode;
 
+  // offline
+  offlineStatus?: OfflineRuntimeStatus;
+
   // room
   isInRoom: boolean;
   currentRoomName: string | null;
@@ -41,7 +48,6 @@ type Props = {
 
   // build info
   appVersion?: string;
-  gitSha?: string | null;
 
   /**
    * Προαιρετικό: αν το περνάς από πάνω (Header) fine.
@@ -55,6 +61,16 @@ type Props = {
 
 function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
+}
+
+function formatOfflineDate(iso: string | null | undefined): string {
+  if (!iso) return "-";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat("el-GR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
 }
 
 const STORAGE_KEY_ROOM = "repertorio_current_room";
@@ -97,10 +113,10 @@ export default function SideMenu(props: Props) {
     userName,
     userEmail,
     avatarNode,
+    offlineStatus,
     onNewSong,
     isAdmin: isAdminProp,
     appVersion,
-    gitSha,
   } = props;
 
   const sidebarClass = `site-sidebar${isOpen ? " visible" : ""}`;
@@ -108,11 +124,13 @@ export default function SideMenu(props: Props) {
 
   const displayName = userName || userEmail || "Επισκέπτης";
   const statusText = isLoggedIn ? "Συνδεδεμένος" : "Επισκέπτης";
+  const displayVersion = appVersion || APP_VERSION;
 
   const [currentRoomNameLocal, setCurrentRoomNameLocal] = useState<string | null>(null);
   const [roomUserCountLocal, setRoomUserCountLocal] = useState<number | null>(null);
   const [roomLoadingLocal, setRoomLoadingLocal] = useState(false);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -417,6 +435,72 @@ export default function SideMenu(props: Props) {
           </button>
         </div>
 
+
+        {offlineStatus ? (
+          <div className="smh-offline" title={offlineStatus.error || undefined}>
+            <div className="smh-offline-row strong">
+              <span className={cx("smh-dot", offlineStatus.online && "on")} />
+              <span>{offlineStatus.online ? "Online" : "Offline"}</span>
+              <button
+                type="button"
+                className="smh-version-pill"
+                onClick={() => setVersionHistoryOpen((value) => !value)}
+                aria-expanded={versionHistoryOpen}
+                title="Ιστορικό αλλαγών"
+              >
+                v{displayVersion}
+              </button>
+              {offlineStatus.syncing ? (
+                <span className="smh-syncing">
+                  <RefreshCw size={13} />
+                  <span>Sync</span>
+                </span>
+              ) : offlineStatus.online ? null : (
+                <CloudOff size={14} />
+              )}
+            </div>
+            <div className="smh-offline-row">
+              <span>{"\u03a4\u03b5\u03bb. συγχρονισμός"}: {formatOfflineDate(offlineStatus.lastSyncedAt)}</span>
+            </div>
+            <div className="smh-offline-row muted">
+              <span>{"\u03a4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9\u03b1"}: {offlineStatus.songsCount}</span>
+              <span>{"\u039b\u03af\u03c3\u03c4\u03b5\u03c2"}: {offlineStatus.listsCount}</span>
+            </div>
+          </div>
+        ) : null}
+
+        {versionHistoryOpen ? (
+          <div className="smh-version-history" role="dialog" aria-label="Ιστορικό αλλαγών">
+            <div className="smh-version-history-head">
+              <strong>Ιστορικό αλλαγών</strong>
+              <button
+                type="button"
+                className="smh-version-close"
+                onClick={() => setVersionHistoryOpen(false)}
+                aria-label="Κλείσιμο ιστορικού αλλαγών"
+              >
+                ×
+              </button>
+            </div>
+            <div className="smh-version-list">
+              {APP_CHANGELOG.map((entry) => (
+                <section key={entry.version} className="smh-version-entry">
+                  <div className="smh-version-entry-title">
+                    <span>v{entry.version}</span>
+                    <time>{entry.date}</time>
+                  </div>
+                  <div className="smh-version-entry-sub">{entry.title}</div>
+                  <ul>
+                    {entry.items.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="smh-auth">
           <button
             type="button"
@@ -501,13 +585,7 @@ export default function SideMenu(props: Props) {
           </div>
 
           <div className="smh-footer-meta">
-            <span>
-              Έκδοση: {appVersion ?? "—"}
-              {gitSha ? ` • ${gitSha}` : ""}
-            </span>
-            <span style={{ marginLeft: 10 }}>
-              Χρήστες online: {onlineCount ?? "—"}
-            </span>
+            <span>Χρήστες online: {onlineCount ?? "—"}</span>
           </div>
         </div>
 
@@ -624,6 +702,138 @@ export default function SideMenu(props: Props) {
 
           .smh-close:hover {
             background: rgba(255, 255, 255, 0.1);
+          }
+
+
+          .smh-offline {
+            margin-top: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            padding: 10px;
+            color: rgba(255, 255, 255, 0.82);
+            display: grid;
+            gap: 6px;
+          }
+
+          .smh-offline-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            font-size: 12px;
+            line-height: 16px;
+          }
+
+          .smh-offline-row.strong {
+            color: #fff;
+            font-weight: 900;
+          }
+
+          .smh-version-pill {
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 11px;
+            line-height: 14px;
+            font-weight: 900;
+            cursor: pointer;
+          }
+
+          .smh-version-pill:hover {
+            background: rgba(255, 255, 255, 0.14);
+          }
+
+          .smh-offline-row.muted {
+            color: rgba(255, 255, 255, 0.62);
+            justify-content: space-between;
+          }
+
+          .smh-syncing {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: rgba(255, 255, 255, 0.72);
+          }
+
+          .smh-version-history {
+            margin-top: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(10, 10, 10, 0.92);
+            border-radius: 14px;
+            padding: 10px;
+            color: rgba(255, 255, 255, 0.88);
+          }
+
+          .smh-version-history-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+          }
+
+          .smh-version-close {
+            width: 28px;
+            height: 28px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            color: #fff;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+          }
+
+          .smh-version-list {
+            display: grid;
+            gap: 10px;
+            max-height: 260px;
+            overflow: auto;
+            padding-right: 2px;
+          }
+
+          .smh-version-entry {
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding-top: 10px;
+          }
+
+          .smh-version-entry:first-child {
+            border-top: 0;
+            padding-top: 0;
+          }
+
+          .smh-version-entry-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 900;
+          }
+
+          .smh-version-entry-title time {
+            color: rgba(255, 255, 255, 0.58);
+            font-weight: 700;
+          }
+
+          .smh-version-entry-sub {
+            margin-top: 4px;
+            font-size: 12px;
+            font-weight: 800;
+          }
+
+          .smh-version-entry ul {
+            margin: 8px 0 0;
+            padding-left: 18px;
+            display: grid;
+            gap: 5px;
+            color: rgba(255, 255, 255, 0.72);
+            font-size: 12px;
+            line-height: 1.35;
           }
 
           .smh-auth {

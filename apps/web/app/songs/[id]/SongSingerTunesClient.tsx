@@ -6,6 +6,11 @@ import { useSession } from "next-auth/react";
 
 import { A } from "@/app/components/buttons";
 import { parseTonicity } from "@/app/components/tonicity";
+import {
+  readOfflineMeta,
+  readOfflineSingerTunes,
+  writeOfflineSingerTunes,
+} from "@/lib/offlineStore";
 
 type SingerTuneRow = {
   id: number;
@@ -41,6 +46,16 @@ function dispatchTonicityChanged(tonicity: string | null) {
   window.dispatchEvent(new CustomEvent("rep:tonicityChanged", { detail: { tonicity } }));
 }
 
+function browserOnline() {
+  return typeof navigator === "undefined" || typeof navigator.onLine === "undefined"
+    ? true
+    : navigator.onLine;
+}
+
+function hasOfflineUser(meta: { userId?: number | null; userEmail?: string | null } | null) {
+  return Number(meta?.userId) > 0 && String(meta?.userEmail || "").trim() !== "";
+}
+
 export default function SongSingerTunesClient(props: {
   open: boolean;
   songId: number;
@@ -52,28 +67,53 @@ export default function SongSingerTunesClient(props: {
   const [rows, setRows] = useState<SingerTuneRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
+  const [usingOfflineUser, setUsingOfflineUser] = useState(false);
 
   const [selected, setSelected] = useState<RepSelected>(() => readSelectedFromGlobal());
 
   // Φόρτωση denos
   useEffect(() => {
     if (!open) return;
-    if (status === "loading") {
-      setErr(null);
-      setAuthRequired(false);
-      setRows(null);
-      return;
-    }
-    if (status === "unauthenticated") {
-      setErr(null);
-      setAuthRequired(true);
-      setRows([]);
-      return;
-    }
+
     let cancelled = false;
+
     (async () => {
+      const online = browserOnline();
+      const meta = await readOfflineMeta().catch(() => null);
+      const canUseOfflineUser = hasOfflineUser(meta) && !online;
+
+      if (online && status === "loading") {
+        if (!cancelled) {
+          setErr(null);
+          setAuthRequired(false);
+          setUsingOfflineUser(false);
+          setRows(null);
+        }
+        return;
+      }
+
+      if (status === "unauthenticated" && !canUseOfflineUser) {
+        if (!cancelled) {
+          setErr(null);
+          setAuthRequired(true);
+          setUsingOfflineUser(false);
+          setRows([]);
+        }
+        return;
+      }
+
       setErr(null);
       setAuthRequired(false);
+
+      if (!online || status !== "authenticated") {
+        const cachedRows = await readOfflineSingerTunes(songId).catch(() => null);
+        if (!cancelled) {
+          setUsingOfflineUser(canUseOfflineUser);
+          setRows(Array.isArray(cachedRows) ? (cachedRows as SingerTuneRow[]) : []);
+        }
+        return;
+      }
+
       try {
         const res = await fetch(`/api/songs/${songId}/singer-tunes`, { cache: "no-store" });
         const data = await readJson(res);
@@ -83,6 +123,7 @@ export default function SongSingerTunesClient(props: {
               setAuthRequired(true);
               setRows([]);
               setErr(null);
+              setUsingOfflineUser(false);
               return;
             }
             const msg =
@@ -93,12 +134,23 @@ export default function SongSingerTunesClient(props: {
           }
         }
         if (!cancelled) {
-          setRows(Array.isArray(data) ? (data as SingerTuneRow[]) : []);
+          const nextRows = Array.isArray(data) ? (data as SingerTuneRow[]) : [];
+          setRows(nextRows);
+          setUsingOfflineUser(false);
+          void writeOfflineSingerTunes(songId, nextRows).catch(() => null);
         }
       } catch (e: any) {
+        const cachedRows = await readOfflineSingerTunes(songId).catch(() => null);
         if (!cancelled) {
-          setRows([]);
-          setErr(e?.message || "Αποτυχία φόρτωσης");
+          if (Array.isArray(cachedRows)) {
+            setRows(cachedRows as SingerTuneRow[]);
+            setUsingOfflineUser(hasOfflineUser(meta));
+            setErr(null);
+          } else {
+            setRows([]);
+            setUsingOfflineUser(false);
+            setErr(e?.message || "Αποτυχία φόρτωσης");
+          }
         }
       }
     })();
@@ -123,7 +175,7 @@ export default function SongSingerTunesClient(props: {
   }, [open]);
 
   function applyTune(r: SingerTuneRow) {
-    if (status !== "authenticated") return;
+    if (status !== "authenticated" && !usingOfflineUser) return;
     const ton = parseTonicity(r.tune);
     if (!ton) return;
     if (typeof window === "undefined") return;
@@ -161,7 +213,7 @@ export default function SongSingerTunesClient(props: {
           }}
         >
           <div style={{ fontWeight: 700 }}>Τονικότητες</div>
-          {status === "authenticated"
+          {status === "authenticated" && !usingOfflineUser
             ? A.editLink({
                 href: `/songs/${songId}/singer-tunes`,
                 title: "Διαχείριση τονικοτήτων",

@@ -1,7 +1,7 @@
 // apps/web/app/lists/[id]/ListDetailClient.tsx
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import Link from "next/link";
 
 import ActionBar from "@/app/components/ActionBar";
@@ -13,11 +13,41 @@ import { Crown, Eye, Music2, Shield } from "lucide-react";
 
 type Role = ListDetailDto["role"];
 
+const LAST_VIEWED_LIST_KEY = "repertorio:lastViewedListId";
+const RECENT_GROUPS_KEY = "repertorio:recentGroupIds";
+
 type Props = {
   listId: number;
   viewerUserId: number;
   data: ListDetailDto;
 };
+
+function navigateDocumentWhenOffline(event: React.MouseEvent<HTMLAnchorElement>, href: string) {
+  if (typeof window === "undefined" || typeof navigator === "undefined" || navigator.onLine !== false) return;
+  event.preventDefault();
+  window.location.href = href;
+}
+
+function groupIdValue(value: any): number | null {
+  const id = Math.trunc(Number(value));
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function rememberRecentGroup(id: any) {
+  const groupId = groupIdValue(id);
+  if (!groupId || typeof window === "undefined") return;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(RECENT_GROUPS_KEY) || "[]");
+    const ids = Array.isArray(parsed) ? parsed : [];
+    const next = [groupId, ...ids.filter((item: any) => groupIdValue(item) !== groupId)]
+      .map(groupIdValue)
+      .filter((item): item is number => Boolean(item))
+      .slice(0, 20);
+    window.localStorage.setItem(RECENT_GROUPS_KEY, JSON.stringify(next));
+  } catch {
+    // Best-effort preference only.
+  }
+}
 
 function roleLabel(role: Role) {
   if (role === "OWNER") return "Δημιουργός";
@@ -101,6 +131,15 @@ function roleBadgeStyle(role: Role): React.CSSProperties {
 
 export default function ListDetailClient({ listId, viewerUserId, data }: Props) {
   void viewerUserId;
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LAST_VIEWED_LIST_KEY, String(listId));
+    } catch {
+      // Best-effort preference only.
+    }
+    rememberRecentGroup(data?.groupId);
+  }, [listId, data?.groupId]);
 
   const { title, groupTitle, marked, role, items } = data;
 
@@ -291,7 +330,12 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             return (
               <li key={listItemId} id={`item_${listItemId}`} style={rowStyle}>
                 {songHref ? (
-                  <Link href={songHref} style={{ ...contentStyle, textDecoration: "none" }}>
+                  <Link
+                    href={songHref}
+                    prefetch={false}
+                    onClick={(event) => navigateDocumentWhenOffline(event, songHref)}
+                    style={{ ...contentStyle, textDecoration: "none" }}
+                  >
                     <span style={numberStyle}>{sortId ? `${sortId}.` : "•"}</span>
                     <span style={titleStyle}>{titleText}</span>
                   </Link>

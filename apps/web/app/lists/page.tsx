@@ -54,6 +54,16 @@ type ListsPageSearchParams = {
   page?: string;
 };
 
+function emptyListsResponse(page: number, pageSize: number): ListsIndexResponse {
+  return {
+    items: [],
+    total: 0,
+    page,
+    pageSize,
+    groups: [],
+  };
+}
+
 export default async function ListsPage({
   searchParams,
 }: {
@@ -69,13 +79,22 @@ export default async function ListsPage({
 
   const pageSize = 50;
 
-  const currentUser = await getCurrentUserFromApi();
+  const currentUser = await getCurrentUserFromApi().catch(() => null);
   if (!currentUser) {
+    const empty = emptyListsResponse(page, pageSize);
     return (
-      <section style={{ padding: "1rem" }}>
-        <h1>Λίστες</h1>
-        <p>Πρέπει να είστε συνδεδεμένος για να δείτε τις λίστες σας.</p>
-      </section>
+      <ListsPageClient
+        initialSearch={search}
+        initialGroupId={groupId}
+        page={page}
+        pageSize={pageSize}
+        data={empty}
+        facets={empty}
+        groupsIndex={null}
+        viewerIsAdmin={false}
+        allowOfflineFallback
+        requiresLogin
+      />
     );
   }
 
@@ -114,11 +133,20 @@ export default async function ListsPage({
       groupsIndex = null;
     }
   } catch (err: any) {
+    const empty = emptyListsResponse(page, pageSize);
     return (
-      <section style={{ padding: "1rem" }}>
-        <h1>Λίστες</h1>
-        <p>Σφάλμα κατά την ανάκτηση λιστών. ({String(err?.message || err)})</p>
-      </section>
+      <ListsPageClient
+        initialSearch={search}
+        initialGroupId={groupId}
+        page={page}
+        pageSize={pageSize}
+        data={empty}
+        facets={empty}
+        groupsIndex={null}
+        viewerIsAdmin={viewerIsAdmin}
+        allowOfflineFallback
+        initialError={String(err?.message || err)}
+      />
     );
   }
 

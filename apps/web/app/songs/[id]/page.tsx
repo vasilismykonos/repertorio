@@ -3,6 +3,7 @@
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
 import SongPageClient from "./SongPageClient";
+import SongOfflineShellClient from "./SongOfflineShellClient";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,7 @@ export type SongDetail = {
 
 type SongPageProps = {
   params: { id: string };
+  searchParams?: { offlineShell?: string };
 };
 
 type RedirectDefault = "TITLE" | "CHORDS" | "LYRICS" | "SCORE";
@@ -329,6 +331,10 @@ function renderSongSchema(song: SongDetail) {
 }
 
 export async function generateMetadata({ params }: SongPageProps) {
+  if (params.id === "offline-shell") {
+    return { title: "Offline τραγούδι | Repertorio Next" };
+  }
+
   const songId = Number(params.id);
 
   if (!songId || Number.isNaN(songId)) {
@@ -427,7 +433,11 @@ function readSongsRedirectDefaultFromProfile(profile: any): RedirectDefault {
     : "TITLE";
 }
 
-export default async function SongPage({ params }: SongPageProps) {
+export default async function SongPage({ params, searchParams }: SongPageProps) {
+  if (searchParams?.offlineShell === "1") {
+    return <SongOfflineShellClient />;
+  }
+
   const songId = Number(params.id);
 
   if (!songId || Number.isNaN(songId)) {
@@ -442,11 +452,7 @@ export default async function SongPage({ params }: SongPageProps) {
   try {
     rawSong = await fetchJson<any>(`/songs/${songId}`);
   } catch {
-    return (
-      <section style={{ padding: "24px 16px", maxWidth: 900, margin: "0 auto" }}>
-        <p>Σφάλμα κατά την φόρτωση του τραγουδιού.</p>
-      </section>
-    );
+    return <SongOfflineShellClient />;
   }
 
   const versions = normalizeVersions(rawSong.versions);

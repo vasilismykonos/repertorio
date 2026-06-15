@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { A } from "@/app/components/buttons";
-import { Crown, Eye, Shield, Music2 } from "lucide-react";
+import { Crown, Eye, MoreHorizontal, Shield, Music2 } from "lucide-react";
 
 type Role = "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER" | "ADMIN";
 
@@ -15,6 +15,37 @@ export type ListGroupWithRole = {
   listsCount: number;
   role: Role;
 };
+
+const RECENT_GROUPS_KEY = "repertorio:recentGroupIds";
+const MAX_COLLAPSED_GROUPS = 5;
+
+function groupIdValue(value: any): number | null {
+  const id = Math.trunc(Number(value));
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function readRecentGroupIds(): number[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(RECENT_GROUPS_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(groupIdValue).filter((id): id is number => Boolean(id)).slice(0, 20);
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecentGroup(id: any): number[] {
+  const groupId = groupIdValue(id);
+  if (!groupId || typeof window === "undefined") return readRecentGroupIds();
+  const next = [groupId, ...readRecentGroupIds().filter((item) => item !== groupId)].slice(0, 20);
+  try {
+    window.localStorage.setItem(RECENT_GROUPS_KEY, JSON.stringify(next));
+  } catch {
+    // Best-effort preference only.
+  }
+  return next;
+}
 
 function stripTrailingCount(label: string): string {
   if (!label) return "";
@@ -139,6 +170,9 @@ export default function ListsGroupsBlock({
   viewerIsAdmin,
   groupsEditHref = "/lists/groups",
 }: Props) {
+  const [recentGroupIds, setRecentGroupIds] = useState<number[]>([]);
+  const [showAllGroups, setShowAllGroups] = useState(false);
+
   function buildPageUrl(params: { search?: string; groupId?: string; page?: number }) {
     const sp = new URLSearchParams();
     if (params.search && params.search.trim()) sp.set("search", params.search.trim());
@@ -147,6 +181,16 @@ export default function ListsGroupsBlock({
     const qs = sp.toString();
     return qs ? `/lists?${qs}` : "/lists";
   }
+
+  useEffect(() => {
+    setRecentGroupIds(readRecentGroupIds());
+  }, []);
+
+  useEffect(() => {
+    const selectedGroupId = groupIdValue(groupId);
+    if (!selectedGroupId) return;
+    setRecentGroupIds(rememberRecentGroup(selectedGroupId));
+  }, [groupId]);
 
   const groupsForPills: Array<{
     id: number;
@@ -175,6 +219,22 @@ export default function ListsGroupsBlock({
       listsCount: g.listsCount ?? 0,
     }));
   }, [groupsIndex, facetsGroups]);
+
+  const groupsByRecent = useMemo(() => {
+    const recentRank = new Map(recentGroupIds.map((id, index) => [id, index]));
+    return groupsForPills
+      .map((group, index) => ({ group, index }))
+      .sort((a, b) => {
+        const ar = recentRank.has(a.group.id) ? recentRank.get(a.group.id)! : Number.POSITIVE_INFINITY;
+        const br = recentRank.has(b.group.id) ? recentRank.get(b.group.id)! : Number.POSITIVE_INFINITY;
+        if (ar !== br) return ar - br;
+        return a.index - b.index;
+      })
+      .map(({ group }) => group);
+  }, [groupsForPills, recentGroupIds]);
+
+  const visibleGroups = showAllGroups ? groupsByRecent : groupsByRecent.slice(0, MAX_COLLAPSED_GROUPS);
+  const hiddenGroupsCount = Math.max(groupsByRecent.length - MAX_COLLAPSED_GROUPS, 0);
 
   const roleByGroupId = useMemo(() => {
     const map = new Map<number, Role>();
@@ -205,7 +265,10 @@ export default function ListsGroupsBlock({
       display: "inline-flex",
       alignItems: "center",
       gap: 10,
+      flex: "0 1 auto",
       maxWidth: "100%",
+      minWidth: 0,
+      overflow: "hidden",
     };
   }
 
@@ -246,7 +309,7 @@ export default function ListsGroupsBlock({
         })}
       </div>
 
-      <div className="active-filters" style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+      <div className="active-filters" style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", width: "100%", minWidth: 0, overflow: "hidden" }}>
         <Link href={buildPageUrl({ search, groupId: "", page: 1 })} style={pillStyle(!groupId)}>
           <span>Όλες</span>
           <span style={{ opacity: 0.9 }}>({facetTotal})</span>
@@ -257,7 +320,7 @@ export default function ListsGroupsBlock({
           <span style={{ opacity: 0.9 }}>({noGroupCount})</span>
         </Link>
 
-        {groupsForPills.map((g) => {
+        {visibleGroups.map((g) => {
           const isActive = groupId !== "" && groupId !== "null" && groupId === String(g.id);
 
           const rawLabel = g.fullTitle || g.title || `Ομάδα #${g.id}`;
@@ -269,6 +332,7 @@ export default function ListsGroupsBlock({
             <Link
               key={g.id}
               href={buildPageUrl({ search, groupId: String(g.id), page: 1 })}
+              onClick={() => setRecentGroupIds(rememberRecentGroup(g.id))}
               style={pillStyle(isActive)}
               title={role ? `Δικαίωμα ομάδας: ${roleLabel(role)} — ${roleHint(role)}` : undefined}
             >
@@ -286,6 +350,7 @@ export default function ListsGroupsBlock({
                   alignItems: "center",
                   minWidth: 0,
                   overflow: "hidden",
+                  flex: "1 1 auto",
                 }}
               >
                 <span
@@ -310,6 +375,23 @@ export default function ListsGroupsBlock({
             </Link>
           );
         })}
+
+        {hiddenGroupsCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowAllGroups((value) => !value)}
+            style={{
+              ...pillStyle(false),
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+            title={showAllGroups ? "Εμφάνιση λιγότερων ομάδων" : `Εμφάνιση ${hiddenGroupsCount} ακόμα ομάδων`}
+            aria-label={showAllGroups ? "Εμφάνιση λιγότερων ομάδων" : `Εμφάνιση ${hiddenGroupsCount} ακόμα ομάδων`}
+          >
+            <MoreHorizontal size={20} aria-hidden="true" />
+            <span style={{ opacity: 0.9 }}>{showAllGroups ? "Λιγότερες" : `+${hiddenGroupsCount}`}</span>
+          </button>
+        ) : null}
       </div>
     </div>
   );
