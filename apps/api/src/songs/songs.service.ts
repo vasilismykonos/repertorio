@@ -115,6 +115,14 @@ type SongDetailDto = {
   versions: SongVersionDto[];
 };
 
+type OfflineSongChangesDto = {
+  serverTime: string;
+  items: any[];
+  removedIds: number[];
+  hasMore: boolean;
+  nextSince: string | null;
+};
+
 function buildArtistDisplayName(a: {
   title: string;
   firstName: string | null;
@@ -387,6 +395,238 @@ export class SongsService {
     private readonly prisma: PrismaService,
     @Optional() private readonly esSync?: ElasticsearchSongsSyncService,
   ) {}
+
+  private computeSearchVersionMeta(versions: any[]) {
+    const singerFrontNames: string[] = [];
+    const singerBackNames: string[] = [];
+    const years: number[] = [];
+    const versionSingerPairs: any[] = [];
+
+    for (const version of versions ?? []) {
+      const year = typeof version?.year === 'number' ? version.year : null;
+      if (year && Number.isFinite(year)) years.push(year);
+
+      const frontArtists: any[] = [];
+      const backArtists: any[] = [];
+
+      for (const va of version?.artists ?? []) {
+        const role = String(va?.role ?? '');
+        const artist = va?.artist ?? null;
+        if (!artist) continue;
+
+        const name = buildArtistDisplayName(artist);
+        if (role === VersionArtistRole.SINGER_FRONT) {
+          frontArtists.push(artist);
+          if (name) singerFrontNames.push(name);
+        }
+        if (role === VersionArtistRole.SINGER_BACK) {
+          backArtists.push(artist);
+          if (name) singerBackNames.push(name);
+        }
+      }
+
+      for (const front of frontArtists) {
+        for (const back of backArtists) {
+          const frontId = Number(front?.id);
+          const backId = Number(back?.id);
+          if (!Number.isFinite(frontId) || !Number.isFinite(backId)) continue;
+          versionSingerPairs.push({
+            versionId: Number(version?.id) || null,
+            year,
+            frontId,
+            backId,
+            frontName: buildArtistDisplayName(front),
+            backName: buildArtistDisplayName(back),
+          });
+        }
+      }
+    }
+
+    const uniqueYears = Array.from(new Set(years)).sort((a, b) => a - b);
+    const minYear = uniqueYears.length ? uniqueYears[0] : null;
+    const maxYear = uniqueYears.length ? uniqueYears[uniqueYears.length - 1] : null;
+    const yearText =
+      uniqueYears.length === 0
+        ? null
+        : uniqueYears.length === 1
+          ? String(uniqueYears[0])
+          : `${uniqueYears[0]}-${uniqueYears[uniqueYears.length - 1]}`;
+
+    return {
+      singerFrontNames: Array.from(new Set(singerFrontNames)),
+      singerBackNames: Array.from(new Set(singerBackNames)),
+      years: uniqueYears,
+      minYear,
+      maxYear,
+      yearText,
+      versionSingerPairs,
+    };
+  }
+
+  private buildOfflineSearchSong(song: any) {
+    const credits = song?.credits ?? [];
+    const composerArtists = credits
+      .filter((c: any) => c.role === SongCreditRole.COMPOSER && c.artist)
+      .map((c: any) => c.artist);
+    const lyricistArtists = credits
+      .filter((c: any) => c.role === SongCreditRole.LYRICIST && c.artist)
+      .map((c: any) => c.artist);
+
+    const composer = composerArtists[0] || null;
+    const lyricist = lyricistArtists[0] || null;
+    const tagRows = Array.isArray(song?.SongTag) ? song.SongTag : [];
+    const tags = tagRows.map((st: any) => st?.Tag).filter(Boolean);
+    const listIds = Array.from(
+      new Set(
+        (song?.listItems ?? [])
+          .map((li: any) => Number(li?.listId))
+          .filter((n: number) => Number.isFinite(n) && n > 0),
+      ),
+    );
+    const versionMeta = this.computeSearchVersionMeta(song?.versions ?? []);
+    const hasChords = !!String(song?.chords ?? '').trim();
+    const hasLyrics = !!String(song?.lyrics ?? '').trim();
+    const hasScore =
+      Boolean(song?.hasScore) || !!String(song?.scoreFile ?? '').trim();
+
+    return {
+      id: song.id,
+      legacySongId: song.legacySongId ?? null,
+      title: song.title ?? '',
+      firstLyrics: extractFirstLyricsFromLyrics(song.lyrics) ?? song.firstLyrics ?? null,
+      lyrics: hasLyrics ? song.lyrics ?? null : null,
+      characteristics: song.characteristics ?? null,
+      originalKey: song.originalKey ?? null,
+      categoryId: song.categoryId ?? null,
+      categoryTitle: song.category?.title ?? null,
+      rythmId: song.rythmId ?? null,
+      rythmTitle: song.rythm?.title ?? null,
+      createdById: song.createdByUserId ?? song.createdBy?.id ?? null,
+      createdByName:
+        song.createdBy?.displayName?.trim?.() ||
+        song.createdBy?.username?.trim?.() ||
+        null,
+      composerId: composer?.id ?? null,
+      composerName: composer ? buildArtistDisplayName(composer) : null,
+      lyricistId: lyricist?.id ?? null,
+      lyricistName: lyricist ? buildArtistDisplayName(lyricist) : null,
+      singerFrontNames: versionMeta.singerFrontNames,
+      singerBackNames: versionMeta.singerBackNames,
+      tagIds: tags.map((t: any) => Number(t.id)).filter((n: number) => Number.isFinite(n) && n > 0),
+      tagTitles: tags.map((t: any) => String(t.title ?? '').trim()).filter(Boolean),
+      tagSlugs: tags.map((t: any) => String(t.slug ?? '').trim()).filter(Boolean),
+      listIds,
+      years: versionMeta.years,
+      minYear: versionMeta.minYear,
+      maxYear: versionMeta.maxYear,
+      yearText: versionMeta.yearText,
+      versionSingerPairs: versionMeta.versionSingerPairs,
+      views: typeof song.views === 'number' ? song.views : 0,
+      status: song.status ?? null,
+      scoreFile: song.scoreFile ?? null,
+      hasChords,
+      hasLyrics,
+      hasScore,
+      chords: hasChords ? 1 : 0,
+      partiture: hasScore ? 1 : 0,
+      updatedAt:
+        song.updatedAt instanceof Date
+          ? song.updatedAt.toISOString()
+          : song.updatedAt ?? null,
+    };
+  }
+
+  private parseOfflineSongChangeCursor(
+    raw?: string | null,
+  ): { since: Date; id: number } | null {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+
+    const [dateText, idText] = text.split('|');
+    const sinceMs = Date.parse(dateText);
+    if (!Number.isFinite(sinceMs)) return null;
+
+    const id = Math.trunc(Number(idText ?? 0));
+    return {
+      since: new Date(sinceMs),
+      id: Number.isFinite(id) && id > 0 ? id : 0,
+    };
+  }
+
+  private formatOfflineSongChangeCursor(date: Date, id = 0): string {
+    const normalizedId = Math.max(0, Math.trunc(Number(id) || 0));
+    return `${date.toISOString()}|${normalizedId}`;
+  }
+
+  async findOfflineChanges(
+    sinceRaw?: string | null,
+    takeRaw?: string | number | null,
+  ): Promise<OfflineSongChangesDto> {
+    const serverNow = new Date();
+    const serverTime = serverNow.toISOString();
+    const cursor = this.parseOfflineSongChangeCursor(sinceRaw);
+    const takeNumber = Math.trunc(Number(takeRaw ?? 200));
+    const take = Math.min(Math.max(Number.isFinite(takeNumber) ? takeNumber : 200, 1), 500);
+
+    if (!cursor) {
+      return {
+        serverTime,
+        items: [],
+        removedIds: [],
+        hasMore: false,
+        nextSince: this.formatOfflineSongChangeCursor(serverNow),
+      };
+    }
+
+    const where: Prisma.SongWhereInput =
+      cursor.id > 0
+        ? {
+            OR: [
+              { updatedAt: { gt: cursor.since } },
+              { updatedAt: cursor.since, id: { gt: cursor.id } },
+            ],
+          }
+        : { updatedAt: { gt: cursor.since } };
+
+    const rows = await this.prisma.song.findMany({
+      where,
+      orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+      take: take + 1,
+      include: {
+        category: true,
+        rythm: true,
+        credits: { include: { artist: true } },
+        versions: { include: { artists: { include: { artist: true } } } },
+        createdBy: { select: { id: true, displayName: true, username: true } },
+        SongTag: {
+          include: { Tag: { select: { id: true, title: true, slug: true } } },
+          orderBy: [{ tagId: 'asc' }],
+        },
+        listItems: { select: { listId: true } },
+      },
+    });
+
+    const page = rows.slice(0, take);
+    const last = page[page.length - 1] as any;
+    const lastUpdatedAt =
+      last?.updatedAt instanceof Date
+        ? last.updatedAt
+        : last?.updatedAt
+          ? new Date(last.updatedAt)
+          : null;
+    const nextSince =
+      lastUpdatedAt && Number.isFinite(lastUpdatedAt.getTime())
+        ? this.formatOfflineSongChangeCursor(lastUpdatedAt, last.id)
+        : this.formatOfflineSongChangeCursor(serverNow);
+
+    return {
+      serverTime,
+      items: page.map((song) => this.buildOfflineSearchSong(song)),
+      removedIds: [],
+      hasMore: rows.length > take,
+      nextSince,
+    };
+  }
 
   /**
    * Επιστρέφει 1 τραγούδι σε DTO συμβατό με το SongDetail του Next.

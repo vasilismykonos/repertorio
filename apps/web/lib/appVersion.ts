@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.16";
+export const APP_VERSION = "3.0.17";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.17",
+    date: "2026-06-16",
+    level: "minor",
+    title: "Ελαφρύτερος incremental offline συγχρονισμός",
+    items: [
+      "Ο αυτόματος offline συγχρονισμός τραγουδιών χρησιμοποιεί cursor αλλαγών και κατεβάζει μόνο όσα άλλαξαν όταν υπάρχει ήδη πλήρες offline index.",
+      "Η σελίδα τραγουδιών αξιοποιεί τα offline δεδομένα ως γρήγορο πρώτο αποτέλεσμα και μετά ανανεώνεται από το online API.",
+      "Ο πλήρης συγχρονισμός τραγουδιών παραμένει ως περιοδική δικλείδα ασφαλείας, αλλά δεν εκτελείται πλέον κάθε λίγα λεπτά.",
+    ],
+  },
   {
     version: "3.0.16",
     date: "2026-06-16",

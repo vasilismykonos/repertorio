@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  applyOfflineSongChanges,
   clearOfflineSyncData as clearOfflineSyncDataStore,
   readOfflineListsForEmail,
   readOfflineMeta,
@@ -18,7 +19,8 @@ export const OFFLINE_STATUS_EVENT = "repertorio:offline-status";
 const OFFLINE_SYNC_ENABLED_KEY = "repertorio_offline_sync_enabled";
 const CACHE_PREFIXES = ["repertorio-static-", "repertorio-pages-"];
 
-const SONGS_SYNC_AGE_MS = 20 * 60 * 1000;
+const SONGS_DELTA_SYNC_AGE_MS = 20 * 60 * 1000;
+const SONGS_FULL_SYNC_AGE_MS = 24 * 60 * 60 * 1000;
 const LISTS_SYNC_AGE_MS = 10 * 60 * 1000;
 const BACKGROUND_SYNC_DELAY_MS = 90 * 1000;
 const BACKGROUND_IDLE_TIMEOUT_MS = 15 * 1000;
@@ -28,6 +30,8 @@ const USER_IDLE_GRACE_MS = 20 * 1000;
 const LOW_PRIORITY_WORK_DELAY_MS = 45 * 1000;
 const SONG_DETAIL_CONCURRENCY = 1;
 const SONG_DETAIL_BATCH_SIZE = 30;
+const SONG_CHANGE_BATCH_SIZE = 200;
+const SONG_CHANGE_MAX_PAGES = 5;
 const SINGER_TUNE_CONCURRENCY = 1;
 const SINGER_TUNE_BATCH_SIZE = 10;
 const LIST_DETAIL_CONCURRENCY = 1;
@@ -66,6 +70,14 @@ type SyncOptions = {
   detailBudget?: number;
   listDetailBudget?: number;
   warmShells?: boolean;
+};
+
+type SongChangesResponse = {
+  serverTime?: string | null;
+  items?: any[];
+  removedIds?: Array<number | string>;
+  hasMore?: boolean;
+  nextSince?: string | null;
 };
 
 let runningSync: Promise<OfflineRuntimeStatus> | null = null;
@@ -155,6 +167,39 @@ async function fetchJson<T>(url: string): Promise<T> {
   }
 
   return (await res.json()) as T;
+}
+
+function serverIsoOrNull(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const ts = Date.parse(raw);
+  return Number.isFinite(ts) ? new Date(ts).toISOString() : null;
+}
+
+function songChangeCursorOrNull(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const [dateText, idText] = raw.split("|");
+  const ts = Date.parse(dateText);
+  if (!Number.isFinite(ts)) return null;
+
+  const id = Math.trunc(Number(idText ?? 0));
+  const normalizedId = Number.isFinite(id) && id > 0 ? id : 0;
+  return `${new Date(ts).toISOString()}|${normalizedId}`;
+}
+
+async function fetchSongChangesSince(since: string, take = SONG_CHANGE_BATCH_SIZE): Promise<SongChangesResponse> {
+  const params = new URLSearchParams();
+  params.set("since", since);
+  params.set("take", String(take));
+  return fetchJson<SongChangesResponse>(`/api/offline/changes?${params.toString()}`);
+}
+
+async function fetchSongChangeCursor(): Promise<string | null> {
+  const res = await fetchSongChangesSince("9999-12-31T23:59:59.999Z", 1);
+  const serverTime = serverIsoOrNull(res.serverTime);
+  return songChangeCursorOrNull(res.nextSince) || (serverTime ? `${serverTime}|0` : null);
 }
 
 function emitStatus(status: OfflineRuntimeStatus) {
@@ -425,16 +470,89 @@ async function syncSongsAndFilters(force = false, detailBudget = SONG_DETAIL_BAT
     items.length,
   );
   const detailsById = mergeSongDetails(items, previous?.detailsById || {}, freshDetailsById);
+  const songsChangeCursor = await fetchSongChangeCursor().catch(() => null);
 
-  await writeOfflineSongs({
-    total,
-    items,
-    aggs: firstPage?.aggs,
-    detailsById,
-    singerTunesBySongId: previous?.singerTunesBySongId || {},
-    searchesByKey: previous?.searchesByKey || {},
-  });
+  await writeOfflineSongs(
+    {
+      total,
+      items,
+      aggs: firstPage?.aggs,
+      detailsById,
+      singerTunesBySongId: previous?.singerTunesBySongId || {},
+      searchesByKey: previous?.searchesByKey || {},
+    },
+    { songsChangeCursor },
+  );
   await writeOfflineStaticFilters({ categories, rythms, tags: normalizedTags });
+}
+
+async function syncSongChanges(cursor: string): Promise<boolean> {
+  let since = songChangeCursorOrNull(cursor);
+  if (!since) return false;
+
+  let totalChanged = 0;
+  let hasMore = false;
+  let lastProcessedCursor: string | null = null;
+
+  await updateSyncProgress({
+    phase: "songs",
+    label: "Έλεγχος αλλαγών τραγουδιών",
+    songsDone: 0,
+    songsTotal: 0,
+  }, true);
+
+  for (let page = 0; page < SONG_CHANGE_MAX_PAGES; page += 1) {
+    const changes = await fetchSongChangesSince(since, SONG_CHANGE_BATCH_SIZE);
+    const items = Array.isArray(changes.items) ? changes.items : [];
+    const removedIds = Array.isArray(changes.removedIds) ? changes.removedIds : [];
+    const nextSince = songChangeCursorOrNull(changes.nextSince);
+    const serverTime = serverIsoOrNull(changes.serverTime);
+    const serverCursor = serverTime ? `${serverTime}|0` : null;
+    const cursorAfterPage = nextSince || serverCursor || since;
+    lastProcessedCursor = nextSince || lastProcessedCursor;
+    hasMore = Boolean(changes.hasMore);
+
+    if (items.length > 0 || removedIds.length > 0) {
+      await applyOfflineSongChanges({
+        items,
+        removedIds,
+        songsChangeCursor: hasMore && nextSince ? nextSince : cursorAfterPage,
+      });
+    }
+
+    totalChanged += items.length + removedIds.length;
+    await updateSyncProgress({
+      phase: "songs",
+      label: "Συγχρονισμός αλλαγών τραγουδιών",
+      songsDone: totalChanged,
+      songsTotal: hasMore ? totalChanged + SONG_CHANGE_BATCH_SIZE : totalChanged,
+    });
+
+    if (!hasMore) {
+      if (cursorAfterPage) {
+        await applyOfflineSongChanges({
+          items: [],
+          removedIds: [],
+          songsChangeCursor: cursorAfterPage,
+        });
+      }
+      return true;
+    }
+
+    if (!nextSince || nextSince === since) break;
+    lastProcessedCursor = nextSince;
+    since = nextSince;
+  }
+
+  if (lastProcessedCursor) {
+    await applyOfflineSongChanges({
+      items: [],
+      removedIds: [],
+      songsChangeCursor: lastProcessedCursor,
+    });
+  }
+
+  return true;
 }
 
 async function syncSongDetailsChunk(limit = SONG_DETAIL_BATCH_SIZE) {
@@ -702,7 +820,18 @@ async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
   const cachedListDetailsCount = countListDetails(cachedLists?.detailsById);
   const hasListDetailSnapshot = !cachedLists || Object.prototype.hasOwnProperty.call(cachedLists, "detailsById");
   const needsSongDetails = cachedSongCount > 0 && cachedSongDetailsCount < cachedSongCount;
-  const needsSongs = options.force || options.forceRefresh || cachedSongCount < 250 || ageMs(meta?.songsSyncedAt) > SONGS_SYNC_AGE_MS;
+  const songsChangeCursor = songChangeCursorOrNull(meta?.songsChangeCursor);
+  const needsFullSongs =
+    options.force ||
+    options.forceRefresh ||
+    !cachedSongs ||
+    cachedSongCount < 250 ||
+    !songsChangeCursor ||
+    ageMs(meta?.songsFullSyncedAt || meta?.songsSyncedAt) > SONGS_FULL_SYNC_AGE_MS;
+  const needsSongChanges =
+    !needsFullSongs &&
+    Boolean(songsChangeCursor) &&
+    ageMs(meta?.songsSyncedAt) > SONGS_DELTA_SYNC_AGE_MS;
   const canSyncUserData = options.includeLists && Boolean(currentUser?.id || normalizedEmail || cachedEmail);
   const needsLists =
     options.includeLists &&
@@ -723,7 +852,7 @@ async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
     cachedSongCount > 0 &&
     cachedSingerTunesCount < cachedSongCount;
 
-  if (!needsSongs && !needsSongDetails && !needsLists && !needsListDetails && !needsSingerTunes) {
+  if (!needsFullSongs && !needsSongChanges && !needsSongDetails && !needsLists && !needsListDetails && !needsSingerTunes) {
     currentProgress = null;
     return emitStatus(await buildStatus(false));
   }
@@ -731,7 +860,8 @@ async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
   emitStatus(await buildStatus(true, null, currentProgress));
 
   try {
-    if (needsSongs) await syncSongsAndFilters(Boolean(options.force), detailBudget);
+    if (needsFullSongs) await syncSongsAndFilters(Boolean(options.force), detailBudget);
+    else if (needsSongChanges && songsChangeCursor) await syncSongChanges(songsChangeCursor);
     else if (needsSongDetails) await syncSongDetailsChunk(detailBudget);
 
     if (needsLists) await syncLists(options.userEmail, listDetailBudget, Boolean(options.force));

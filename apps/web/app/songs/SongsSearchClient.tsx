@@ -1003,9 +1003,163 @@ export default function SongsSearchClient({ searchParams }: Props) {
   useEffect(() => {
     let cancelled = false;
 
+    function applySongsResponse(data: SongsSearchResponse, items: SongSearchItem[]) {
+      if (cancelled) return;
+
+      setSongs(items);
+
+      const totalAll = typeof data.total === "number" ? data.total : items.length;
+      setTotal(totalAll);
+
+      const aggs = data.aggs || {};
+
+      const toNum = (v: any): number => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+
+      const pickBucketCount = (agg: EsTermsAgg | undefined, key: string): number => {
+        const buckets = Array.isArray(agg?.buckets) ? agg.buckets : [];
+        const b = buckets.find((x) => String(x.key) === key);
+        return b ? toNum((b as any).doc_count) : 0;
+      };
+
+      const boolAggToTriCounts = (agg: EsTermsAgg | undefined, totalX: number): Record<string, number> => {
+        const yes = pickBucketCount(agg, "1") + pickBucketCount(agg, "true");
+        const no = pickBucketCount(agg, "0") + pickBucketCount(agg, "false");
+        const missing = Math.max(0, totalX - yes - no);
+        return { "1": yes, "0": no, null: missing } as any;
+      };
+
+      const tagCountById = buildCountByIdFromAgg(aggs.tagIds);
+      const listCountById = buildCountByIdFromAgg(aggs.listIds);
+      const categoryCountById = buildCountByIdFromAgg(aggs.categoryId);
+      const rythmCountById = buildCountByIdFromAgg(aggs.rythmId);
+
+      setChordsCounts(boolAggToTriCounts(aggs.hasChords, totalAll));
+      setPartitureCounts(boolAggToTriCounts(aggs.hasScore, totalAll));
+
+      {
+        const withLyrics = pickBucketCount(aggs.hasLyrics, "1") + pickBucketCount(aggs.hasLyrics, "true");
+        let withoutLyrics = Math.max(0, totalAll - withLyrics);
+
+        if (organikoTagId && aggs.organikoHasLyrics) {
+          const organikoTotal =
+            typeof (aggs.organikoHasLyrics as any)?.doc_count === "number"
+              ? (aggs.organikoHasLyrics as any).doc_count
+              : 0;
+
+          const organikoWithLyrics =
+            pickBucketCount((aggs.organikoHasLyrics as any)?.hasLyrics, "1") +
+            pickBucketCount((aggs.organikoHasLyrics as any)?.hasLyrics, "true");
+
+          const organikoWithoutLyrics = Math.max(0, organikoTotal - organikoWithLyrics);
+          withoutLyrics = Math.max(0, withoutLyrics - organikoWithoutLyrics);
+        }
+
+        setLyricsCounts({ "1": withLyrics, "0": withoutLyrics } as any);
+      }
+
+      if (aggs.status && Array.isArray(aggs.status.buckets)) {
+        const st: Record<string, number> = {};
+        for (const b of aggs.status.buckets || []) {
+          const k = String((b as any).key ?? "").trim();
+          if (!k) continue;
+          st[k] = toNum((b as any).doc_count);
+        }
+        setStatusCounts(st);
+      } else {
+        const st: Record<string, number> = {};
+        for (const s of items) {
+          const k = String(s.status || "").trim();
+          if (!k) continue;
+          st[k] = (st[k] || 0) + 1;
+        }
+        setStatusCounts(st);
+      }
+
+      if (categories.length > 0) {
+        setCategoryOptions(
+          categories.map((c) => {
+            const idKey = String(c.id);
+            return { value: idKey, label: String(c.title), count: categoryCountById[idKey] ?? 0 };
+          }),
+        );
+      } else {
+        setCategoryOptions(
+          Object.keys(categoryCountById).map((idKey) => ({
+            value: idKey,
+            label: idKey,
+            count: categoryCountById[idKey] ?? 0,
+          })),
+        );
+      }
+
+      if (rythms.length > 0) {
+        setRythmOptions(
+          rythms.map((r) => {
+            const idKey = String(r.id);
+            return { value: idKey, label: String(r.title), count: rythmCountById[idKey] ?? 0 };
+          }),
+        );
+      } else {
+        setRythmOptions(
+          Object.keys(rythmCountById).map((idKey) => ({
+            value: idKey,
+            label: idKey,
+            count: rythmCountById[idKey] ?? 0,
+          })),
+        );
+      }
+
+      setTagOptions(
+        tags.length > 0
+          ? tags.map((t) => {
+              const idKey = String(t.id);
+              return {
+                value: idKey,
+                label: String(t.title ?? "").trim() || idKey,
+                count: tagCountById[idKey] ?? 0,
+              };
+            })
+          : [],
+      );
+
+      setListOptions(
+        lists.length > 0
+          ? lists.map((l) => {
+              const idKey = String(l.id);
+              const label =
+                String(l.title ?? "").trim() ||
+                String(l.listTitle ?? "").trim() ||
+                String(l.name ?? "").trim() ||
+                String(l.list_title ?? "").trim() ||
+                idKey;
+              return { value: idKey, label, count: listCountById[idKey] ?? 0 };
+            })
+          : [],
+      );
+
+      setComposerOptions(buildOptionsFromIdAggWithTopName(aggs.composerId, "composerName"));
+      setLyricistOptions(buildOptionsFromIdAggWithTopName(aggs.lyricistId, "lyricistName"));
+      setCreatedByOptions(buildOptionsFromIdAggWithTopName(aggs.createdById, "createdByName"));
+      setCreatedByCounts(buildCountByIdFromAgg(aggs.createdById));
+      setSingerFrontOptions(buildOptionsFromIdAggWithTopName(unwrapTermsAgg(aggs.singerFrontId), "frontName"));
+      setSingerBackOptions(buildOptionsFromIdAggWithTopName(unwrapTermsAgg(aggs.singerBackId), "backName"));
+
+      const yOpts = buildOptionsFromTermsAgg(aggs.years);
+      setYearOptions(yOpts);
+      {
+        const nums = yOpts.map((o) => Number(o.value)).filter((n) => Number.isFinite(n) && n > 0);
+        setYearMin(nums.length ? Math.min(...nums) : null);
+        setYearMax(nums.length ? Math.max(...nums) : null);
+      }
+    }
+
     async function loadSongs() {
       setLoading(true);
       setError(null);
+      let renderedCached = false;
 
       try {
         const params = buildEsQueryFromFilters(filters, organikoTagId);
@@ -1013,6 +1167,13 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
         let data: SongsSearchResponse;
         let offlineMode = false;
+
+        const cachedData = await searchOfflineSongs(filters).catch(() => null);
+        if (cachedData && !cancelled) {
+          applySongsResponse(cachedData as SongsSearchResponse, cachedData.items ?? []);
+          renderedCached = true;
+          setLoading(false);
+        }
 
         try {
           const resEs = await fetch(esUrl, { headers: { Accept: "application/json" } });
@@ -1066,158 +1227,10 @@ export default function SongsSearchClient({ searchParams }: Props) {
           void writeOfflineSongsSearch(filters, { ...data, items }).catch(() => null);
         }
 
-        if (cancelled) return;
-
-        setSongs(items);
-
-        const totalAll = typeof data.total === "number" ? data.total : items.length;
-        setTotal(totalAll);
-
-        const aggs = data.aggs || {};
-
-        const toNum = (v: any): number => {
-          const n = Number(v);
-          return Number.isFinite(n) ? n : 0;
-        };
-
-        const pickBucketCount = (agg: EsTermsAgg | undefined, key: string): number => {
-          const buckets = Array.isArray(agg?.buckets) ? agg.buckets : [];
-          const b = buckets.find((x) => String(x.key) === key);
-          return b ? toNum((b as any).doc_count) : 0;
-        };
-
-        const boolAggToTriCounts = (agg: EsTermsAgg | undefined, totalX: number): Record<string, number> => {
-          const yes = pickBucketCount(agg, "1") + pickBucketCount(agg, "true");
-          const no = pickBucketCount(agg, "0") + pickBucketCount(agg, "false");
-          const missing = Math.max(0, totalX - yes - no);
-          return { "1": yes, "0": no, null: missing } as any;
-        };
-
-        const tagCountById = buildCountByIdFromAgg(aggs.tagIds);
-        const listCountById = buildCountByIdFromAgg(aggs.listIds);
-        const categoryCountById = buildCountByIdFromAgg(aggs.categoryId);
-        const rythmCountById = buildCountByIdFromAgg(aggs.rythmId);
-
-        setChordsCounts(boolAggToTriCounts(aggs.hasChords, totalAll));
-        setPartitureCounts(boolAggToTriCounts(aggs.hasScore, totalAll));
-
-        {
-          const withLyrics = pickBucketCount(aggs.hasLyrics, "1") + pickBucketCount(aggs.hasLyrics, "true");
-          let withoutLyrics = Math.max(0, totalAll - withLyrics);
-
-          if (organikoTagId && aggs.organikoHasLyrics) {
-            const organikoTotal =
-              typeof (aggs.organikoHasLyrics as any)?.doc_count === "number"
-                ? (aggs.organikoHasLyrics as any).doc_count
-                : 0;
-
-            const organikoWithLyrics =
-              pickBucketCount((aggs.organikoHasLyrics as any)?.hasLyrics, "1") +
-              pickBucketCount((aggs.organikoHasLyrics as any)?.hasLyrics, "true");
-
-            const organikoWithoutLyrics = Math.max(0, organikoTotal - organikoWithLyrics);
-            withoutLyrics = Math.max(0, withoutLyrics - organikoWithoutLyrics);
-          }
-
-          setLyricsCounts({ "1": withLyrics, "0": withoutLyrics } as any);
-        }
-
-        if (aggs.status && Array.isArray(aggs.status.buckets)) {
-          const st: Record<string, number> = {};
-          for (const b of aggs.status.buckets || []) {
-            const k = String((b as any).key ?? "").trim();
-            if (!k) continue;
-            st[k] = toNum((b as any).doc_count);
-          }
-          setStatusCounts(st);
-        } else {
-          const st: Record<string, number> = {};
-          for (const s of items) {
-            const k = String(s.status || "").trim();
-            if (!k) continue;
-            st[k] = (st[k] || 0) + 1;
-          }
-          setStatusCounts(st);
-        }
-
-        if (categories.length > 0) {
-          setCategoryOptions(
-            categories.map((c) => {
-              const idKey = String(c.id);
-              return { value: idKey, label: String(c.title), count: categoryCountById[idKey] ?? 0 };
-            }),
-          );
-        } else {
-          setCategoryOptions(
-            Object.keys(categoryCountById).map((idKey) => ({
-              value: idKey,
-              label: idKey,
-              count: categoryCountById[idKey] ?? 0,
-            })),
-          );
-        }
-
-        if (rythms.length > 0) {
-          setRythmOptions(
-            rythms.map((r) => {
-              const idKey = String(r.id);
-              return { value: idKey, label: String(r.title), count: rythmCountById[idKey] ?? 0 };
-            }),
-          );
-        } else {
-          setRythmOptions(
-            Object.keys(rythmCountById).map((idKey) => ({
-              value: idKey,
-              label: idKey,
-              count: rythmCountById[idKey] ?? 0,
-            })),
-          );
-        }
-
-        setTagOptions(
-          tags.length > 0
-            ? tags.map((t) => {
-                const idKey = String(t.id);
-                return {
-                  value: idKey,
-                  label: String(t.title ?? "").trim() || idKey,
-                  count: tagCountById[idKey] ?? 0,
-                };
-              })
-            : [],
-        );
-
-        setListOptions(
-          lists.length > 0
-            ? lists.map((l) => {
-                const idKey = String(l.id);
-                const label =
-                  String(l.title ?? "").trim() ||
-                  String(l.listTitle ?? "").trim() ||
-                  String(l.name ?? "").trim() ||
-                  String(l.list_title ?? "").trim() ||
-                  idKey;
-                return { value: idKey, label, count: listCountById[idKey] ?? 0 };
-              })
-            : [],
-        );
-
-        setComposerOptions(buildOptionsFromIdAggWithTopName(aggs.composerId, "composerName"));
-        setLyricistOptions(buildOptionsFromIdAggWithTopName(aggs.lyricistId, "lyricistName"));
-        setCreatedByOptions(buildOptionsFromIdAggWithTopName(aggs.createdById, "createdByName"));
-        setCreatedByCounts(buildCountByIdFromAgg(aggs.createdById));
-        setSingerFrontOptions(buildOptionsFromIdAggWithTopName(unwrapTermsAgg(aggs.singerFrontId), "frontName"));
-        setSingerBackOptions(buildOptionsFromIdAggWithTopName(unwrapTermsAgg(aggs.singerBackId), "backName"));
-
-        const yOpts = buildOptionsFromTermsAgg(aggs.years);
-        setYearOptions(yOpts);
-        {
-          const nums = yOpts.map((o) => Number(o.value)).filter((n) => Number.isFinite(n) && n > 0);
-          setYearMin(nums.length ? Math.min(...nums) : null);
-          setYearMax(nums.length ? Math.max(...nums) : null);
-        }
+        applySongsResponse(data, items);
       } catch (err) {
         if (cancelled) return;
+        if (renderedCached) return;
 
         console.error(err);
         setError("Προέκυψε σφάλμα κατά την φόρτωση τραγουδιών από Elasticsearch. Δες το console log για λεπτομέρειες.");

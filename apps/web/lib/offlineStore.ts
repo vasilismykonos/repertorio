@@ -23,6 +23,8 @@ export type OfflineMeta = {
   userEmail: string | null;
   lastSyncedAt: string | null;
   songsSyncedAt: string | null;
+  songsFullSyncedAt?: string | null;
+  songsChangeCursor?: string | null;
   listsSyncedAt: string | null;
   songsCount: number;
   listsCount: number;
@@ -89,6 +91,8 @@ function defaultMeta(): OfflineMeta {
     userEmail: null,
     lastSyncedAt: null,
     songsSyncedAt: null,
+    songsFullSyncedAt: null,
+    songsChangeCursor: null,
     listsSyncedAt: null,
     songsCount: 0,
     listsCount: 0,
@@ -256,7 +260,11 @@ export async function writeOfflineSongs(payload: {
   detailsById?: Record<string, any>;
   singerTunesBySongId?: Record<string, any[]>;
   searchesByKey?: Record<string, OfflineSongsSearchSnapshot>;
-}, options?: { markSynced?: boolean }): Promise<void> {
+}, options?: {
+  markSynced?: boolean;
+  markFullSynced?: boolean;
+  songsChangeCursor?: string | null;
+}): Promise<void> {
   const updatedAt = nowIso();
   const items = Array.isArray(payload.items) ? payload.items : [];
   await setKey<OfflineSongsSnapshot>(KEY_SONGS, {
@@ -273,11 +281,67 @@ export async function writeOfflineSongs(payload: {
     songsCount: items.length,
     lastError: null,
     ...(options?.markSynced === false ? {} : { songsSyncedAt: updatedAt }),
+    ...(options?.markFullSynced === false ? {} : { songsFullSyncedAt: updatedAt }),
+    ...(Object.prototype.hasOwnProperty.call(options || {}, "songsChangeCursor")
+      ? { songsChangeCursor: options?.songsChangeCursor || null }
+      : {}),
   });
 }
 
 export async function readOfflineSongs(): Promise<OfflineSongsSnapshot | null> {
   return getKey<OfflineSongsSnapshot>(KEY_SONGS);
+}
+
+export async function applyOfflineSongChanges(payload: {
+  items?: any[];
+  removedIds?: Array<number | string>;
+  songsChangeCursor?: string | null;
+}): Promise<void> {
+  const current = await readOfflineSongs();
+  const currentItems = Array.isArray(current?.items) ? current.items : [];
+  const changed =
+    (Array.isArray(payload.items) && payload.items.length > 0) ||
+    (Array.isArray(payload.removedIds) && payload.removedIds.length > 0);
+  const byId = new Map<string, any>();
+
+  for (const song of currentItems) {
+    const id = offlineSongId(song);
+    if (!id) continue;
+    byId.set(String(id), song);
+  }
+
+  for (const idRaw of payload.removedIds || []) {
+    const id = Math.trunc(Number(idRaw));
+    if (Number.isFinite(id) && id > 0) byId.delete(String(id));
+  }
+
+  for (const song of payload.items || []) {
+    const id = offlineSongId(song);
+    if (!id) continue;
+    byId.set(String(id), song);
+  }
+
+  const items = Array.from(byId.values()).sort((a, b) => {
+    const ai = offlineSongId(a) || 0;
+    const bi = offlineSongId(b) || 0;
+    return bi - ai;
+  });
+
+  await writeOfflineSongs(
+    {
+      total: items.length,
+      items,
+      aggs: current?.aggs || null,
+      detailsById: current?.detailsById || {},
+      singerTunesBySongId: current?.singerTunesBySongId || {},
+      searchesByKey: changed ? {} : current?.searchesByKey || {},
+    },
+    {
+      markSynced: true,
+      markFullSynced: false,
+      songsChangeCursor: payload.songsChangeCursor || null,
+    },
+  );
 }
 
 const SONG_SEARCH_KEY_FIELDS = [

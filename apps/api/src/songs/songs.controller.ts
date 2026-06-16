@@ -254,6 +254,14 @@ export class SongsController {
     private readonly songCreditsService: SongCreditsService,
   ) {}
 
+  @Get('offline-changes')
+  async offlineChanges(
+    @Query('since') since?: string,
+    @Query('take') take?: string,
+  ) {
+    return this.songsService.findOfflineChanges(since, take);
+  }
+
   @Get(':id')
   async findOne(
     @Param('id', ParseIntPipe) id: number,
