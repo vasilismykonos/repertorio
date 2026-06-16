@@ -6,7 +6,7 @@ import "./styles/score-player.css";
 
 import type { ReactNode } from "react";
 import { Suspense } from "react";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 
 import HeaderServer from "./components/HeaderServer";
@@ -15,6 +15,10 @@ import Providers from "./Providers";
 import { PwaProvider } from "./PwaProvider";
 import { PwaInstallLinkHandler } from "./components/PwaInstallLinkHandler";
 import PpSplash from "./components/ppSplash";
+
+export const viewport: Viewport = {
+  themeColor: "#111111",
+};
 
 // ✅ Host-based metadata (dev.repertorio.net vs prod)
 export function generateMetadata(): Metadata {
@@ -26,7 +30,6 @@ export function generateMetadata(): Metadata {
     description: "Πλατφόρμα μουσικής για επαγγελματίες και ερασιτέχνες μουσικούς",
 
     manifest: isDevHost ? "/manifest.dev.webmanifest" : "/manifest.webmanifest",
-    themeColor: "#111111",
 
     icons: {
       icon: [

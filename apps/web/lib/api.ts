@@ -71,8 +71,6 @@ function applyServerNoStoreDefaults(options: RequestInit): RequestInit {
   return {
     ...options,
     cache: "no-store",
-    // Next.js fetch extension (safe στο server). Αν δεν το καταλάβει, απλώς αγνοείται.
-    next: { revalidate: 0 } as any,
   };
 }
 

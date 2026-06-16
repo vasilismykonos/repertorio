@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.18";
+export const APP_VERSION = "3.0.19";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.19",
+    date: "2026-06-16",
+    level: "patch",
+    title: "Καθαρότερο production runtime",
+    items: [
+      "Αφαιρέθηκαν επαναλαμβανόμενα Next.js warnings από τα server fetches χωρίς να αλλάξει η no-store συμπεριφορά.",
+      "Το theme color μεταφέρθηκε στο σωστό viewport export του Next.js.",
+      "Μειώθηκε ο άχρηστος θόρυβος στα production logs ώστε οι πραγματικές καθυστερήσεις και αστοχίες να ξεχωρίζουν πιο καθαρά.",
+    ],
+  },
   {
     version: "3.0.18",
     date: "2026-06-16",
