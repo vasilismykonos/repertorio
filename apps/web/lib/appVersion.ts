@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.17";
+export const APP_VERSION = "3.0.18";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.18",
+    date: "2026-06-16",
+    level: "patch",
+    title: "Άμεση προετοιμασία offline σελίδων",
+    items: [
+      "Οι βασικές offline σελίδες προετοιμάζονται από τον service worker στην εγκατάσταση της νέας έκδοσης, ώστε τραγούδια και λίστες να ανοίγουν offline χωρίς αναμονή για τον πλήρη συγχρονισμό.",
+      "Το warmup του service worker αποφεύγει άσκοπα επαναλαμβανόμενα downloads σε assets που υπάρχουν ήδη στο cache.",
+      "Ο βαρύς συγχρονισμός δεδομένων παραμένει στο παρασκήνιο, ώστε η live χρήση να μη φορτώνεται από περιττή δουλειά.",
+    ],
+  },
   {
     version: "3.0.17",
     date: "2026-06-16",

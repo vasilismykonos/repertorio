@@ -6,6 +6,7 @@ import { APP_VERSION } from "@/lib/appVersion";
 const PAGE_SHELL_URLS = ["/", "/songs", "/lists", "/songs/offline-shell?offlineShell=1", "/lists/offline-shell?offlineShell=1"];
 const APP_VERSION_STORAGE_KEY = "repertorio_app_version";
 const CACHE_PREFIXES = ["repertorio-static-", "repertorio-pages-"];
+const PWA_INITIAL_SHELL_WARMUP_DELAY_MS = 5 * 1000;
 const PWA_WARMUP_DELAY_MS = 120 * 1000;
 const PWA_WARMUP_IDLE_TIMEOUT_MS = 15 * 1000;
 const PWA_WARMUP_RETRY_DELAY_MS = 30 * 1000;
@@ -63,6 +64,18 @@ function shouldWarmPwaShells() {
   if (typeof navigator === "undefined") return false;
   const connection = (navigator as any).connection;
   return !connection?.saveData;
+}
+
+function scheduleInitialPageShellWarmup(registration: ServiceWorkerRegistration): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const timeoutId = window.setTimeout(() => {
+    if (document.visibilityState === "hidden") return;
+    if (!shouldWarmPwaShells()) return;
+    warmPageShells(registration);
+  }, PWA_INITIAL_SHELL_WARMUP_DELAY_MS);
+
+  return () => window.clearTimeout(timeoutId);
 }
 
 function schedulePwaWarmup(callback: () => void): () => void {
@@ -131,6 +144,7 @@ export function PwaProvider() {
       let reloading = false;
       let disposed = false;
       let cancelWarmup = () => {};
+      let cancelInitialWarmup = () => {};
       const removeActivityTracking = installPwaActivityTracking();
 
       const onControllerChange = () => {
@@ -160,6 +174,7 @@ export function PwaProvider() {
               }
             });
           });
+          cancelInitialWarmup = scheduleInitialPageShellWarmup(registration);
           cancelWarmup = schedulePwaWarmup(() => warmPageShells(registration));
           void registration.update().catch(() => null);
         })
@@ -170,6 +185,7 @@ export function PwaProvider() {
       return () => {
         disposed = true;
         removeActivityTracking();
+        cancelInitialWarmup();
         cancelWarmup();
         navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
       };

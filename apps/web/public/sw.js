@@ -1,4 +1,4 @@
-const APP_VERSION = "3.0.17";
+const APP_VERSION = "3.0.18";
 const VERSION = `repertorio-${APP_VERSION}`;
 const STATIC_CACHE = `repertorio-static-${VERSION}`;
 const PAGE_CACHE = `repertorio-pages-${VERSION}`;
@@ -13,9 +13,17 @@ const WARM_PAGE_URLS = [
   `${SONG_DETAIL_SHELL_PATH}?offlineShell=1`,
   `${LIST_DETAIL_SHELL_PATH}?offlineShell=1`,
 ];
+const AUTOMATIC_PAGE_SHELL_WARMUP_DELAY_MS = 5 * 1000;
+
+let automaticPageShellWarmupStarted = false;
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(self.skipWaiting());
+  event.waitUntil(
+    (async () => {
+      await cachePages(WARM_PAGE_URLS);
+      await self.skipWaiting();
+    })(),
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -61,8 +69,20 @@ self.addEventListener("fetch", (event) => {
 
   if (isPageRequest(request, url)) {
     event.respondWith(networkFirstPage(request, url));
+    event.waitUntil(scheduleAutomaticPageShellWarmup());
   }
 });
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function scheduleAutomaticPageShellWarmup() {
+  if (automaticPageShellWarmupStarted) return;
+  automaticPageShellWarmupStarted = true;
+  await delay(AUTOMATIC_PAGE_SHELL_WARMUP_DELAY_MS);
+  await cachePages(WARM_PAGE_URLS);
+}
 
 function isApiRequest(url) {
   return url.pathname.startsWith("/api/") || url.pathname.startsWith("/api/v1/") || url.pathname.startsWith("/rooms-api/");
@@ -231,6 +251,8 @@ async function cacheAssetUrl(assetCache, url) {
   const request = new Request(url.toString(), { method: "GET", credentials: "include", cache: "reload" });
   const ignoreSearch = url.pathname.startsWith("/_next/static/");
   const cached = await assetCache.match(request, { ignoreSearch });
+  if (cached) return;
+
   try {
     const response = await fetch(request);
     if (response && response.ok) await assetCache.put(request, response.clone());
@@ -274,26 +296,35 @@ async function reloadWindowClients() {
 
 async function cachePages(urls) {
   const cache = await caches.open(PAGE_CACHE);
-  await Promise.all(
-    urls.map(async (rawUrl) => {
-      try {
-        const url = new URL(String(rawUrl || "/"), self.location.origin);
-        if (url.origin !== self.location.origin || !isOfflinePagePath(url.pathname)) return;
+  const assetWarmups = [];
 
-        const request = new Request(url.toString(), {
-          method: "GET",
-          credentials: "include",
-          headers: { Accept: "text/html" },
-        });
-        const response = await fetch(request);
-        const contentType = response.headers.get("content-type") || "";
-        if (response.ok && contentType.includes("text/html")) {
-          await cache.put(normalizedPageRequest(url), response.clone());
-          await cacheAssetsFromHtml(response.clone(), url);
-        }
-      } catch {
-        // Best-effort warmup only.
+  for (const rawUrl of urls) {
+    try {
+      const url = new URL(String(rawUrl || "/"), self.location.origin);
+      if (url.origin !== self.location.origin || !isOfflinePagePath(url.pathname)) continue;
+
+      const key = normalizedPageRequest(url);
+      const cachedPage = await cache.match(key);
+      if (cachedPage) {
+        assetWarmups.push(cacheAssetsFromHtml(cachedPage.clone(), url).catch(() => null));
+        continue;
       }
-    }),
-  );
+
+      const request = new Request(url.toString(), {
+        method: "GET",
+        credentials: "include",
+        headers: { Accept: "text/html" },
+      });
+      const response = await fetch(request);
+      const contentType = response.headers.get("content-type") || "";
+      if (response.ok && contentType.includes("text/html")) {
+        await cache.put(key, response.clone());
+        assetWarmups.push(cacheAssetsFromHtml(response.clone(), url).catch(() => null));
+      }
+    } catch {
+      // Best-effort warmup only.
+    }
+  }
+
+  await Promise.all(assetWarmups);
 }
