@@ -1,113 +1,162 @@
-// app/components/RoomsSongSyncHandler.tsx
+// apps/web/app/components/RoomsSongSyncHandler.tsx
 "use client";
 
 import { useEffect } from "react";
 
-/**
- * RoomsSongSyncHandler
- *
- * Ακούει το custom event "rep_song_sync" που εκπέμπει το RoomsProvider
- * όταν λάβει μήνυμα type: "song_sync" από τον WebSocket server.
- *
- * Στόχοι:
- *  - Να κάνει redirect στο τραγούδι ΜΟΝΟ όταν:
- *    * το payload.kind === "song"
- *    * υπάρχει payload.url
- *    * ΔΕΝ έχουμε ήδη ακολουθήσει αυτό το syncId για το συγκεκριμένο room.
- *  - Να μην ξανακάνει redirect στο ίδιο sync (ίδιο syncId) όταν:
- *    * ξαναμπαίνουμε στη σελίδα,
- *    * ξαναμπαίνουμε στο ίδιο room,
- *    * ή ο server μας στέλνει ξανά το ίδιο lastSync.
- *
- * Αποθήκευση:
- *  - Χρησιμοποιούμε sessionStorage ανά tab:
- *    key = "rep_last_song_sync::<roomName>"
- *    value = syncId (number)
- */
+const LAST_SYNC_STORAGE_PREFIX = "rep_last_song_sync::";
+const LAST_SYNC_REQUEST_STORAGE_PREFIX = "rep_last_song_sync_request::";
+const PENDING_TONICITY_STORAGE_PREFIX = "rep_room_pending_tonicity::";
+
+type SongPayload = {
+  kind?: string;
+  url?: string;
+  title?: string | null;
+  songId?: number | null;
+  selectedTonicity?: string | null;
+  sentAt?: number | null;
+};
+
+type SongSyncDetail = {
+  room?: string | null;
+  syncId?: number | null;
+  requestId?: string | null;
+  payload?: SongPayload | null;
+};
+
+function toPositiveSongId(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.trunc(n);
+}
+
+function relativeUrl(input: string): string {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (url.origin !== window.location.origin) return raw;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return raw.startsWith("/") ? raw : `/${raw}`;
+  }
+}
+
+function songIdFromUrl(input: string): number | null {
+  try {
+    const url = new URL(input, window.location.origin);
+    const match = url.pathname.match(/^\/songs\/(\d+)/);
+    return match ? toPositiveSongId(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function currentSongId(): number | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/songs\/(\d+)/);
+  return match ? toPositiveSongId(match[1]) : null;
+}
+
+function hasHandledSync(room: string, syncId: number, requestId: string | null): boolean {
+  if (!room) return false;
+  try {
+    if (requestId) {
+      const prevRequest = window.sessionStorage.getItem(`${LAST_SYNC_REQUEST_STORAGE_PREFIX}${room}`);
+      if (prevRequest === requestId) return true;
+    }
+
+    if (syncId > 0) {
+      const prevRaw = window.sessionStorage.getItem(`${LAST_SYNC_STORAGE_PREFIX}${room}`);
+      const prev = prevRaw ? Number(prevRaw) : 0;
+      if (Number.isFinite(prev) && prev >= syncId) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function markHandledSync(room: string, syncId: number, requestId: string | null) {
+  if (!room) return;
+  try {
+    if (syncId > 0) window.sessionStorage.setItem(`${LAST_SYNC_STORAGE_PREFIX}${room}`, String(syncId));
+    if (requestId) window.sessionStorage.setItem(`${LAST_SYNC_REQUEST_STORAGE_PREFIX}${room}`, requestId);
+  } catch {
+    // ignore
+  }
+}
+
+function rememberPendingTonicity(payload: SongPayload, syncId: number, room: string, requestId: string | null) {
+  const tonicity = typeof payload.selectedTonicity === "string" ? payload.selectedTonicity.trim() : "";
+  if (!tonicity) return;
+
+  const songId = toPositiveSongId(payload.songId) || songIdFromUrl(payload.url || "");
+  if (!songId) return;
+
+  try {
+    window.sessionStorage.setItem(
+      `${PENDING_TONICITY_STORAGE_PREFIX}${songId}`,
+      JSON.stringify({
+        tonicity,
+        syncId,
+        room,
+        requestId,
+        receivedAt: Date.now(),
+      }),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function applyTonicityNow(tonicity: string | null | undefined) {
+  const value = typeof tonicity === "string" ? tonicity.trim() : "";
+  if (!value) return;
+
+  const anyWindow = window as any;
+  anyWindow.__repSelectedTonicity = value;
+  if (typeof anyWindow.__repSetSelectedTonicity === "function") {
+    anyWindow.__repSetSelectedTonicity(value);
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent("rep:roomsApplyTonicity", { detail: { tonicity: value } }));
+}
+
+export { PENDING_TONICITY_STORAGE_PREFIX };
+
 export default function RoomsSongSyncHandler() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    type SongPayload = {
-      kind?: string;
-      url?: string;
-      title?: string | null;
-      songId?: number | null;
-      selectedTonicity?: string | null;
-      sentAt?: number | null;
-    };
-
-    type SongSyncDetail = {
-      room?: string | null;
-      syncId?: number | null;
-      payload?: SongPayload | null;
-    };
-
     const handler = (event: Event) => {
-      const custom = event as CustomEvent<SongSyncDetail>;
-      const detail = custom.detail;
+      const detail = (event as CustomEvent<SongSyncDetail>).detail;
+      const payload = detail?.payload;
+      if (!payload || payload.kind !== "song" || !payload.url) return;
 
-      if (!detail || !detail.payload) {
+      const room = String(detail.room || "").trim();
+      const syncId = typeof detail.syncId === "number" ? detail.syncId : Number(detail.syncId || 0);
+      const requestId = detail.requestId ? String(detail.requestId) : null;
+      if (hasHandledSync(room, syncId, requestId)) return;
+
+      const targetUrl = relativeUrl(payload.url);
+      const targetSongId = toPositiveSongId(payload.songId) || songIdFromUrl(targetUrl);
+      const activeSongId = currentSongId();
+
+      rememberPendingTonicity(payload, syncId, room, requestId);
+      markHandledSync(room, syncId, requestId);
+
+      if (targetSongId && activeSongId && targetSongId === activeSongId) {
+        applyTonicityNow(payload.selectedTonicity);
         return;
       }
 
-      const room = detail.room || "";
-      const syncId = typeof detail.syncId === "number" ? detail.syncId : 0;
-      const payload = detail.payload;
-      const url = payload?.url || "";
-
-      // Πρέπει να είναι "song" και να υπάρχει url
-      if (!url || payload?.kind !== "song") {
-        return;
-      }
-
-      // Αν είμαστε ήδη στο ίδιο URL, δεν έχει νόημα να κάνουμε redirect.
-      // Απλώς ενημερώνουμε ότι το συγκεκριμένο syncId θεωρείται "handled".
-      if (window.location.href === url) {
-        try {
-          if (syncId > 0 && room) {
-            const key = `rep_last_song_sync::${room}`;
-            window.sessionStorage.setItem(key, String(syncId));
-          }
-        } catch {
-          // αγνόησε τυχόν σφάλματα στο sessionStorage
-        }
-        return;
-      }
-
-      // Έλεγχος: έχουμε ήδη χειριστεί αυτό το syncId για το συγκεκριμένο room;
-      try {
-        if (syncId > 0 && room) {
-          const key = `rep_last_song_sync::${room}`;
-          const prevRaw = window.sessionStorage.getItem(key);
-          const prev = prevRaw ? Number(prevRaw) : 0;
-
-          // Αν το προηγούμενο syncId είναι >= από το τρέχον,
-          // τότε είτε είναι το ίδιο sync είτε πιο "νέο".
-          // Σε κάθε περίπτωση ΔΕΝ ξανακάνουμε redirect.
-          if (prev && prev >= syncId) {
-            return;
-          }
-
-          // Αλλιώς, αποθηκεύουμε το νέο syncId σαν "handled"
-          window.sessionStorage.setItem(key, String(syncId));
-        }
-      } catch {
-        // Αν αποτύχει το sessionStorage, απλά συνεχίζουμε χωρίς dedupe.
-      }
-
-      // Τελικό βήμα: κάνουμε redirect στο νέο τραγούδι.
-      // Απλό hard redirect – συμβατό με όλες τις σελίδες (Next, παλιό WP, κτλ.)
-      window.location.href = url;
+      window.location.assign(targetUrl);
     };
 
     window.addEventListener("rep_song_sync", handler as EventListener);
-
-    return () => {
-      window.removeEventListener("rep_song_sync", handler as EventListener);
-    };
+    return () => window.removeEventListener("rep_song_sync", handler as EventListener);
   }, []);
 
-  // Δεν αποδίδει τίποτα στο DOM – μόνο side-effect.
   return null;
 }

@@ -1496,6 +1496,7 @@ export default function SongPageClient(props: Props) {
       {hasChords && panels.chords ? (
         <section id="song-chords" style={{ marginTop: 0, marginBottom: 0 }}>
           <SongChordsClient
+            songId={song.id}
             chords={song.chords}
             originalKey={song.originalKey}
             originalKeySign={song.originalKeySign}

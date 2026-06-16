@@ -17,8 +17,8 @@ function sha256WithSalt(salt, password) {
  *
  * - metaData: room -> { hasPassword, salt, passwordHash }
  * - clients: room -> Set<WebSocket>
- * - clientInfo: ws -> { room, deviceId, userId, username }
- * - lastSync: room -> { syncId, payload, userId, username }
+ * - clientInfo: ws -> { room, clientId, deviceId, tabId, userId, username }
+ * - lastSync: room -> { syncId, requestId, payload, userId, username, senderClientId }
  */
 class RoomManager {
   constructor(options = {}) {
@@ -207,7 +207,9 @@ class RoomManager {
         for (const ws of set) {
           const info = this.getClientInfo(ws);
           users.push({
+            client_id: info.clientId || undefined,
             device_id: info.deviceId || undefined,
+            tab_id: info.tabId || undefined,
             user_id:
               typeof info.userId === "number" ? info.userId : undefined,
             username:
@@ -221,6 +223,10 @@ class RoomManager {
       let last_sync_url = null;
       let last_sync_timestamp = null;
       let last_sync_username = null;
+      let last_sync_title = null;
+      let last_sync_song_id = null;
+      let last_sync_tonicity = null;
+      let last_sync_request_id = null;
 
       if (
         lastSync &&
@@ -230,12 +236,25 @@ class RoomManager {
         if (typeof lastSync.payload.url === "string") {
           last_sync_url = lastSync.payload.url;
         }
+        if (typeof lastSync.payload.title === "string") {
+          last_sync_title = lastSync.payload.title;
+        }
+        const songId = Number(lastSync.payload.songId);
+        if (Number.isFinite(songId) && songId > 0) {
+          last_sync_song_id = Math.trunc(songId);
+        }
+        if (typeof lastSync.payload.selectedTonicity === "string") {
+          last_sync_tonicity = lastSync.payload.selectedTonicity;
+        }
         if (typeof lastSync.payload.sentAt === "number") {
           last_sync_timestamp = lastSync.payload.sentAt;
         }
       }
 
       if (lastSync) {
+        if (typeof lastSync.requestId === "string" && lastSync.requestId.trim()) {
+          last_sync_request_id = lastSync.requestId;
+        }
         if (typeof lastSync.username === "string" && lastSync.username.trim()) {
           last_sync_username = lastSync.username;
         } else if (
@@ -252,6 +271,10 @@ class RoomManager {
         last_sync_url,
         last_sync_timestamp,
         last_sync_username,
+        last_sync_title,
+        last_sync_song_id,
+        last_sync_tonicity,
+        last_sync_request_id,
       };
     });
   }
@@ -303,14 +326,40 @@ class RoomManager {
     const set = this.clients.get(clean);
     set.add(ws);
 
+    const existingInfo = this.clientInfo.get(ws) || {};
     this.clientInfo.set(ws, {
       room: clean,
+      clientId: info.clientId || existingInfo.clientId || null,
       deviceId: info.deviceId || null,
+      tabId: info.tabId || existingInfo.tabId || null,
       userId: info.userId ?? null,
       username: info.username || null,
+      joinedAt: existingInfo.joinedAt || Date.now(),
+      lastSeenAt: Date.now(),
     });
 
     return set.size;
+  }
+
+  updateClientInfo(ws, patch = {}) {
+    const existing = this.clientInfo.get(ws) || {
+      room: null,
+      clientId: null,
+      deviceId: null,
+      tabId: null,
+      userId: null,
+      username: null,
+      joinedAt: Date.now(),
+    };
+
+    const next = {
+      ...existing,
+      ...patch,
+      lastSeenAt: Date.now(),
+    };
+
+    this.clientInfo.set(ws, next);
+    return next;
   }
 
   detachClient(ws) {
@@ -336,11 +385,40 @@ class RoomManager {
     return (
       this.clientInfo.get(ws) || {
         room: null,
+        clientId: null,
         deviceId: null,
+        tabId: null,
         userId: null,
         username: null,
+        joinedAt: null,
+        lastSeenAt: null,
       }
     );
+  }
+
+  getPresenceCounts(room) {
+    const clean = String(room || "").trim();
+    const set = this.clients.get(clean);
+    if (!set) return { uniqueUsers: 0, sessions: 0 };
+
+    const unique = new Set();
+    for (const ws of set) {
+      const info = this.getClientInfo(ws);
+      if (typeof info.userId === "number" && Number.isFinite(info.userId)) {
+        unique.add(`u:${info.userId}`);
+      } else if (info.clientId) {
+        unique.add(`c:${info.clientId}`);
+      } else if (info.deviceId) {
+        unique.add(`d:${info.deviceId}`);
+      } else {
+        unique.add(ws);
+      }
+    }
+
+    return {
+      uniqueUsers: unique.size,
+      sessions: set.size,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -356,6 +434,15 @@ class RoomManager {
   getLastSync(room) {
     const clean = String(room || "").trim();
     return this.lastSync.get(clean);
+  }
+
+  hasSameLastSyncRequest(room, requestId) {
+    const clean = String(room || "").trim();
+    const id = String(requestId || "").trim();
+    if (!clean || !id) return false;
+
+    const last = this.lastSync.get(clean);
+    return !!last && last.requestId === id;
   }
 }
 

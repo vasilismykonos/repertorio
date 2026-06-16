@@ -3,12 +3,12 @@
 
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
-  useCallback,
-  useMemo,
 } from "react";
 import { useSession } from "next-auth/react";
 
@@ -28,8 +28,6 @@ type RoomsContextType = {
   currentRoom: string | null;
   switchRoom: (room: string | null, password?: string) => void;
   sendSongToRoom: (payload: SongSyncPayload) => void;
-
-  // ✅ NEW: presence from WS (push)
   presence: PresenceCounts | null;
 };
 
@@ -37,13 +35,15 @@ const RoomsContext = createContext<RoomsContextType | null>(null);
 
 const DEVICE_ID_KEY = "repertorio_device_id";
 const TAB_ID_KEY = "repertorio_tab_id";
+const ROOM_STORAGE_KEY = "repertorio_current_room";
+const ROOM_PASSWORD_STORAGE_KEY = "repertorio_current_room_pwd";
+const LEGACY_ROOM_STORAGE_KEY = "rep_current_room";
+const ROOM_CHANGED_EVENT = "repertorio_current_room_changed";
+const LEGACY_ROOM_CHANGED_EVENT = "rep_rooms_room_changed";
+const LAST_SYNC_STORAGE_PREFIX = "rep_last_song_sync::";
+const LAST_SYNC_REQUEST_STORAGE_PREFIX = "rep_last_song_sync_request::";
 
-// ✅ MUST MATCH SideMenu.tsx listener
 export const PRESENCE_COUNTS_EVENT = "rep_presence_counts";
-
-// ✅ keep existing semantics
-const ROOM_STORAGE_KEY = "rep_current_room";
-const ROOM_CHANGED_EVENT = "rep_rooms_room_changed";
 
 function getOrCreateDeviceId(): string {
   if (typeof window === "undefined") return "server-device";
@@ -54,15 +54,11 @@ function getOrCreateDeviceId(): string {
   try {
     window.localStorage.setItem(DEVICE_ID_KEY, generated);
   } catch {
-    // ignore
+    // best effort
   }
   return generated;
 }
 
-/**
- * ✅ Tab-scoped id (so multiple tabs don't collapse into one session)
- * sessionStorage survives reloads in same tab, resets for new tab.
- */
 function getOrCreateTabId(): string {
   if (typeof window === "undefined") return "server-tab";
 
@@ -70,13 +66,22 @@ function getOrCreateTabId(): string {
     const existing = window.sessionStorage.getItem(TAB_ID_KEY);
     if (existing && existing.trim() !== "") return existing;
 
-    const gen = `tab_${Math.random().toString(36).slice(2)}_${Date.now()}`;
-    window.sessionStorage.setItem(TAB_ID_KEY, gen);
-    return gen;
+    const generated = `tab_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+    window.sessionStorage.setItem(TAB_ID_KEY, generated);
+    return generated;
   } catch {
-    // fallback: stable-ish per load
     return `tab_${Math.random().toString(36).slice(2)}_${Date.now()}`;
   }
+}
+
+function getClientIds() {
+  const deviceId = getOrCreateDeviceId();
+  const tabId = getOrCreateTabId();
+  return {
+    deviceId,
+    tabId,
+    clientId: `${deviceId}:${tabId}`,
+  };
 }
 
 function getSenderUrl(): string | null {
@@ -84,40 +89,76 @@ function getSenderUrl(): string | null {
   return window.location.href;
 }
 
-// WebSocket URL (Nginx: /rooms-api/ws → rooms server)
 function getWsUrl(): string | null {
   if (typeof window === "undefined") return null;
 
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const host = window.location.host;
-
-  return `${protocol}://${host}/rooms-api/ws`;
+  return `${protocol}://${window.location.host}/rooms-api/ws`;
 }
 
-/**
- * Θέλουμε να εμφανίζεται/στέλνεται σαν "/songs/2305" αντί για
- * "https://dev.repertorio.net/songs/2305"
- */
 function toRelativeSongUrl(input: string): string {
-  const s = (input ?? "").trim();
-  if (!s) return s;
+  const value = (input ?? "").trim();
+  if (!value) return value;
+  if (value.startsWith("/")) return value;
 
-  // ήδη relative
-  if (s.startsWith("/")) return s;
-
-  // αν είναι absolute, πάρε pathname+query+hash
   try {
-    const u = new URL(s);
-    return `${u.pathname}${u.search}${u.hash}`;
+    const url = new URL(value);
+    return `${url.pathname}${url.search}${url.hash}`;
   } catch {
-    // fallback: κόψε "http(s)://host"
-    return s.replace(/^https?:\/\/[^/]+/i, "");
+    return value.replace(/^https?:\/\/[^/]+/i, "");
+  }
+}
+
+function readStoredRoom(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const canonical = window.localStorage.getItem(ROOM_STORAGE_KEY);
+    if (canonical && canonical.trim() !== "") return canonical.trim();
+
+    const legacy = window.localStorage.getItem(LEGACY_ROOM_STORAGE_KEY);
+    if (legacy && legacy.trim() !== "") return legacy.trim();
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+function readStoredRoomPassword(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(ROOM_PASSWORD_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveStoredRoom(room: string | null) {
+  if (typeof window === "undefined") return;
+
+  const clean = room && room.trim() !== "" ? room.trim() : null;
+  try {
+    if (clean) {
+      window.localStorage.setItem(ROOM_STORAGE_KEY, clean);
+      window.localStorage.setItem(LEGACY_ROOM_STORAGE_KEY, clean);
+    } else {
+      window.localStorage.removeItem(ROOM_STORAGE_KEY);
+      window.localStorage.removeItem(LEGACY_ROOM_STORAGE_KEY);
+      window.localStorage.removeItem(ROOM_PASSWORD_STORAGE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+
+  for (const eventName of [ROOM_CHANGED_EVENT, LEGACY_ROOM_CHANGED_EVENT]) {
+    window.dispatchEvent(new CustomEvent(eventName, { detail: { room: clean } }));
   }
 }
 
 function normalizePresenceCounts(input: any): PresenceCounts {
   const uniqueUsers = Number(input?.uniqueUsers ?? input?.onlineUsers ?? 0);
-  const sessions = Number(input?.sessions ?? input?.connections ?? 0);
+  const sessions = Number(input?.sessions ?? input?.connections ?? input?.userCount ?? 0);
 
   return {
     uniqueUsers: Number.isFinite(uniqueUsers) && uniqueUsers >= 0 ? uniqueUsers : 0,
@@ -125,8 +166,44 @@ function normalizePresenceCounts(input: any): PresenceCounts {
   };
 }
 
+function readLastHandledSyncId(room: string): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = window.sessionStorage.getItem(`${LAST_SYNC_STORAGE_PREFIX}${room}`);
+    const value = Number(raw || 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function readLastHandledRequestId(room: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.sessionStorage.getItem(`${LAST_SYNC_REQUEST_STORAGE_PREFIX}${room}`);
+    return value && value.trim() !== "" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function RoomsProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession();
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectRef = useRef<number | null>(null);
+  const heartbeatRef = useRef<number | null>(null);
+  const mountedRef = useRef(false);
+  const intentionalCloseRef = useRef(false);
+  const clientIdRef = useRef<string | null>(null);
+  const pendingJoinKeyRef = useRef<string | null>(null);
+  const joinedRoomRef = useRef<string | null>(null);
+  const seenIncomingSyncRef = useRef<Set<string>>(new Set());
+  const syncSequenceRef = useRef(0);
+
+  const [wsConnected, setWsConnected] = useState(false);
+  const [currentRoom, setCurrentRoom] = useState<string | null>(null);
+  const [presence, setPresence] = useState<PresenceCounts | null>(null);
 
   const getUserMeta = useCallback(() => {
     const anySession: any = session as any;
@@ -137,70 +214,32 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [session]);
 
-  const wsRef = useRef<WebSocket | null>(null);
-
-  // timers
-  const reconnectRef = useRef<number | null>(null);
-  const heartbeatRef = useRef<number | null>(null);
-
-  // lifecycle flags
-  const mountedRef = useRef<boolean>(false);
-  const intentionalCloseRef = useRef<boolean>(false);
-
-  const [wsConnected, setWsConnected] = useState(false);
-  const [currentRoom, setCurrentRoom] = useState<string | null>(null);
-
-  const [lastSyncId, setLastSyncId] = useState<number>(0);
-  const [ignoreSyncUntil, setIgnoreSyncUntil] = useState<number>(0);
-
-  // ✅ NEW: presence state (push from WS)
-  const [presence, setPresence] = useState<PresenceCounts | null>(null);
-
-  // Restore room from localStorage on first mount
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (currentRoom && currentRoom.trim() !== "") return;
 
-    try {
-      const stored = window.localStorage.getItem(ROOM_STORAGE_KEY);
-      if (stored && stored.trim() !== "") setCurrentRoom(stored.trim());
-    } catch {
-      // ignore
-    }
+    const stored = readStoredRoom();
+    if (stored) setCurrentRoom(stored);
   }, [currentRoom]);
-
-  const saveRoom = useCallback((room: string | null) => {
-    if (typeof window === "undefined") return;
-
-    if (room && room.trim() !== "") {
-      window.localStorage.setItem(ROOM_STORAGE_KEY, room.trim());
-    } else {
-      window.localStorage.removeItem(ROOM_STORAGE_KEY);
-    }
-
-    const evt = new CustomEvent(ROOM_CHANGED_EVENT, { detail: { room } });
-    window.dispatchEvent(evt);
-  }, []);
 
   const sendHello = useCallback(() => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    const deviceId = getOrCreateDeviceId();
-    const tabId = getOrCreateTabId();
+    const ids = getClientIds();
     const meta = getUserMeta();
+    clientIdRef.current = ids.clientId;
 
     try {
-      ws.send(
-        JSON.stringify({
-          type: "hello",
-          deviceId,
-          tabId,
-          userId: meta.userId,
-          username: meta.username,
-          senderUrl: getSenderUrl(),
-        }),
-      );
+      ws.send(JSON.stringify({
+        type: "hello",
+        clientId: ids.clientId,
+        deviceId: ids.deviceId,
+        tabId: ids.tabId,
+        userId: meta.userId,
+        username: meta.username,
+        senderUrl: getSenderUrl(),
+      }));
     } catch {
       // ignore
     }
@@ -209,33 +248,54 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
   const sendJoin = useCallback(
     (room: string, password: string) => {
       const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const cleanRoom = room.trim();
+      if (!cleanRoom || !ws || ws.readyState !== WebSocket.OPEN) return;
 
-      const deviceId = getOrCreateDeviceId();
-      const tabId = getOrCreateTabId();
+      const joinKey = `${cleanRoom}\n${password || ""}`;
+      if (pendingJoinKeyRef.current === joinKey) return;
+      if (joinedRoomRef.current === cleanRoom && pendingJoinKeyRef.current === null) return;
+
+      const ids = getClientIds();
       const meta = getUserMeta();
+      clientIdRef.current = ids.clientId;
+      pendingJoinKeyRef.current = joinKey;
 
-      ws.send(
-        JSON.stringify({
+      try {
+        ws.send(JSON.stringify({
           type: "join_room",
-          room,
+          room: cleanRoom,
           password,
-          deviceId,
-          tabId,
+          clientId: ids.clientId,
+          deviceId: ids.deviceId,
+          tabId: ids.tabId,
           userId: meta.userId,
           username: meta.username,
           senderUrl: getSenderUrl(),
-        }),
-      );
+          lastSeenSyncId: readLastHandledSyncId(cleanRoom),
+          lastSeenRequestId: readLastHandledRequestId(cleanRoom),
+        }));
+      } catch {
+        pendingJoinKeyRef.current = null;
+      }
     },
     [getUserMeta],
   );
 
   const sendLeave = useCallback(() => {
     const ws = wsRef.current;
+    const room = joinedRoomRef.current || currentRoom;
+
+    pendingJoinKeyRef.current = null;
+    joinedRoomRef.current = null;
+    setPresence(null);
+
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: "leave_room" }));
-  }, []);
+    try {
+      ws.send(JSON.stringify({ type: "leave_room", room }));
+    } catch {
+      // ignore
+    }
+  }, [currentRoom]);
 
   const startHeartbeat = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -270,18 +330,15 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
 
   const scheduleReconnect = useCallback(() => {
     if (typeof window === "undefined") return;
-    if (!mountedRef.current) return;
-    if (intentionalCloseRef.current) return;
+    if (!mountedRef.current || intentionalCloseRef.current) return;
     if (reconnectRef.current !== null) return;
 
     reconnectRef.current = window.setTimeout(() => {
       reconnectRef.current = null;
-      if (!mountedRef.current) return;
-      if (intentionalCloseRef.current) return;
+      if (!mountedRef.current || intentionalCloseRef.current) return;
 
-      // ✅ αν στο μεταξύ άνοιξε socket, μην ξανανοίξεις
-      const cur = wsRef.current;
-      if (cur && (cur.readyState === WebSocket.OPEN || cur.readyState === WebSocket.CONNECTING)) {
+      const current = wsRef.current;
+      if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) {
         return;
       }
 
@@ -293,22 +350,17 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return;
     if (!mountedRef.current) return;
 
-    // ✅ single socket guard
-    if (
-      wsRef.current &&
-      (wsRef.current.readyState === WebSocket.OPEN ||
-        wsRef.current.readyState === WebSocket.CONNECTING)
-    ) {
+    const current = wsRef.current;
+    if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) {
       return;
     }
 
     const wsUrl = getWsUrl();
     if (!wsUrl) return;
 
-    console.log("[RoomsProvider] connecting to", wsUrl);
-
-    // νέο connect attempt => δεν είναι “intentional close”
     intentionalCloseRef.current = false;
+    pendingJoinKeyRef.current = null;
+    joinedRoomRef.current = null;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -316,18 +368,12 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
     ws.onopen = () => {
       if (!mountedRef.current) return;
 
-      console.log("[RoomsProvider] WebSocket open");
       setWsConnected(true);
       startHeartbeat();
-
-      // ✅ NEW: identify presence immediately
       sendHello();
 
-      // ✅ if we already have a room stored, join without needing another render
-      const room = (currentRoom ?? "").trim();
-      if (room) {
-        sendJoin(room, "");
-      }
+      const room = (currentRoom || readStoredRoom() || "").trim();
+      if (room) sendJoin(room, readStoredRoomPassword());
     };
 
     ws.onmessage = (event) => {
@@ -335,115 +381,117 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
         const data = JSON.parse(event.data);
         if (!data || typeof data !== "object") return;
 
-        const t = (data as any).type || (data as any).action;
+        const type = (data as any).type || (data as any).action;
 
-        if (t === "welcome") return;
+        if (type === "welcome" || type === "hello_ack" || type === "pong") {
+          if (type === "hello_ack" && typeof (data as any).clientId === "string") {
+            clientIdRef.current = (data as any).clientId;
+          }
+          return;
+        }
 
-        // ✅ NEW: presence counts pushed by server
-        if (t === "presence_counts" || t === "presence") {
+        if (type === "presence_counts" || type === "presence") {
           const counts = normalizePresenceCounts(data);
           setPresence(counts);
-
-          const evt = new CustomEvent(PRESENCE_COUNTS_EVENT, { detail: counts });
-          window.dispatchEvent(evt);
+          window.dispatchEvent(new CustomEvent(PRESENCE_COUNTS_EVENT, { detail: counts }));
           return;
         }
 
-        if (t === "join_accepted") {
-          console.log(
-            "[RoomsProvider] join_accepted:",
-            (data as any).room,
-            "users:",
-            (data as any).userCount,
-          );
+        if (type === "join_accepted") {
+          const room = String((data as any).room || "").trim();
+          if (room) {
+            joinedRoomRef.current = room;
+            pendingJoinKeyRef.current = null;
+          }
+          if (typeof (data as any).clientId === "string") clientIdRef.current = (data as any).clientId;
+          setPresence(normalizePresenceCounts(data));
           return;
         }
 
-        if (t === "join_denied") {
+        if (type === "join_denied") {
+          pendingJoinKeyRef.current = null;
+          joinedRoomRef.current = null;
           console.warn("[RoomsProvider] join_denied:", (data as any).reason || "unknown reason");
           return;
         }
 
-        if (t === "update_count") {
-          const evt = new CustomEvent("rep_rooms_update_count", {
-            detail: {
-              room: (data as any).room,
-              userCount: (data as any).userCount,
-            },
-          });
-          window.dispatchEvent(evt);
+        if (type === "leave_accepted") {
+          pendingJoinKeyRef.current = null;
+          joinedRoomRef.current = null;
+          setPresence(null);
           return;
         }
 
-        if (t === "song_sync") {
-          const syncId = Number((data as any).syncId ?? 0);
-          setLastSyncId(syncId);
+        if (type === "update_count") {
+          const detail = {
+            room: (data as any).room,
+            userCount: (data as any).userCount,
+            uniqueUsers: (data as any).uniqueUsers,
+            sessions: (data as any).sessions,
+          };
+          window.dispatchEvent(new CustomEvent("rep_rooms_update_count", { detail }));
+          return;
+        }
 
-          const now = Date.now();
-          if (ignoreSyncUntil && now < ignoreSyncUntil) return;
+        if (type === "song_sync_ack") {
+          window.dispatchEvent(new CustomEvent("rep_song_sync_ack", { detail: data }));
+          return;
+        }
+
+        if (type === "song_sync") {
+          const senderClientId = String((data as any).senderClientId || "");
+          if (senderClientId && clientIdRef.current && senderClientId === clientIdRef.current) return;
+
+          const room = String((data as any).room || currentRoom || "").trim();
+          const syncId = Number((data as any).syncId || 0);
+          const requestId = String((data as any).requestId || "");
+          const memoryKey = requestId || `${room}:${syncId}`;
+          if (memoryKey && seenIncomingSyncRef.current.has(memoryKey)) return;
+          if (memoryKey) seenIncomingSyncRef.current.add(memoryKey);
 
           const rawPayload = (data as any).payload || {};
           const normalizedPayload = {
             ...rawPayload,
-            url:
-              rawPayload?.url != null
-                ? toRelativeSongUrl(String(rawPayload.url))
-                : rawPayload?.url,
+            url: rawPayload?.url != null ? toRelativeSongUrl(String(rawPayload.url)) : rawPayload?.url,
           };
 
-          const evt = new CustomEvent("rep_song_sync", {
+          window.dispatchEvent(new CustomEvent("rep_song_sync", {
             detail: {
-              room: (data as any).room,
+              room,
               syncId,
+              requestId: requestId || null,
+              senderClientId: senderClientId || null,
+              senderName: (data as any).senderName || null,
               payload: normalizedPayload,
             },
-          });
-          window.dispatchEvent(evt);
-          return;
+          }));
         }
-
-        if (t === "pong") return;
       } catch (err) {
         console.error("[RoomsProvider] onmessage error:", err);
       }
     };
 
-    ws.onclose = (e) => {
-      console.log("[RoomsProvider] WebSocket closed", {
-        code: e.code,
-        reason: e.reason,
-        wasClean: e.wasClean,
-      });
+    ws.onclose = (event) => {
+      if (wsRef.current === ws) wsRef.current = null;
 
-      // ✅ clear ref if this is the active socket
-      if (wsRef.current === ws) {
-        wsRef.current = null;
-      }
+      pendingJoinKeyRef.current = null;
+      joinedRoomRef.current = null;
 
       if (mountedRef.current) {
         setWsConnected(false);
-        // presence becomes unknown until reconnect
         setPresence(null);
       }
 
       stopHeartbeat();
-      scheduleReconnect();
+      if (!event.wasClean) scheduleReconnect();
+      else scheduleReconnect();
     };
 
     ws.onerror = (event) => {
-      if (!mountedRef.current) return;
-      if (intentionalCloseRef.current) return;
+      if (!mountedRef.current || intentionalCloseRef.current) return;
       console.error("[RoomsProvider] WebSocket error:", event);
     };
-  }, [
-    currentRoom,
-    ignoreSyncUntil,
-    scheduleReconnect,
-    sendHello,
-    sendJoin,
-    startHeartbeat,
-    stopHeartbeat,
-  ]);
+  }, [currentRoom, scheduleReconnect, sendHello, sendJoin, startHeartbeat, stopHeartbeat]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -451,7 +499,6 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mountedRef.current = false;
-
       clearReconnect();
       intentionalCloseRef.current = true;
 
@@ -469,25 +516,16 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /**
-   * ✅ If auth session changes while socket is open, re-send hello so the server can
-   * upgrade anonymous -> authenticated (no reconnect needed).
-   */
   useEffect(() => {
     if (!wsConnected) return;
     sendHello();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsConnected, session]);
 
-  /**
-   * ✅ If currentRoom changes while connected, join (or leave via switchRoom)
-   * Note: we also try joining immediately in onopen to avoid waiting render.
-   */
   useEffect(() => {
     if (!wsConnected) return;
-    const room = (currentRoom ?? "").trim();
-    if (!room) return;
-    sendJoin(room, "");
+    const room = (currentRoom || "").trim();
+    if (room) sendJoin(room, readStoredRoomPassword());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsConnected, currentRoom]);
 
@@ -496,43 +534,44 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
       if (!room || room.trim() === "") {
         sendLeave();
         setCurrentRoom(null);
-        saveRoom(null);
+        saveStoredRoom(null);
         return;
       }
 
       const clean = room.trim();
       setCurrentRoom(clean);
-      saveRoom(clean);
-
+      saveStoredRoom(clean);
       if (wsConnected) sendJoin(clean, password);
     },
-    [saveRoom, sendJoin, sendLeave, wsConnected],
+    [sendJoin, sendLeave, wsConnected],
   );
 
   const sendSongToRoom = useCallback(
     (payload: SongSyncPayload) => {
       const ws = wsRef.current;
-
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.warn("[RoomsProvider] Cannot send song_sync – WebSocket not open", {
-          readyState: ws?.readyState,
-        });
+        alert("Το room δεν είναι συνδεδεμένο ακόμη. Δοκίμασε ξανά σε λίγο.");
         return;
       }
 
-      if (!currentRoom || !currentRoom.trim()) {
-        console.warn("[RoomsProvider] Cannot send song_sync – no active room selected");
+      const room = (currentRoom || "").trim();
+      if (!room) {
         alert("Δεν είσαι συνδεδεμένος σε κανένα room.");
         return;
       }
 
-      const room = currentRoom.trim();
-      const syncId = Date.now();
+      const ids = getClientIds();
+      clientIdRef.current = ids.clientId;
+      syncSequenceRef.current = (syncSequenceRef.current + 1) % 1000;
+      const syncId = Date.now() * 1000 + syncSequenceRef.current;
+      const requestId = `${ids.clientId}:${syncId}`;
 
       const msg = {
         type: "song_sync",
         room,
         syncId,
+        requestId,
+        senderClientId: ids.clientId,
         payload: {
           kind: "song",
           songId: payload.songId ?? null,
@@ -545,9 +584,9 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
 
       try {
         ws.send(JSON.stringify(msg));
-        console.log("[RoomsProvider] song_sync sent:", msg);
       } catch (err) {
         console.error("[RoomsProvider] song_sync send error:", err);
+        alert("Προέκυψε σφάλμα κατά την αποστολή στο room.");
       }
     },
     [currentRoom],
@@ -555,11 +594,11 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-
     const anyWindow = window as any;
 
-    anyWindow.RepRoomsSwitchRoom = (room: string | null, password = "") =>
+    anyWindow.RepRoomsSwitchRoom = (room: string | null, password = "") => {
       switchRoom(room, password);
+    };
 
     anyWindow.RepRoomsSendSong = (
       url: string,
@@ -568,10 +607,7 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
       selectedTonicity?: string | null,
     ) => {
       const cleanUrl = toRelativeSongUrl(url);
-      if (!cleanUrl) {
-        console.warn("[RoomsProvider] RepRoomsSendSong called without url");
-        return;
-      }
+      if (!cleanUrl) return;
 
       sendSongToRoom({
         url: cleanUrl,

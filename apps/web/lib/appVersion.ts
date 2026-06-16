@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.14";
+export const APP_VERSION = "3.0.15";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.15",
+    date: "2026-06-16",
+    level: "minor",
+    title: "Βελτίωση Rooms συγχρονισμού",
+    items: [
+      "Ο συγχρονισμός τραγουδιών στα Rooms έχει πλέον dedupe ανά αίτημα, ώστε ο ίδιος χρήστης να μην λαμβάνει το ίδιο τραγούδι πάνω από μία φορά.",
+      "Το τραγούδι που στέλνεται στο Room συγχρονίζει και την επιλεγμένη τονικότητα στην κανονική σελίδα τραγουδιού.",
+      "Η σύνδεση/αποσύνδεση από Room είναι πιο καθαρή, με ενιαίο αποθηκευμένο room και υποστήριξη leave_room στον WebSocket server.",
+    ],
+  },
   {
     version: "3.0.14",
     date: "2026-06-16",

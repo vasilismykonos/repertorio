@@ -7,6 +7,7 @@ import {
 } from "@/app/components/tonicity/index";
 
 type SongChordsClientProps = {
+  songId?: number | null;
   chords: string | null;
   originalKey?: string | null; // π.χ. "103"
   originalKeySign?: "+" | "-" | null;
@@ -41,6 +42,7 @@ const CHORD_INDEX_MAP_SMALL: Record<string, number> = Object.fromEntries(
 );
 
 const CHORDS_SCALE_STORAGE_KEY = "repertorio_chords_scale_v1";
+const ROOM_PENDING_TONICITY_STORAGE_PREFIX = "rep_room_pending_tonicity::";
 const CHORDS_BASE_FONT_SIZE = 14;
 const CHORDS_SCALE_MIN = 0.75;
 const CHORDS_SCALE_MAX = 2.2;
@@ -193,6 +195,7 @@ function dispatchTonicityChanged(detail: {
 }
 
 export default function SongChordsClient({
+  songId,
   chords,
   originalKey,
   originalKeySign,
@@ -245,17 +248,34 @@ export default function SongChordsClient({
     setBaseChord(initBase);
     setLastSign(initSign);
 
-    if (typeof window !== "undefined") {
-      (window as any).__repSelectedTonicity = initBase;
+    let initialSelected = initBase;
+
+    if (typeof window !== "undefined" && songId) {
+      try {
+        const key = `${ROOM_PENDING_TONICITY_STORAGE_PREFIX}${songId}`;
+        const raw = window.sessionStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const pending = normalizeTonicityInput(parsed?.tonicity);
+          if (pending && isValidTonicity(pending)) initialSelected = pending;
+          window.sessionStorage.removeItem(key);
+        }
+      } catch {
+        // ignore stale or malformed pending room tonicity
+      }
     }
 
-    setSelectedTonicity(initBase);
+    if (typeof window !== "undefined") {
+      (window as any).__repSelectedTonicity = initialSelected;
+    }
+
+    setSelectedTonicity(initialSelected);
 
     dispatchTonicityChanged({
-      tonicity: initBase,
+      tonicity: initialSelected,
       sign: initSign,
     });
-  }, [chords, originalKey, originalKeySign]);
+  }, [chords, originalKey, originalKeySign, songId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -272,6 +292,20 @@ export default function SongChordsClient({
       } catch {
         w.__repSetSelectedTonicity = undefined;
       }
+    };
+  }, [lastSign]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onRoomTonicity = (event: Event) => {
+      const detail = (event as CustomEvent<{ tonicity?: string | null }>).detail;
+      applySelectedTonicity(detail?.tonicity);
+    };
+
+    window.addEventListener("rep:roomsApplyTonicity", onRoomTonicity as EventListener);
+    return () => {
+      window.removeEventListener("rep:roomsApplyTonicity", onRoomTonicity as EventListener);
     };
   }, [lastSign]);
 
