@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  clearOfflineSyncData as clearOfflineSyncDataStore,
   readOfflineListsForEmail,
   readOfflineMeta,
   readOfflineSummary,
@@ -14,6 +15,8 @@ import {
 } from "./offlineStore";
 
 export const OFFLINE_STATUS_EVENT = "repertorio:offline-status";
+const OFFLINE_SYNC_ENABLED_KEY = "repertorio_offline_sync_enabled";
+const CACHE_PREFIXES = ["repertorio-static-", "repertorio-pages-"];
 
 const SONGS_SYNC_AGE_MS = 20 * 60 * 1000;
 const LISTS_SYNC_AGE_MS = 10 * 60 * 1000;
@@ -33,19 +36,32 @@ const LIST_DETAIL_BATCH_SIZE = 15;
 export type OfflineRuntimeStatus = {
   online: boolean;
   syncing: boolean;
+  syncEnabled: boolean;
   lastSyncedAt: string | null;
   songsSyncedAt: string | null;
   listsSyncedAt: string | null;
   songsCount: number;
   listsCount: number;
   exactSearchesCount: number;
+  progress: OfflineSyncProgress | null;
   error: string | null;
+};
+
+export type OfflineSyncProgress = {
+  phase: "idle" | "preparing" | "songs" | "song-details" | "lists" | "list-details" | "singer-tunes" | "shells" | "clearing" | "done";
+  label: string;
+  songsDone: number;
+  songsTotal: number;
+  listsDone: number;
+  listsTotal: number;
 };
 
 type SyncOptions = {
   includeLists: boolean;
   userEmail?: string | null;
   force?: boolean;
+  forceRefresh?: boolean;
+  manual?: boolean;
   includeSingerTunes?: boolean;
   detailBudget?: number;
   listDetailBudget?: number;
@@ -54,6 +70,8 @@ type SyncOptions = {
 
 let runningSync: Promise<OfflineRuntimeStatus> | null = null;
 let lastUserActivityAt = Date.now();
+let currentProgress: OfflineSyncProgress | null = null;
+let lastProgressEmitAt = 0;
 
 function isBrowser() {
   return typeof window !== "undefined";
@@ -61,6 +79,24 @@ function isBrowser() {
 
 function browserOnline() {
   return !isBrowser() || typeof navigator.onLine === "undefined" ? true : navigator.onLine;
+}
+
+function readSyncEnabled() {
+  if (!isBrowser()) return true;
+  try {
+    return window.localStorage.getItem(OFFLINE_SYNC_ENABLED_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function writeSyncEnabled(enabled: boolean) {
+  if (!isBrowser()) return;
+  try {
+    window.localStorage.setItem(OFFLINE_SYNC_ENABLED_KEY, enabled ? "1" : "0");
+  } catch {
+    // Best-effort preference only.
+  }
 }
 
 function markUserActivity() {
@@ -87,12 +123,14 @@ function baseStatus(): OfflineRuntimeStatus {
   return {
     online: true,
     syncing: false,
+    syncEnabled: true,
     lastSyncedAt: null,
     songsSyncedAt: null,
     listsSyncedAt: null,
     songsCount: 0,
     listsCount: 0,
     exactSearchesCount: 0,
+    progress: null,
     error: null,
   };
 }
@@ -125,24 +163,50 @@ function emitStatus(status: OfflineRuntimeStatus) {
   return status;
 }
 
-async function buildStatus(syncing = false, error: string | null = null): Promise<OfflineRuntimeStatus> {
+async function buildStatus(
+  syncing = false,
+  error: string | null = null,
+  progress: OfflineSyncProgress | null = syncing ? currentProgress : null,
+): Promise<OfflineRuntimeStatus> {
   const summary = await readOfflineSummary().catch(() => null);
   const meta = summary?.meta || null;
   return {
     online: browserOnline(),
     syncing,
+    syncEnabled: readSyncEnabled(),
     lastSyncedAt: summary?.lastSyncedAt || null,
     songsSyncedAt: summary?.songsSyncedAt || null,
     listsSyncedAt: summary?.listsSyncedAt || null,
     songsCount: summary?.songsCount || 0,
     listsCount: summary?.listsCount || 0,
     exactSearchesCount: summary?.exactSearchesCount || 0,
+    progress,
     error: error || meta?.lastError || null,
   };
 }
 
 export async function refreshOfflineStatus(): Promise<OfflineRuntimeStatus> {
   return emitStatus(await buildStatus(false));
+}
+
+async function updateSyncProgress(
+  patch: Partial<OfflineSyncProgress>,
+  forceEmit = false,
+): Promise<void> {
+  const previous = currentProgress || {
+    phase: "preparing",
+    label: "Προετοιμασία συγχρονισμού",
+    songsDone: 0,
+    songsTotal: 0,
+    listsDone: 0,
+    listsTotal: 0,
+  };
+  currentProgress = { ...previous, ...patch };
+
+  const now = Date.now();
+  if (!forceEmit && now - lastProgressEmitAt < 600) return;
+  lastProgressEmitAt = now;
+  emitStatus(await buildStatus(true, null, currentProgress));
 }
 
 function collectCurrentStaticAssetUrls(): string[] {
@@ -271,12 +335,15 @@ async function fetchSongDetailsForOffline(
   previous: Record<string, any>,
   force: boolean,
   limit = SONG_DETAIL_BATCH_SIZE,
+  progressStart = 0,
+  progressTotal = songs.length,
 ): Promise<Record<string, any>> {
   const ids = Array.from(new Set(songs.map(songIdFromSearchItem).filter((id): id is number => id !== null)));
   const pendingAll = force ? ids : ids.filter((id) => !isFullSongDetail(previous[String(id)]));
   const pending = pendingAll.slice(0, Math.max(0, limit));
   const detailsById: Record<string, any> = {};
   let nextIndex = 0;
+  let completed = 0;
 
   async function worker() {
     for (;;) {
@@ -290,6 +357,16 @@ async function fetchSongDetailsForOffline(
         );
       } catch {
         // A missing song detail should not make search/list offline data unusable.
+      } finally {
+        completed += 1;
+        if (completed % 5 === 0 || completed === pending.length) {
+          await updateSyncProgress({
+            phase: "song-details",
+            label: "Συγχρονισμός λεπτομερειών τραγουδιών",
+            songsDone: Math.min(progressTotal, progressStart + completed),
+            songsTotal: progressTotal,
+          });
+        }
       }
     }
   }
@@ -300,6 +377,13 @@ async function fetchSongDetailsForOffline(
 
 async function syncSongsAndFilters(force = false, detailBudget = SONG_DETAIL_BATCH_SIZE) {
   const pageSize = 200;
+  await updateSyncProgress({
+    phase: "songs",
+    label: "Συγχρονισμός ευρετηρίου τραγουδιών",
+    songsDone: 0,
+    songsTotal: 0,
+  }, true);
+
   const [firstPage, categories, rythms, tags] = await Promise.all([
     fetchJson<any>(`/api/v1/songs-es/search?take=${pageSize}&skip=0`),
     fetchJson<any[]>("/api/categories"),
@@ -309,21 +393,36 @@ async function syncSongsAndFilters(force = false, detailBudget = SONG_DETAIL_BAT
 
   const total = Number(firstPage?.total || 0) || (Array.isArray(firstPage?.items) ? firstPage.items.length : 0);
   const items = Array.isArray(firstPage?.items) ? firstPage.items.slice() : [];
+  await updateSyncProgress({
+    phase: "songs",
+    label: "Συγχρονισμός ευρετηρίου τραγουδιών",
+    songsDone: items.length,
+    songsTotal: total,
+  }, true);
 
   for (let skip = items.length; skip < total; skip += pageSize) {
     const page = await fetchJson<any>(`/api/v1/songs-es/search?take=${pageSize}&skip=${skip}`);
     const pageItems = Array.isArray(page?.items) ? page.items : [];
     if (pageItems.length === 0) break;
     items.push(...pageItems);
+    await updateSyncProgress({
+      phase: "songs",
+      label: "Συγχρονισμός ευρετηρίου τραγουδιών",
+      songsDone: items.length,
+      songsTotal: total,
+    });
   }
 
   const normalizedTags = Array.isArray(tags) ? tags : Array.isArray(tags?.items) ? tags.items : [];
   const previous = await readOfflineSongs().catch(() => null);
+  const previousDetailCount = countFullSongDetails(previous?.detailsById);
   const freshDetailsById = await fetchSongDetailsForOffline(
     items,
     previous?.detailsById || {},
     force,
     force ? Number.POSITIVE_INFINITY : detailBudget,
+    previousDetailCount,
+    items.length,
   );
   const detailsById = mergeSongDetails(items, previous?.detailsById || {}, freshDetailsById);
 
@@ -344,7 +443,8 @@ async function syncSongDetailsChunk(limit = SONG_DETAIL_BATCH_SIZE) {
   if (items.length === 0) return;
 
   const previous = snapshot?.detailsById || {};
-  const freshDetailsById = await fetchSongDetailsForOffline(items, previous, false, limit);
+  const previousDetailCount = countFullSongDetails(previous);
+  const freshDetailsById = await fetchSongDetailsForOffline(items, previous, false, limit, previousDetailCount, items.length);
   if (Object.keys(freshDetailsById).length === 0) return;
 
   await writeOfflineSongs(
@@ -375,6 +475,14 @@ async function syncSingerTunesForOffline(force = false) {
   const pending = force ? pendingAll : pendingAll.slice(0, SINGER_TUNE_BATCH_SIZE);
   const fresh: Record<string, any[]> = {};
   let nextIndex = 0;
+  let completed = 0;
+
+  await updateSyncProgress({
+    phase: "singer-tunes",
+    label: "Συγχρονισμός προσωπικών τονικοτήτων",
+    songsDone: Math.min(ids.length, Object.keys(previous).length),
+    songsTotal: ids.length,
+  }, true);
 
   async function worker() {
     for (;;) {
@@ -387,6 +495,16 @@ async function syncSingerTunesForOffline(force = false) {
         fresh[String(id)] = Array.isArray(rows) ? rows : [];
       } catch {
         // Singer tunes are user-scoped; one failed song must not cancel offline sync.
+      } finally {
+        completed += 1;
+        if (completed % 5 === 0 || completed === pending.length) {
+          await updateSyncProgress({
+            phase: "singer-tunes",
+            label: "Συγχρονισμός προσωπικών τονικοτήτων",
+            songsDone: Math.min(ids.length, Object.keys(previous).length + completed),
+            songsTotal: ids.length,
+          });
+        }
       }
     }
   }
@@ -424,11 +542,14 @@ async function fetchListDetailsForOffline(
   previous: Record<string, any> = {},
   limit = LIST_DETAIL_BATCH_SIZE,
   force = false,
+  progressStart = 0,
+  progressTotal = lists.length,
 ): Promise<Record<string, any>> {
   const ids = Array.from(new Set(lists.map(listIdFromSummary).filter((id): id is number => id !== null)));
   const pending = (force ? ids : ids.filter((id) => !previous[String(id)])).slice(0, Math.max(0, limit));
   const detailsById: Record<string, any> = {};
   let nextIndex = 0;
+  let completed = 0;
 
   async function worker() {
     for (;;) {
@@ -442,6 +563,16 @@ async function fetchListDetailsForOffline(
         );
       } catch {
         // A single list detail must not cancel the whole offline sync.
+      } finally {
+        completed += 1;
+        if (completed % 5 === 0 || completed === pending.length) {
+          await updateSyncProgress({
+            phase: "list-details",
+            label: "Συγχρονισμός λεπτομερειών λιστών",
+            listsDone: Math.min(progressTotal, progressStart + completed),
+            listsTotal: progressTotal,
+          });
+        }
       }
     }
   }
@@ -467,6 +598,13 @@ function countListDetails(detailsById: Record<string, any> | undefined): number 
 }
 
 async function syncLists(userEmail?: string | null, detailBudget = LIST_DETAIL_BATCH_SIZE, force = false) {
+  await updateSyncProgress({
+    phase: "lists",
+    label: "Συγχρονισμός λιστών",
+    listsDone: 0,
+    listsTotal: 0,
+  }, true);
+
   const me = await fetchJson<any>("/api/current-user");
   const user = me?.user || null;
   const userId = Number(user?.id);
@@ -479,13 +617,23 @@ async function syncLists(userEmail?: string | null, detailBudget = LIST_DETAIL_B
     fetchJson<any>("/api/lists/groups").catch(() => null),
   ]);
   const lists = Array.isArray(data?.items) ? data.items : [];
+  await updateSyncProgress({
+    phase: "lists",
+    label: "Συγχρονισμός λιστών",
+    listsDone: lists.length,
+    listsTotal: Number(data?.total || lists.length) || lists.length,
+  }, true);
+
   const previous = await readOfflineListsForEmail(email).catch(() => null);
+  const previousDetailCount = countListDetails(previous?.detailsById);
   const freshDetailsById = await fetchListDetailsForOffline(
     userId,
     lists,
     previous?.detailsById || {},
     force ? Number.POSITIVE_INFINITY : detailBudget,
     force,
+    previousDetailCount,
+    lists.length,
   );
   const detailsById = mergeListDetails(lists, previous?.detailsById || {}, freshDetailsById);
 
@@ -504,7 +652,8 @@ async function syncListDetailsChunk(userEmail?: string | null, limit = LIST_DETA
   if (lists.length === 0) return;
 
   const previous = snapshot?.detailsById || {};
-  const freshDetailsById = await fetchListDetailsForOffline(userId, lists, previous, limit, false);
+  const previousDetailCount = countListDetails(previous);
+  const freshDetailsById = await fetchListDetailsForOffline(userId, lists, previous, limit, false, previousDetailCount, lists.length);
   if (Object.keys(freshDetailsById).length === 0) return;
 
   await writeOfflineListsForUser(
@@ -522,7 +671,17 @@ async function syncListDetailsChunk(userEmail?: string | null, limit = LIST_DETA
 
 async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
   if (!browserOnline()) return emitStatus(await buildStatus(false));
+  if (!options.manual && !readSyncEnabled()) return emitStatus(await buildStatus(false));
 
+  currentProgress = {
+    phase: "preparing",
+    label: "Προετοιμασία συγχρονισμού",
+    songsDone: 0,
+    songsTotal: 0,
+    listsDone: 0,
+    listsTotal: 0,
+  };
+  lastProgressEmitAt = 0;
   const detailBudget = options.force ? Number.POSITIVE_INFINITY : (options.detailBudget ?? SONG_DETAIL_BATCH_SIZE);
   const listDetailBudget = options.force ? Number.POSITIVE_INFINITY : (options.listDetailBudget ?? LIST_DETAIL_BATCH_SIZE);
   const currentUser =
@@ -543,11 +702,12 @@ async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
   const cachedListDetailsCount = countListDetails(cachedLists?.detailsById);
   const hasListDetailSnapshot = !cachedLists || Object.prototype.hasOwnProperty.call(cachedLists, "detailsById");
   const needsSongDetails = cachedSongCount > 0 && cachedSongDetailsCount < cachedSongCount;
-  const needsSongs = options.force || cachedSongCount < 250 || ageMs(meta?.songsSyncedAt) > SONGS_SYNC_AGE_MS;
+  const needsSongs = options.force || options.forceRefresh || cachedSongCount < 250 || ageMs(meta?.songsSyncedAt) > SONGS_SYNC_AGE_MS;
   const canSyncUserData = options.includeLists && Boolean(currentUser?.id || normalizedEmail || cachedEmail);
   const needsLists =
     options.includeLists &&
     (options.force ||
+      options.forceRefresh ||
       !cachedLists ||
       ageMs(meta?.listsSyncedAt) > LISTS_SYNC_AGE_MS ||
       (!!normalizedEmail && normalizedEmail !== cachedEmail) ||
@@ -564,10 +724,11 @@ async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
     cachedSingerTunesCount < cachedSongCount;
 
   if (!needsSongs && !needsSongDetails && !needsLists && !needsListDetails && !needsSingerTunes) {
+    currentProgress = null;
     return emitStatus(await buildStatus(false));
   }
 
-  emitStatus(await buildStatus(true));
+  emitStatus(await buildStatus(true, null, currentProgress));
 
   try {
     if (needsSongs) await syncSongsAndFilters(Boolean(options.force), detailBudget);
@@ -578,13 +739,30 @@ async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
 
     if (needsSingerTunes) await syncSingerTunesForOffline(Boolean(options.force));
     if (options.warmShells) {
+      await updateSyncProgress({
+        phase: "shells",
+        label: "Προετοιμασία offline σελίδων",
+      }, true);
       scheduleLowPriorityWork(() => warmOfflineShells(options.includeLists));
     }
-    return emitStatus(await buildStatus(false));
+    currentProgress = {
+      ...(currentProgress || {
+        songsDone: 0,
+        songsTotal: 0,
+        listsDone: 0,
+        listsTotal: 0,
+      }),
+      phase: "done",
+      label: "Ο συγχρονισμός ολοκληρώθηκε",
+    };
+    const finalStatus = emitStatus(await buildStatus(false, null, null));
+    currentProgress = null;
+    return finalStatus;
   } catch (error) {
     await recordOfflineSyncError(error).catch(() => null);
     const message = error instanceof Error ? error.message : String(error || "Offline sync failed");
-    return emitStatus(await buildStatus(false, message));
+    currentProgress = null;
+    return emitStatus(await buildStatus(false, message, null));
   }
 }
 
@@ -595,6 +773,56 @@ export function runOfflineSync(options: SyncOptions): Promise<OfflineRuntimeStat
     runningSync = null;
   });
   return runningSync;
+}
+
+async function clearOfflineCaches() {
+  if (!isBrowser() || !("caches" in window)) return;
+  const names = await window.caches.keys();
+  await Promise.all(
+    names
+      .filter((name) => CACHE_PREFIXES.some((prefix) => name.startsWith(prefix)))
+      .map((name) => window.caches.delete(name)),
+  );
+}
+
+export async function setOfflineSyncEnabled(enabled: boolean): Promise<OfflineRuntimeStatus> {
+  writeSyncEnabled(enabled);
+  return refreshOfflineStatus();
+}
+
+export function forceOfflineSync(includeLists: boolean, userEmail?: string | null): Promise<OfflineRuntimeStatus> {
+  return runOfflineSync({
+    includeLists,
+    userEmail,
+    manual: true,
+    forceRefresh: true,
+    includeSingerTunes: true,
+    warmShells: true,
+  });
+}
+
+export async function clearOfflineSyncedData(): Promise<OfflineRuntimeStatus> {
+  if (!isBrowser()) return baseStatus();
+  currentProgress = {
+    phase: "clearing",
+    label: "Διαγραφή δεδομένων συγχρονισμού",
+    songsDone: 0,
+    songsTotal: 0,
+    listsDone: 0,
+    listsTotal: 0,
+  };
+  emitStatus(await buildStatus(true, null, currentProgress));
+
+  try {
+    await clearOfflineSyncDataStore();
+    await clearOfflineCaches();
+    currentProgress = null;
+    return emitStatus(await buildStatus(false, null, null));
+  } catch (error) {
+    currentProgress = null;
+    const message = error instanceof Error ? error.message : String(error || "Αποτυχία διαγραφής offline δεδομένων");
+    return emitStatus(await buildStatus(false, message, null));
+  }
 }
 
 function scheduleLowPriorityWork(callback: () => void, delayMs = LOW_PRIORITY_WORK_DELAY_MS): () => void {
@@ -614,7 +842,7 @@ function scheduleLowPriorityWork(callback: () => void, delayMs = LOW_PRIORITY_WO
     }
 
     run();
-  }, BACKGROUND_SYNC_DELAY_MS);
+  }, delayMs);
 
   return () => {
     window.clearTimeout(timeoutId);
@@ -678,9 +906,16 @@ export function useOfflineRuntime(includeLists: boolean, userEmail?: string | nu
       }
     };
 
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === OFFLINE_SYNC_ENABLED_KEY) {
+        void refreshOfflineStatus();
+      }
+    };
+
     window.addEventListener(OFFLINE_STATUS_EVENT, onStatus as EventListener);
     window.addEventListener("online", onNetworkChange);
     window.addEventListener("offline", onNetworkChange);
+    window.addEventListener("storage", onStorage);
 
     void refreshOfflineStatus().then(apply).catch(() => null);
 
@@ -705,6 +940,7 @@ export function useOfflineRuntime(includeLists: boolean, userEmail?: string | nu
       window.removeEventListener(OFFLINE_STATUS_EVENT, onStatus as EventListener);
       window.removeEventListener("online", onNetworkChange);
       window.removeEventListener("offline", onNetworkChange);
+      window.removeEventListener("storage", onStorage);
     };
   }, [includeLists, userEmail]);
 

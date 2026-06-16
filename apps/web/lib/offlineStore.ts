@@ -142,6 +142,29 @@ async function setKey<T>(key: string, value: T): Promise<void> {
   }
 }
 
+async function deleteKey(key: string): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  try {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    await requestToPromise(tx.objectStore(STORE_NAME).delete(key));
+  } finally {
+    db.close();
+  }
+}
+
+async function keysWithPrefix(prefix: string): Promise<string[]> {
+  const db = await openDb();
+  if (!db) return [];
+  try {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const keys = await requestToPromise<IDBValidKey[]>(tx.objectStore(STORE_NAME).getAllKeys());
+    return keys.map((key) => String(key)).filter((key) => key.startsWith(prefix));
+  } finally {
+    db.close();
+  }
+}
+
 async function mergeMeta(patch: Partial<OfflineMeta>): Promise<OfflineMeta> {
   const current = (await getKey<OfflineMeta>(KEY_META)) || defaultMeta();
   const next: OfflineMeta = { ...defaultMeta(), ...current, ...patch, version: 1 };
@@ -205,6 +228,25 @@ export async function readOfflineSummary(): Promise<OfflineSummary> {
     songsSyncedAt: meta?.songsSyncedAt || null,
     listsSyncedAt: meta?.listsSyncedAt || null,
   };
+}
+
+export async function clearOfflineSyncData(): Promise<void> {
+  const current = (await readOfflineMeta().catch(() => null)) || defaultMeta();
+  const listKeys = await keysWithPrefix("lists:");
+
+  await Promise.all([
+    deleteKey(KEY_SONGS),
+    deleteKey(KEY_FILTERS),
+    ...listKeys.map((key) => deleteKey(key)),
+  ]);
+
+  await setKey<OfflineMeta>(KEY_META, {
+    ...defaultMeta(),
+    userId: current.userId,
+    userEmail: current.userEmail,
+    currentUser: current.currentUser || null,
+    lastError: null,
+  });
 }
 
 export async function writeOfflineSongs(payload: {

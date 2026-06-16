@@ -6,7 +6,12 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { signIn, signOut } from "next-auth/react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import SideMenu from "./SideMenu";
-import { useOfflineRuntime } from "@/lib/offlineSync";
+import {
+  clearOfflineSyncedData,
+  forceOfflineSync,
+  setOfflineSyncEnabled,
+  useOfflineRuntime,
+} from "@/lib/offlineSync";
 import { useOfflineIdentity } from "@/lib/useOfflineIdentity";
 
 type HeaderProps = {
@@ -54,6 +59,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
   const isLoggedIn = identity.isAuthenticated;
   const userEmail = identity.userEmail;
   const offlineStatus = useOfflineRuntime(isLoggedIn, userEmail);
+  const [offlineActionBusy, setOfflineActionBusy] = useState(false);
 
   const avatarUrl = identity.userImage || undefined;
 
@@ -86,6 +92,35 @@ function HeaderInner({ appVersion }: HeaderProps) {
     const callbackUrl = getSameOriginCallbackUrl();
     void signOut({ callbackUrl });
   }, [getSameOriginCallbackUrl]);
+
+  const handleForceOfflineSync = useCallback(async () => {
+    if (offlineActionBusy) return;
+    setOfflineActionBusy(true);
+    try {
+      await forceOfflineSync(isLoggedIn, userEmail);
+    } finally {
+      setOfflineActionBusy(false);
+    }
+  }, [offlineActionBusy, isLoggedIn, userEmail]);
+
+  const handleSetOfflineSyncEnabled = useCallback(async (enabled: boolean) => {
+    await setOfflineSyncEnabled(enabled);
+  }, []);
+
+  const handleClearOfflineData = useCallback(async () => {
+    if (offlineActionBusy || offlineStatus.syncing) return;
+    const ok = window.confirm(
+      "Να διαγραφούν τα offline δεδομένα συγχρονισμού από αυτή τη συσκευή; Η σύνδεση χρήστη θα παραμείνει αποθηκευμένη.",
+    );
+    if (!ok) return;
+
+    setOfflineActionBusy(true);
+    try {
+      await clearOfflineSyncedData();
+    } finally {
+      setOfflineActionBusy(false);
+    }
+  }, [offlineActionBusy, offlineStatus.syncing]);
 
   const submitSearch = useCallback(
     (term: string) => {
@@ -577,6 +612,10 @@ function HeaderInner({ appVersion }: HeaderProps) {
         userEmail={userEmail}
         avatarNode={avatarNode}
         offlineStatus={offlineStatus}
+        offlineActionBusy={offlineActionBusy}
+        onForceOfflineSync={handleForceOfflineSync}
+        onSetOfflineSyncEnabled={handleSetOfflineSyncEnabled}
+        onClearOfflineData={handleClearOfflineData}
         isInRoom={isInRoom}
         currentRoomName={currentRoomName}
         roomUserCount={roomUserCount}

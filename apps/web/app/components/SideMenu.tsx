@@ -17,6 +17,8 @@ import {
   LogOut,
   CloudOff,
   RefreshCw,
+  RotateCw,
+  Trash2,
 } from "lucide-react";
 import type { OfflineRuntimeStatus } from "@/lib/offlineSync";
 import { APP_CHANGELOG, APP_VERSION } from "@/lib/appVersion";
@@ -39,6 +41,10 @@ type Props = {
 
   // offline
   offlineStatus?: OfflineRuntimeStatus;
+  offlineActionBusy?: boolean;
+  onForceOfflineSync?: () => void;
+  onSetOfflineSyncEnabled?: (enabled: boolean) => void;
+  onClearOfflineData?: () => void;
 
   // room
   isInRoom: boolean;
@@ -114,6 +120,10 @@ export default function SideMenu(props: Props) {
     userEmail,
     avatarNode,
     offlineStatus,
+    offlineActionBusy = false,
+    onForceOfflineSync,
+    onSetOfflineSyncEnabled,
+    onClearOfflineData,
     onNewSong,
     isAdmin: isAdminProp,
     appVersion,
@@ -125,6 +135,22 @@ export default function SideMenu(props: Props) {
   const displayName = userName || userEmail || "Επισκέπτης";
   const statusText = isLoggedIn ? "Συνδεδεμένος" : "Επισκέπτης";
   const displayVersion = appVersion || APP_VERSION;
+  const progress = offlineStatus?.progress || null;
+  const progressPercent = progress
+    ? Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(
+            Math.max(
+              progress.songsTotal > 0 ? progress.songsDone / progress.songsTotal : 0,
+              progress.listsTotal > 0 ? progress.listsDone / progress.listsTotal : 0,
+            ) * 100,
+          ),
+        ),
+      )
+    : 0;
+  const controlsDisabled = offlineActionBusy || Boolean(offlineStatus?.syncing);
 
   const [currentRoomNameLocal, setCurrentRoomNameLocal] = useState<string | null>(null);
   const [roomUserCountLocal, setRoomUserCountLocal] = useState<number | null>(null);
@@ -455,6 +481,8 @@ export default function SideMenu(props: Props) {
                   <RefreshCw size={13} />
                   <span>Sync</span>
                 </span>
+              ) : !offlineStatus.syncEnabled ? (
+                <span className="smh-syncing">Sync off</span>
               ) : offlineStatus.online ? null : (
                 <CloudOff size={14} />
               )}
@@ -465,6 +493,61 @@ export default function SideMenu(props: Props) {
             <div className="smh-offline-row muted">
               <span>{"\u03a4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9\u03b1"}: {offlineStatus.songsCount}</span>
               <span>{"\u039b\u03af\u03c3\u03c4\u03b5\u03c2"}: {offlineStatus.listsCount}</span>
+            </div>
+
+            {offlineStatus.syncing && progress ? (
+              <div className="smh-sync-progress" aria-live="polite">
+                <div className="smh-sync-progress-head">
+                  <span>{progress.label}</span>
+                  <strong>{progressPercent}%</strong>
+                </div>
+                <div className="smh-progress-track">
+                  <span className="smh-progress-fill" style={{ width: `${progressPercent}%` }} />
+                </div>
+                <div className="smh-sync-progress-counts">
+                  <span>
+                    Τραγούδια: {progress.songsDone}
+                    {progress.songsTotal > 0 ? ` / ${progress.songsTotal}` : ""}
+                  </span>
+                  <span>
+                    Λίστες: {progress.listsDone}
+                    {progress.listsTotal > 0 ? ` / ${progress.listsTotal}` : ""}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="smh-sync-controls">
+              <label className="smh-sync-toggle">
+                <input
+                  type="checkbox"
+                  checked={offlineStatus.syncEnabled}
+                  onChange={(event) => onSetOfflineSyncEnabled?.(event.target.checked)}
+                />
+                <span>Αυτόματος συγχρονισμός</span>
+              </label>
+              <div className="smh-sync-buttons">
+                <button
+                  type="button"
+                  className="smh-sync-btn"
+                  onClick={onForceOfflineSync}
+                  disabled={offlineActionBusy || offlineStatus.syncing || !offlineStatus.online}
+                  title={offlineStatus.online ? "Επιβολή συγχρονισμού τώρα" : "Χρειάζεται σύνδεση internet"}
+                >
+                  <RotateCw size={14} />
+                  <span>Συγχρονισμός τώρα</span>
+                </button>
+                <button
+                  type="button"
+                  className="smh-sync-btn danger"
+                  onClick={onClearOfflineData}
+                  disabled={controlsDisabled}
+                  title="Διαγραφή offline δεδομένων συγχρονισμού από αυτή τη συσκευή"
+                >
+                  <Trash2 size={14} />
+                  <span>Διαγραφή δεδομένων</span>
+                </button>
+              </div>
             </div>
           </div>
         ) : null}
@@ -756,6 +839,112 @@ export default function SideMenu(props: Props) {
             align-items: center;
             gap: 5px;
             color: rgba(255, 255, 255, 0.72);
+          }
+
+          .smh-sync-progress {
+            display: grid;
+            gap: 6px;
+            padding-top: 2px;
+          }
+
+          .smh-sync-progress-head,
+          .smh-sync-progress-counts {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            color: rgba(255, 255, 255, 0.72);
+            font-size: 11px;
+            line-height: 15px;
+          }
+
+          .smh-sync-progress-head span {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .smh-progress-track {
+            position: relative;
+            height: 5px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.1);
+          }
+
+          .smh-progress-fill {
+            position: absolute;
+            inset: 0 auto 0 0;
+            min-width: 4px;
+            border-radius: inherit;
+            background: #22c55e;
+            transition: width 180ms ease;
+          }
+
+          .smh-sync-controls {
+            display: grid;
+            gap: 8px;
+            padding-top: 4px;
+          }
+
+          .smh-sync-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            color: rgba(255, 255, 255, 0.78);
+            font-size: 12px;
+            line-height: 16px;
+            cursor: pointer;
+            user-select: none;
+          }
+
+          .smh-sync-toggle input {
+            width: 16px;
+            height: 16px;
+            accent-color: #22c55e;
+            flex: 0 0 auto;
+          }
+
+          .smh-sync-buttons {
+            display: flex;
+            align-items: stretch;
+            gap: 6px;
+            flex-wrap: wrap;
+          }
+
+          .smh-sync-btn {
+            min-height: 32px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 6px 9px;
+            font-size: 11px;
+            line-height: 14px;
+            font-weight: 800;
+            cursor: pointer;
+            flex: 1 1 120px;
+          }
+
+          .smh-sync-btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.14);
+          }
+
+          .smh-sync-btn.danger {
+            color: #fecaca;
+            border-color: rgba(248, 113, 113, 0.28);
+            background: rgba(127, 29, 29, 0.24);
+          }
+
+          .smh-sync-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
           }
 
           .smh-version-history {

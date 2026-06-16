@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.13";
+export const APP_VERSION = "3.0.14";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.14",
+    date: "2026-06-16",
+    level: "patch",
+    title: "Έλεγχος offline συγχρονισμού",
+    items: [
+      "Το μενού έχει πλέον κουμπί επιβολής συγχρονισμού, κουμπί διαγραφής offline δεδομένων και επιλογή ενεργοποίησης/απενεργοποίησης αυτόματου συγχρονισμού.",
+      "Κατά τον συγχρονισμό εμφανίζεται progress με φάση εργασίας και μετρητές τραγουδιών/λιστών.",
+      "Η διαγραφή καθαρίζει τα δεδομένα συγχρονισμού και τα offline caches αυτής της συσκευής, διατηρώντας την αποθηκευμένη offline ταυτότητα χρήστη.",
+    ],
+  },
   {
     version: "3.0.13",
     date: "2026-06-15",
