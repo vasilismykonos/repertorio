@@ -832,21 +832,23 @@ export default function SongPageClient(props: Props) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [listPickerOpen, listPickerSubmittingListId]);
 
+  function sendCurrentSongToRoom() {
+    if (typeof window === "undefined") return;
+    const w = window as any;
+
+    if (typeof w.RepRoomsSendSong !== "function") {
+      alert("Το σύστημα rooms δεν είναι διαθέσιμο.");
+      return;
+    }
+
+    const selectedTonicity =
+      typeof w.__repSelectedTonicity === "string" ? w.__repSelectedTonicity : null;
+
+    w.RepRoomsSendSong(window.location.href, song.title, song.id, selectedTonicity);
+  }
+
   const roomAction = A.room({
-    onClick: () => {
-      if (typeof window === "undefined") return;
-      const w = window as any;
-
-      if (typeof w.RepRoomsSendSong !== "function") {
-        alert("Το σύστημα rooms δεν είναι διαθέσιμο.");
-        return;
-      }
-
-      const selectedTonicity =
-        typeof w.__repSelectedTonicity === "string" ? w.__repSelectedTonicity : null;
-
-      w.RepRoomsSendSong(window.location.href, song.title, song.id, selectedTonicity);
-    },
+    onClick: sendCurrentSongToRoom,
     title: "Αποστολή στο Room",
     label: "Room",
   });
@@ -906,12 +908,9 @@ export default function SongPageClient(props: Props) {
 
     setDraggingRoom(true);
 
-    try {
-      roomButtonRef.current?.setPointerCapture?.(e.pointerId);
-    } catch {}
-
-    e.preventDefault();
     e.stopPropagation();
+    // On desktop, cancelling pointerdown can suppress the button's native click event.
+    if (e.pointerType !== "mouse") e.preventDefault();
   }
 
   useEffect(() => {
@@ -974,7 +973,12 @@ export default function SongPageClient(props: Props) {
       e.preventDefault();
       e.stopPropagation();
       roomMovedRef.current = false;
+      return;
     }
+
+    e.preventDefault();
+    e.stopPropagation();
+    sendCurrentSongToRoom();
   }
 
   const lyricsPreRef = useRef<HTMLPreElement | null>(null);
@@ -1547,6 +1551,7 @@ export default function SongPageClient(props: Props) {
           top: roomPos.y !== null ? roomPos.y : undefined,
           userSelect: "none",
           WebkitUserSelect: "none",
+          touchAction: "none",
         }}
       >
         {roomAction}

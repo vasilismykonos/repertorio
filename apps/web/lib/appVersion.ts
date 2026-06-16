@@ -6,9 +6,18 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.15";
+export const APP_VERSION = "3.0.16";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.16",
+    date: "2026-06-16",
+    level: "patch",
+    title: "Διόρθωση αποστολής Room σε desktop",
+    items: [
+      "Το αιωρούμενο κουμπί Room στη σελίδα τραγουδιού αφήνει πλέον το κανονικό mouse click να φτάνει στο κουμπί, ενώ διατηρεί τη μετακίνηση με drag.",
+    ],
+  },
   {
     version: "3.0.15",
     date: "2026-06-16",
