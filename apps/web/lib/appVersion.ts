@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.23";
+export const APP_VERSION = "3.0.24";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.24",
+    date: "2026-06-17",
+    level: "patch",
+    title: "Επιβεβαίωση αποστολής στο Room",
+    items: [
+      "Όταν η αποστολή τραγουδιού στο Room πετύχει, το εικονίδιο του κουμπιού γίνεται στιγμιαία τικ.",
+      "Η επιβεβαίωση εμφανίζεται μόνο όταν το μήνυμα αποσταλεί πραγματικά στο WebSocket του Room.",
+    ],
+  },
   {
     version: "3.0.23",
     date: "2026-06-17",

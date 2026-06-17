@@ -36,6 +36,8 @@ const GuidedTour = dynamic(
   { ssr: false },
 );
 
+const ROOM_SENT_FLASH_MS = 1200;
+
 type PanelsOpen = {
   info: boolean;
   singerTunes: boolean;
@@ -277,6 +279,16 @@ export default function SongPageClient(props: Props) {
   const [availableListGroups, setAvailableListGroups] = useState<ListGroupOption[]>([]);
   const [lastSelectedListId, setLastSelectedListId] = useState<number | null>(null);
   const [lastAddedList, setLastAddedList] = useState<SongListOption | null>(null);
+  const [roomSendConfirmed, setRoomSendConfirmed] = useState(false);
+  const roomSendFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (roomSendFlashTimerRef.current) {
+        clearTimeout(roomSendFlashTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -844,13 +856,22 @@ export default function SongPageClient(props: Props) {
     const selectedTonicity =
       typeof w.__repSelectedTonicity === "string" ? w.__repSelectedTonicity : null;
 
-    w.RepRoomsSendSong(window.location.href, song.title, song.id, selectedTonicity);
+    const sent = w.RepRoomsSendSong(window.location.href, song.title, song.id, selectedTonicity);
+    if (sent === true) {
+      setRoomSendConfirmed(true);
+      if (roomSendFlashTimerRef.current) clearTimeout(roomSendFlashTimerRef.current);
+      roomSendFlashTimerRef.current = setTimeout(() => {
+        setRoomSendConfirmed(false);
+        roomSendFlashTimerRef.current = null;
+      }, ROOM_SENT_FLASH_MS);
+    }
   }
 
   const roomAction = A.room({
     onClick: sendCurrentSongToRoom,
-    title: "Αποστολή στο Room",
-    label: "Room",
+    title: roomSendConfirmed ? "Στάλθηκε στο Room" : "Αποστολή στο Room",
+    label: roomSendConfirmed ? "Στάλθηκε" : "Room",
+    action: roomSendConfirmed ? "apply" : "room",
   });
 
   function openYoutube() {

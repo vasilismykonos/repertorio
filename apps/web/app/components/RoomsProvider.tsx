@@ -27,7 +27,7 @@ type PresenceCounts = {
 type RoomsContextType = {
   currentRoom: string | null;
   switchRoom: (room: string | null, password?: string) => void;
-  sendSongToRoom: (payload: SongSyncPayload) => void;
+  sendSongToRoom: (payload: SongSyncPayload) => boolean;
   presence: PresenceCounts | null;
 };
 
@@ -585,13 +585,13 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         alert("Το room δεν είναι συνδεδεμένο ακόμη. Δοκίμασε ξανά σε λίγο.");
-        return;
+        return false;
       }
 
       const room = (currentRoom || "").trim();
       if (!room) {
         alert("Δεν είσαι συνδεδεμένος σε κανένα room.");
-        return;
+        return false;
       }
 
       const ids = getClientIds();
@@ -619,9 +619,11 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
       try {
         ws.send(JSON.stringify(msg));
         markHandledSync(room, syncId, requestId);
+        return true;
       } catch (err) {
         console.error("[RoomsProvider] song_sync send error:", err);
         alert("Προέκυψε σφάλμα κατά την αποστολή στο room.");
+        return false;
       }
     },
     [currentRoom],
@@ -642,9 +644,9 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
       selectedTonicity?: string | null,
     ) => {
       const cleanUrl = toRelativeSongUrl(url);
-      if (!cleanUrl) return;
+      if (!cleanUrl) return false;
 
-      sendSongToRoom({
+      return sendSongToRoom({
         url: cleanUrl,
         title: title ?? null,
         songId: songId ?? null,
