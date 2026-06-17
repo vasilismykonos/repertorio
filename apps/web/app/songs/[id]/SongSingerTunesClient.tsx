@@ -71,7 +71,7 @@ export default function SongSingerTunesClient(props: {
 
   const [selected, setSelected] = useState<RepSelected>(() => readSelectedFromGlobal());
 
-  // Φόρτωση denos
+  // Φόρτωση τονικοτήτων με άμεσο cached fallback και online refresh.
   useEffect(() => {
     if (!open) return;
 
@@ -81,32 +81,16 @@ export default function SongSingerTunesClient(props: {
       const online = browserOnline();
       const meta = await readOfflineMeta().catch(() => null);
       const canUseOfflineUser = hasOfflineUser(meta) && !online;
+      const cachedRows = await readOfflineSingerTunes(songId).catch(() => null);
 
-      if (online && status === "loading") {
-        if (!cancelled) {
-          setErr(null);
-          setAuthRequired(false);
-          setUsingOfflineUser(false);
-          setRows(null);
-        }
-        return;
+      if (!cancelled) {
+        setErr(null);
+        setAuthRequired(false);
+        setUsingOfflineUser(!online && canUseOfflineUser);
+        setRows(Array.isArray(cachedRows) ? (cachedRows as SingerTuneRow[]) : null);
       }
 
-      if (status === "unauthenticated" && !canUseOfflineUser) {
-        if (!cancelled) {
-          setErr(null);
-          setAuthRequired(true);
-          setUsingOfflineUser(false);
-          setRows([]);
-        }
-        return;
-      }
-
-      setErr(null);
-      setAuthRequired(false);
-
-      if (!online || status !== "authenticated") {
-        const cachedRows = await readOfflineSingerTunes(songId).catch(() => null);
+      if (!online) {
         if (!cancelled) {
           setUsingOfflineUser(canUseOfflineUser);
           setRows(Array.isArray(cachedRows) ? (cachedRows as SingerTuneRow[]) : []);
@@ -120,6 +104,7 @@ export default function SongSingerTunesClient(props: {
         if (!res.ok) {
           if (!cancelled) {
             if (res.status === 401) {
+              if (status === "loading") return;
               setAuthRequired(true);
               setRows([]);
               setErr(null);
@@ -140,7 +125,6 @@ export default function SongSingerTunesClient(props: {
           void writeOfflineSingerTunes(songId, nextRows).catch(() => null);
         }
       } catch (e: any) {
-        const cachedRows = await readOfflineSingerTunes(songId).catch(() => null);
         if (!cancelled) {
           if (Array.isArray(cachedRows)) {
             setRows(cachedRows as SingerTuneRow[]);
@@ -206,8 +190,7 @@ export default function SongSingerTunesClient(props: {
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
-            gap: 10,
+            gap: 8,
             alignItems: "center",
             marginBottom: 8,
           }}
@@ -218,6 +201,7 @@ export default function SongSingerTunesClient(props: {
                 href: `/songs/${songId}/singer-tunes`,
                 title: "Διαχείριση τονικοτήτων",
                 label: "Επεξεργασία",
+                iconOnly: true,
               })
             : null}
         </div>

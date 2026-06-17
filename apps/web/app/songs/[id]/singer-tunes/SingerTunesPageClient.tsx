@@ -11,6 +11,7 @@ import TonicityPills, {
   type TonicityValue,
   normalizeTonicity,
 } from "@/app/components/tonicity";
+import type { UserPick } from "@/lib/users/types";
 
 type SingerTuneRow = {
   id: number;
@@ -52,7 +53,7 @@ async function fetchList(songId: number): Promise<ApiResult<SingerTuneRow[]>> {
 
 async function saveOne(
   songId: number,
-  payload: { id?: number; title: string; tune: string }
+  payload: { id?: number; title: string; tune: string; mentionUserIds?: number[] }
 ): Promise<ApiResult<SingerTuneRow>> {
   const res = await fetch(`/api/songs/${songId}/singer-tunes`, {
     method: "PUT",
@@ -70,6 +71,72 @@ async function saveOne(
   }
 
   return { ok: true, data: body as SingerTuneRow };
+}
+
+const RECENT_SINGER_TUNE_USERS_KEY = "rep:singerTuneRecentUsers";
+const RECENT_SINGER_TUNE_USERS_LIMIT = 4;
+
+function normalizeUserPick(raw: any): UserPick | null {
+  const id = Number(raw?.id);
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  const username = String(
+    raw?.username ||
+      raw?.userName ||
+      (typeof raw?.email === "string" ? raw.email.split("@")[0] : "") ||
+      `user${id}`,
+  );
+
+  return {
+    id,
+    username,
+    displayName:
+      raw?.displayName != null
+        ? String(raw.displayName)
+        : raw?.name != null
+          ? String(raw.name)
+          : null,
+    avatarUrl: raw?.avatarUrl != null ? String(raw.avatarUrl) : null,
+  };
+}
+
+function uniqUsers(list: UserPick[]) {
+  const seen = new Set<number>();
+  const out: UserPick[] = [];
+  for (const u of list) {
+    const normalized = normalizeUserPick(u);
+    if (!normalized || seen.has(normalized.id)) continue;
+    seen.add(normalized.id);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function readRecentSingerTuneUsers() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(RECENT_SINGER_TUNE_USERS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? uniqUsers(parsed).slice(0, RECENT_SINGER_TUNE_USERS_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentSingerTuneUsers(users: UserPick[]) {
+  if (typeof window === "undefined") return;
+  const normalized = uniqUsers(users).slice(0, RECENT_SINGER_TUNE_USERS_LIMIT);
+  try {
+    window.localStorage.setItem(RECENT_SINGER_TUNE_USERS_KEY, JSON.stringify(normalized));
+  } catch {
+    // Μη μπλοκάρει η αποθήκευση τονικότητας αν ο browser αρνηθεί localStorage.
+  }
+}
+
+function mergeMentionSuggestions(selfUser: UserPick | null, recentUsers: UserPick[]) {
+  const head = selfUser ? [selfUser] : [];
+  const tail = recentUsers.filter((u) => u.id !== selfUser?.id);
+  return uniqUsers([...head, ...tail]).slice(0, RECENT_SINGER_TUNE_USERS_LIMIT + 1);
 }
 
 async function deleteOne(songId: number, id: number): Promise<ApiResult<unknown>> {
@@ -250,6 +317,8 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
   const [title, setTitle] = useState("");
   const [tune, setTune] = useState("");
   const [titleMentions, setTitleMentions] = useState<Mention[]>([]);
+  const [pickedTitleUsers, setPickedTitleUsers] = useState<UserPick[]>([]);
+  const [mentionSuggestions, setMentionSuggestions] = useState<UserPick[]>([]);
 
   const busy = loading || saving;
 
@@ -282,6 +351,39 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
     setLoading(false);
   }
 
+  async function loadMentionSuggestions() {
+    const recentUsers = readRecentSingerTuneUsers();
+    let selfUser: UserPick | null = null;
+
+    try {
+      const res = await fetch("/api/current-user", {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const body = await readJson(res);
+      if (res.ok) selfUser = normalizeUserPick((body as any)?.user);
+    } catch {
+      selfUser = null;
+    }
+
+    setMentionSuggestions(mergeMentionSuggestions(selfUser, recentUsers));
+  }
+
+  function onPickTitleUser(user: UserPick) {
+    setPickedTitleUsers((prev) => uniqUsers([user, ...prev]));
+  }
+
+  function rememberPickedTitleUsers() {
+    if (pickedTitleUsers.length === 0) return;
+    const current = readRecentSingerTuneUsers();
+    const next = uniqUsers([...pickedTitleUsers, ...current]).slice(
+      0,
+      RECENT_SINGER_TUNE_USERS_LIMIT,
+    );
+    writeRecentSingerTuneUsers(next);
+    setMentionSuggestions((prev) => mergeMentionSuggestions(prev[0] ?? null, next));
+  }
+
   useEffect(() => {
     if (status === "loading") {
       setLoading(true);
@@ -297,6 +399,7 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
     }
 
     reload();
+    void loadMentionSuggestions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songId, status]);
 
@@ -305,11 +408,13 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
     setTitle("");
     setTune("");
     setTitleMentions([]);
+    setPickedTitleUsers([]);
     setErr(null);
   }
 
   function openCreateModal() {
     resetForm();
+    void loadMentionSuggestions();
     setModalOpen(true);
   }
 
@@ -318,7 +423,9 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
     setTitle(r.title || "");
     setTune(normalizeTonicity(r.tune || ""));
     setTitleMentions([]);
+    setPickedTitleUsers([]);
     setErr(null);
+    void loadMentionSuggestions();
     setModalOpen(true);
   }
 
@@ -370,6 +477,7 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
       ...(editId ? { id: editId } : {}),
       title: cleanTitle,
       tune: cleanTune,
+      mentionUserIds: titleMentions.map((m) => m.userId),
     });
 
     if (!r.ok) {
@@ -384,6 +492,7 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
     }
 
     await reload();
+    rememberPickedTitleUsers();
     setSaving(false);
     closeModal();
   }
@@ -495,12 +604,15 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
     onChange={setTitle}
     mentions={titleMentions}
     onMentionsChange={setTitleMentions}
-    placeholder="π.χ. @vas… Τραγουδιστής / Label"
+    placeholder="Γράψε όνομα χρήστη ή απλό τίτλο"
     disabled={saving}
     multiline={false}
-    minChars={3}
+    minChars={2}
     take={8}
     showMentionLinks={true}
+    initialSuggestions={mentionSuggestions}
+    searchWithoutAt={true}
+    onPickUser={onPickTitleUser}
   />
 
   {/* ✅ ΜΟΝΟ αυτό: fix για overflow + rounded, χωρίς να κόβει dropdown */}

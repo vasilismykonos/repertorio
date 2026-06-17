@@ -35,22 +35,42 @@ type Props = {
 
   /** δείξε chips/links κάτω από το πεδίο */
   showMentionLinks?: boolean;
+
+  /** Προτεινόμενοι χρήστες πριν αρχίσει η αναζήτηση. */
+  initialSuggestions?: UserPick[];
+
+  /** Επιτρέπει αναζήτηση χρήστη και χωρίς @ στο ενεργό token. */
+  searchWithoutAt?: boolean;
+
+  /** Ενημερώνει τον caller όταν επιλεγεί χρήστης. */
+  onPickUser?: (user: UserPick) => void;
 };
 
 function getCaret(el: HTMLInputElement | HTMLTextAreaElement) {
   return typeof el.selectionStart === "number" ? el.selectionStart : null;
 }
 
-function getActiveMentionToken(text: string, caret: number | null) {
+function getActiveMentionToken(text: string, caret: number | null, allowPlain = false) {
   if (caret == null) return null;
   const left = text.slice(0, caret);
 
   // whitespace boundary + @ + allowed chars
   const m = left.match(/(^|\s)(@[\p{L}\p{N}_.-]{1,})$/u);
-  if (!m) return null;
+  if (m) {
+    const full = m[2]; // "@xxx"
+    const query = full.slice(1); // "xxx"
+    const start = left.length - full.length;
+    const end = left.length;
+    return { full, query, start, end };
+  }
 
-  const full = m[2]; // "@xxx"
-  const query = full.slice(1); // "xxx"
+  if (!allowPlain) return null;
+
+  const plain = left.match(/(^|\s)([\p{L}\p{N}_.-]{1,})$/u);
+  if (!plain) return null;
+
+  const full = plain[2];
+  const query = full;
   const start = left.length - full.length;
   const end = left.length;
   return { full, query, start, end };
@@ -64,6 +84,23 @@ function uniqMentions(list: Mention[]) {
     if (seen.has(k)) continue;
     seen.add(k);
     out.push(m);
+  }
+  return out;
+}
+
+function uniqUsers(list: UserPick[]) {
+  const seen = new Set<number>();
+  const out: UserPick[] = [];
+  for (const u of list) {
+    const id = Number(u?.id);
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      username: String(u.username || ""),
+      displayName: u.displayName != null ? String(u.displayName) : null,
+      avatarUrl: u.avatarUrl != null ? String(u.avatarUrl) : null,
+    });
   }
   return out;
 }
@@ -125,6 +162,9 @@ export default function UserMentionsField(props: Props) {
     take = 8,
     debounceMs = 180,
     showMentionLinks = true,
+    initialSuggestions = [],
+    searchWithoutAt = false,
+    onPickUser,
   } = props;
 
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
@@ -137,6 +177,11 @@ export default function UserMentionsField(props: Props) {
   const [suggestions, setSuggestions] = useState<UserPick[]>([]);
   const [active, setActive] = useState<{ query: string; start: number; end: number } | null>(null);
   const [highlightIdx, setHighlightIdx] = useState(0);
+
+  const normalizedInitialSuggestions = useMemo(
+    () => uniqUsers(initialSuggestions).slice(0, take),
+    [initialSuggestions, take],
+  );
 
   const close = () => {
     setOpen(false);
@@ -164,14 +209,30 @@ export default function UserMentionsField(props: Props) {
     );
 
 
+  function openInitialSuggestions() {
+    if (disabled || normalizedInitialSuggestions.length === 0) return;
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    lastQueryRef.current = "";
+    setActive({ query: "", start: 0, end: 0 });
+    setSuggestions(normalizedInitialSuggestions);
+    setOpen(true);
+    setLoading(false);
+    setErr(null);
+    setHighlightIdx(0);
+  }
+
   function onLocalChange(next: string) {
     onChange(next);
     setErr(null);
 
     const caret = inputRef.current ? getCaret(inputRef.current) : null;
-    const tok = getActiveMentionToken(next, caret);
+    const tok = getActiveMentionToken(next, caret, searchWithoutAt);
 
     if (!tok || tok.query.length < minChars) {
+      if (!next.trim() && normalizedInitialSuggestions.length > 0) {
+        openInitialSuggestions();
+        return;
+      }
       close();
       return;
     }
@@ -212,6 +273,7 @@ export default function UserMentionsField(props: Props) {
 
     const nextMentions = uniqMentions([...(mentions ?? []), { userId: u.id, label }]);
     onMentionsChange(nextMentions);
+    onPickUser?.(u);
 
     close();
     window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -231,6 +293,9 @@ export default function UserMentionsField(props: Props) {
         ref={inputRef as any}
         value={value}
         onChange={(e: any) => onLocalChange(e.target.value)}
+        onFocus={() => {
+          if (!String(value ?? "").trim()) openInitialSuggestions();
+        }}
         onBlur={() => window.setTimeout(() => close(), 140)}
         onKeyDown={(e: any) => {
           if (!hasDropdown) return;
