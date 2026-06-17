@@ -59,30 +59,34 @@ function currentSongId(): number | null {
 
 function hasHandledSync(room: string, syncId: number, requestId: string | null): boolean {
   if (!room) return false;
-  try {
-    if (requestId) {
-      const prevRequest = window.sessionStorage.getItem(`${LAST_SYNC_REQUEST_STORAGE_PREFIX}${room}`);
-      if (prevRequest === requestId) return true;
-    }
+  for (const storage of [window.sessionStorage, window.localStorage]) {
+    try {
+      if (requestId) {
+        const prevRequest = storage.getItem(`${LAST_SYNC_REQUEST_STORAGE_PREFIX}${room}`);
+        if (prevRequest === requestId) return true;
+      }
 
-    if (syncId > 0) {
-      const prevRaw = window.sessionStorage.getItem(`${LAST_SYNC_STORAGE_PREFIX}${room}`);
-      const prev = prevRaw ? Number(prevRaw) : 0;
-      if (Number.isFinite(prev) && prev >= syncId) return true;
+      if (syncId > 0) {
+        const prevRaw = storage.getItem(`${LAST_SYNC_STORAGE_PREFIX}${room}`);
+        const prev = prevRaw ? Number(prevRaw) : 0;
+        if (Number.isFinite(prev) && prev >= syncId) return true;
+      }
+    } catch {
+      // ignore this storage
     }
-  } catch {
-    return false;
   }
   return false;
 }
 
 function markHandledSync(room: string, syncId: number, requestId: string | null) {
   if (!room) return;
-  try {
-    if (syncId > 0) window.sessionStorage.setItem(`${LAST_SYNC_STORAGE_PREFIX}${room}`, String(syncId));
-    if (requestId) window.sessionStorage.setItem(`${LAST_SYNC_REQUEST_STORAGE_PREFIX}${room}`, requestId);
-  } catch {
-    // ignore
+  for (const storage of [window.sessionStorage, window.localStorage]) {
+    try {
+      if (syncId > 0) storage.setItem(`${LAST_SYNC_STORAGE_PREFIX}${room}`, String(syncId));
+      if (requestId) storage.setItem(`${LAST_SYNC_REQUEST_STORAGE_PREFIX}${room}`, requestId);
+    } catch {
+      // ignore this storage
+    }
   }
 }
 

@@ -168,22 +168,51 @@ function normalizePresenceCounts(input: any): PresenceCounts {
 
 function readLastHandledSyncId(room: string): number {
   if (typeof window === "undefined") return 0;
+  let max = 0;
   try {
     const raw = window.sessionStorage.getItem(`${LAST_SYNC_STORAGE_PREFIX}${room}`);
     const value = Number(raw || 0);
-    return Number.isFinite(value) && value > 0 ? value : 0;
+    if (Number.isFinite(value) && value > 0) max = Math.max(max, value);
   } catch {
-    return 0;
+    // ignore
   }
+  try {
+    const raw = window.localStorage.getItem(`${LAST_SYNC_STORAGE_PREFIX}${room}`);
+    const value = Number(raw || 0);
+    if (Number.isFinite(value) && value > 0) max = Math.max(max, value);
+  } catch {
+    // ignore
+  }
+  return max;
 }
 
 function readLastHandledRequestId(room: string): string | null {
   if (typeof window === "undefined") return null;
   try {
     const value = window.sessionStorage.getItem(`${LAST_SYNC_REQUEST_STORAGE_PREFIX}${room}`);
+    if (value && value.trim() !== "") return value;
+  } catch {
+    // ignore
+  }
+  try {
+    const value = window.localStorage.getItem(`${LAST_SYNC_REQUEST_STORAGE_PREFIX}${room}`);
     return value && value.trim() !== "" ? value : null;
   } catch {
     return null;
+  }
+}
+
+function markHandledSync(room: string, syncId: number, requestId: string | null) {
+  if (typeof window === "undefined") return;
+  if (!room) return;
+
+  for (const storage of [window.sessionStorage, window.localStorage]) {
+    try {
+      if (syncId > 0) storage.setItem(`${LAST_SYNC_STORAGE_PREFIX}${room}`, String(syncId));
+      if (requestId) storage.setItem(`${LAST_SYNC_REQUEST_STORAGE_PREFIX}${room}`, requestId);
+    } catch {
+      // best effort
+    }
   }
 }
 
@@ -257,8 +286,13 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
 
       const ids = getClientIds();
       const meta = getUserMeta();
+      const lastSeenSyncId = readLastHandledSyncId(cleanRoom);
+      const lastSeenRequestId = readLastHandledRequestId(cleanRoom);
       clientIdRef.current = ids.clientId;
       pendingJoinKeyRef.current = joinKey;
+      if (lastSeenSyncId > 0 || lastSeenRequestId) {
+        markHandledSync(cleanRoom, lastSeenSyncId, lastSeenRequestId);
+      }
 
       try {
         ws.send(JSON.stringify({
@@ -271,8 +305,8 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
           userId: meta.userId,
           username: meta.username,
           senderUrl: getSenderUrl(),
-          lastSeenSyncId: readLastHandledSyncId(cleanRoom),
-          lastSeenRequestId: readLastHandledRequestId(cleanRoom),
+          lastSeenSyncId,
+          lastSeenRequestId,
         }));
       } catch {
         pendingJoinKeyRef.current = null;
@@ -584,6 +618,7 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
 
       try {
         ws.send(JSON.stringify(msg));
+        markHandledSync(room, syncId, requestId);
       } catch (err) {
         console.error("[RoomsProvider] song_sync send error:", err);
         alert("Προέκυψε σφάλμα κατά την αποστολή στο room.");

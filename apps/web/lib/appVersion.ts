@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.22";
+export const APP_VERSION = "3.0.23";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.23",
+    date: "2026-06-17",
+    level: "patch",
+    title: "Μνήμη τελευταίου τραγουδιού Room",
+    items: [
+      "Το τελευταίο τραγούδι που ελήφθη από Room αποθηκεύεται πλέον ανά συσκευή, ώστε να μη ξανανοίγει στο επόμενο reconnect αν έχει ήδη παραληφθεί.",
+      "Το τραγούδι που στέλνει ο ίδιος ο χρήστης σημειώνεται επίσης ως παραληφθέν, ώστε να μην επιστρέφει σε νέο άνοιγμα της εφαρμογής.",
+    ],
+  },
   {
     version: "3.0.22",
     date: "2026-06-17",
