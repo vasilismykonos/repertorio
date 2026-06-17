@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.19";
+export const APP_VERSION = "3.0.20";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.20",
+    date: "2026-06-17",
+    level: "patch",
+    title: "Διόρθωση διαγραφής τραγουδιού",
+    items: [
+      "Η διαγραφή από τη φόρμα επεξεργασίας τραγουδιού καλεί πλέον το σωστό API endpoint του τραγουδιού.",
+      "Η αποθήκευση νέου ή υπάρχοντος τραγουδιού συνεχίζει να χρησιμοποιεί τα full endpoints χωρίς αλλαγή.",
+    ],
+  },
   {
     version: "3.0.19",
     date: "2026-06-16",

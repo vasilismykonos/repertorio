@@ -324,8 +324,8 @@ export async function DELETE(req: NextRequest, ctx: { params: { id: string } }) 
   if (cookie) headers.cookie = cookie;
   if (authorization) headers.authorization = authorization;
 
-  // ✅ Canonical endpoint (same convention as PATCH)
-  const upstreamUrl = `${API_BASE_URL}/songs/${idNum}/full`;
+  // DELETE uses the song resource endpoint; only create/update use /full.
+  const upstreamUrl = `${API_BASE_URL}/songs/${idNum}`;
 
   try {
     const res = await fetch(upstreamUrl, {
