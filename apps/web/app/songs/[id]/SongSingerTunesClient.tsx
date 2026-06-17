@@ -60,9 +60,11 @@ export default function SongSingerTunesClient(props: {
   open: boolean;
   songId: number;
   originalKeySign: "+" | "-" | null;
+  selectedSingerTuneId?: number | null;
 }) {
-  const { open, songId, originalKeySign } = props;
+  const { open, songId, originalKeySign, selectedSingerTuneId = null } = props;
   const { status } = useSession();
+  const selectedSingerTuneIdNumber = Number(selectedSingerTuneId || 0);
 
   const [rows, setRows] = useState<SingerTuneRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -224,7 +226,19 @@ export default function SongSingerTunesClient(props: {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {(rows ?? []).map((r) => {
               const ton = parseTonicity(r.tune) ?? r.tune?.trim() ?? "";
-              const isSelected = Boolean(ton && selected.tonicity && ton === selected.tonicity);
+              const selectedBySingerTune =
+                Number.isFinite(selectedSingerTuneIdNumber) &&
+                selectedSingerTuneIdNumber > 0 &&
+                Number(r.id) === selectedSingerTuneIdNumber;
+              const isSelected =
+                selectedBySingerTune ||
+                Boolean(
+                  !selectedBySingerTune &&
+                    selectedSingerTuneIdNumber <= 0 &&
+                    ton &&
+                    selected.tonicity &&
+                    ton === selected.tonicity,
+                );
 
               return (
                 <button

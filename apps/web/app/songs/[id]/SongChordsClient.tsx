@@ -11,6 +11,7 @@ type SongChordsClientProps = {
   chords: string | null;
   originalKey?: string | null; // π.χ. "103"
   originalKeySign?: "+" | "-" | null;
+  urlTonicity?: string | null;
 };
 
 const CHORDS = [
@@ -199,6 +200,7 @@ export default function SongChordsClient({
   chords,
   originalKey,
   originalKeySign,
+  urlTonicity,
 }: SongChordsClientProps) {
   const chordsBlockRef = useRef<HTMLDivElement | null>(null);
   const pinchRef = useRef<{ dist0: number; scale0: number; active: boolean } | null>(null);
@@ -250,7 +252,10 @@ export default function SongChordsClient({
 
     let initialSelected = initBase;
 
-    if (typeof window !== "undefined" && songId) {
+    const fromUrl = normalizeTonicityInput(urlTonicity);
+    if (fromUrl && isValidTonicity(fromUrl)) {
+      initialSelected = fromUrl;
+    } else if (typeof window !== "undefined" && songId) {
       try {
         const key = `${ROOM_PENDING_TONICITY_STORAGE_PREFIX}${songId}`;
         const raw = window.sessionStorage.getItem(key);
@@ -275,7 +280,7 @@ export default function SongChordsClient({
       tonicity: initialSelected,
       sign: initSign,
     });
-  }, [chords, originalKey, originalKeySign, songId]);
+  }, [chords, originalKey, originalKeySign, songId, urlTonicity]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

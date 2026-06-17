@@ -1,4 +1,4 @@
-const APP_VERSION = "3.0.25";
+const APP_VERSION = "3.0.26";
 const VERSION = `repertorio-${APP_VERSION}`;
 const STATIC_CACHE = `repertorio-static-${VERSION}`;
 const PAGE_CACHE = `repertorio-pages-${VERSION}`;

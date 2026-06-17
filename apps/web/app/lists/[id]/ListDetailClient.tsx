@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import ActionBar from "@/app/components/ActionBar";
 import { A } from "@/app/components/buttons";
+import ListItemSingerTunePicker from "./ListItemSingerTunePicker";
 
 import type { ListDetailDto } from "./page";
 
@@ -288,9 +289,10 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             const titleText = item.title || `(αντικείμενο #${listItemId})`;
 
             const info = songIdByListItemId.get(listItemId);
-            const songHref = info?.songId
-              ? `/songs/${info.songId}?listId=${encodeURIComponent(String(listId))}&listPos=${encodeURIComponent(
-                  String(info.pos),
+            const linkedSongId = info?.songId ? Number(info.songId) : null;
+            const songHref = linkedSongId
+              ? `/songs/${linkedSongId}?listId=${encodeURIComponent(String(listId))}&listPos=${encodeURIComponent(
+                  String(info?.pos ?? ""),
                 )}`
               : null;
 
@@ -329,16 +331,20 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
 
             return (
               <li key={listItemId} id={`item_${listItemId}`} style={rowStyle}>
-                {songHref ? (
-                  <Link
-                    href={songHref}
-                    prefetch={false}
-                    onClick={(event) => navigateDocumentWhenOffline(event, songHref)}
-                    style={{ ...contentStyle, textDecoration: "none" }}
-                  >
-                    <span style={numberStyle}>{sortId ? `${sortId}.` : "•"}</span>
-                    <span style={titleStyle}>{titleText}</span>
-                  </Link>
+                {songHref && linkedSongId ? (
+                  <>
+                    <Link
+                      href={songHref}
+                      prefetch={false}
+                      onClick={(event) => navigateDocumentWhenOffline(event, songHref)}
+                      style={{ ...contentStyle, textDecoration: "none" }}
+                    >
+                      <span style={numberStyle}>{sortId ? `${sortId}.` : "•"}</span>
+                      <span style={titleStyle}>{titleText}</span>
+                    </Link>
+
+                    <ListItemSingerTunePicker songId={linkedSongId} songHref={songHref} />
+                  </>
                 ) : (
                   <div style={contentStyle}>
                     <span style={numberStyle}>{sortId ? `${sortId}.` : "•"}</span>

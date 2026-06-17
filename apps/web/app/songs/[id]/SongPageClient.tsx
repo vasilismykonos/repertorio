@@ -312,6 +312,16 @@ export default function SongPageClient(props: Props) {
     return Number.isFinite(n) && n >= 0 ? n : null;
   }, [sp]);
 
+  const urlTonicity = useMemo(() => {
+    const value = sp.get("tonicity");
+    return value && value.trim() ? value.trim() : null;
+  }, [sp]);
+
+  const selectedSingerTuneId = useMemo(() => {
+    const n = Number(sp.get("singerTuneId") ?? "");
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [sp]);
+
   const hasListContext = Boolean(listId);
 
   const [listSongIds, setListSongIds] = useState<number[] | null>(null);
@@ -1516,6 +1526,7 @@ export default function SongPageClient(props: Props) {
         open={panels.singerTunes}
         songId={song.id}
         originalKeySign={song.originalKeySign}
+        selectedSingerTuneId={selectedSingerTuneId}
       />
 
       {hasChords && panels.chords ? (
@@ -1525,6 +1536,7 @@ export default function SongPageClient(props: Props) {
             chords={song.chords}
             originalKey={song.originalKey}
             originalKeySign={song.originalKeySign}
+            urlTonicity={urlTonicity}
           />
         </section>
       ) : null}
