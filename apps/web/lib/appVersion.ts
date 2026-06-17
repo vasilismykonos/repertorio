@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.20";
+export const APP_VERSION = "3.0.21";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.21",
+    date: "2026-06-17",
+    level: "patch",
+    title: "Ομαλή επιστροφή μετά τη διαγραφή",
+    items: [
+      "Μετά τη διαγραφή τραγουδιού η φόρμα επεξεργασίας επιστρέφει απευθείας στη λίστα τραγουδιών χωρίς refresh του διαγραμμένου id.",
+      "Αν ανοίξει edit σελίδα για τραγούδι που δεν υπάρχει πια, γίνεται ασφαλής επιστροφή στα τραγούδια αντί για runtime error.",
+    ],
+  },
   {
     version: "3.0.20",
     date: "2026-06-17",

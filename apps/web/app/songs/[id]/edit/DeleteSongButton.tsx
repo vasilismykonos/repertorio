@@ -35,8 +35,7 @@ export default function DeleteSongButton({ songId, songTitle }: Props) {
         throw new Error(text || `DELETE /api/songs/${songId} απέτυχε (${res.status})`);
       }
 
-      router.push("/songs");
-      router.refresh();
+      router.replace("/songs");
     } catch (err: any) {
       alert(err?.message ? String(err.message) : "Απέτυχε η διαγραφή.");
     } finally {

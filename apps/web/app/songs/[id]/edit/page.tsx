@@ -158,6 +158,11 @@ function parsePositiveInt(v: string | string[] | undefined): number | null {
   return i > 0 ? i : null;
 }
 
+function isApiNotFoundError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /\bAPI error 404\b/.test(message) || /"statusCode"\s*:\s*404/.test(message);
+}
+
 export default async function SongEditPage({
   params,
   searchParams,
@@ -165,8 +170,13 @@ export default async function SongEditPage({
   const songId = Number(params.id);
   if (!Number.isFinite(songId) || songId <= 0) redirect("/songs");
 
+  const songBundlePromise = fetchSongBundle(songId).catch((err) => {
+    if (isApiNotFoundError(err)) redirect("/songs");
+    throw err;
+  });
+
   const [bundle, currentUser, categories, rythms] = await Promise.all([
-    fetchSongBundle(songId),
+    songBundlePromise,
     getCurrentUserFromApi().catch(() => null),
     fetchCategories().catch(() => []),
     fetchRythms().catch(() => []),
