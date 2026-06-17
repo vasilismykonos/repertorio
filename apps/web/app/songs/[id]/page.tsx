@@ -2,6 +2,7 @@
 
 import { fetchJson } from "@/lib/api";
 import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
+import { notFound } from "next/navigation";
 import SongPageClient from "./SongPageClient";
 import SongOfflineShellClient from "./SongOfflineShellClient";
 
@@ -433,6 +434,11 @@ function readSongsRedirectDefaultFromProfile(profile: any): RedirectDefault {
     : "TITLE";
 }
 
+function isApiNotFoundError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /\bAPI error 404\b/.test(message) || /"statusCode"\s*:\s*404/.test(message);
+}
+
 export default async function SongPage({ params, searchParams }: SongPageProps) {
   if (searchParams?.offlineShell === "1") {
     return <SongOfflineShellClient />;
@@ -451,7 +457,8 @@ export default async function SongPage({ params, searchParams }: SongPageProps) 
   let rawSong: any;
   try {
     rawSong = await fetchJson<any>(`/songs/${songId}`);
-  } catch {
+  } catch (err) {
+    if (isApiNotFoundError(err)) notFound();
     return <SongOfflineShellClient />;
   }
 

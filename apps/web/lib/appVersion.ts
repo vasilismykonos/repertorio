@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.21";
+export const APP_VERSION = "3.0.22";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.22",
+    date: "2026-06-17",
+    level: "patch",
+    title: "Σωστό online 404 στα διαγραμμένα τραγούδια",
+    items: [
+      "Όταν ένα τραγούδι έχει διαγραφεί και το API απαντά 404, η σελίδα δεν εμφανίζει πλέον παλιό offline αντίγραφο.",
+      "Το offline shell παραμένει διαθέσιμο μόνο για πραγματική offline/δικτυακή αποτυχία ή για το ειδικό offline shell route.",
+    ],
+  },
   {
     version: "3.0.21",
     date: "2026-06-17",
