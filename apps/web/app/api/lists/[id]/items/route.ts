@@ -5,6 +5,9 @@ import { getCurrentUserFromApi } from "@/lib/currentUser";
 
 type AddListItemBody = {
   songId: number;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: "+" | "-" | null;
+  selectedSingerTuneId?: number | null;
 };
 
 type AddListItemResponse = {
@@ -12,6 +15,13 @@ type AddListItemResponse = {
   listId: number;
   sortId: number;
   songId: number | null;
+  songOriginalKey: string | null;
+  songOriginalKeySign: "+" | "-" | null;
+  selectedTonicity: string | null;
+  selectedTonicitySign: "+" | "-" | null;
+  selectedSingerTuneId: number | null;
+  selectedSingerTuneTitle: string | null;
+  selectedSingerTuneTune: string | null;
   title: string | null;
   chords: string | null;
   chordsSource: "LIST" | "SONG" | "NONE";
@@ -60,7 +70,27 @@ export async function POST(
       `/lists/${listId}/items?userId=${user.id}`,
       {
         method: "POST",
-        body: JSON.stringify({ songId }),
+        body: JSON.stringify({
+          songId,
+          selectedTonicity:
+            typeof body?.selectedTonicity === "string"
+              ? body.selectedTonicity
+              : body?.selectedTonicity === null
+                ? null
+                : undefined,
+          selectedTonicitySign:
+            body?.selectedTonicitySign === "+" || body?.selectedTonicitySign === "-"
+              ? body.selectedTonicitySign
+              : body?.selectedTonicitySign === null
+                ? null
+                : undefined,
+          selectedSingerTuneId:
+            body?.selectedSingerTuneId === null
+              ? null
+              : Number.isFinite(Number(body?.selectedSingerTuneId))
+                ? Number(body?.selectedSingerTuneId)
+                : undefined,
+        }),
       },
     );
 

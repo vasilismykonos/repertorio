@@ -14,8 +14,16 @@ export type ListItemDto = {
   listItemId: number;
   listId: number;
   sortId: number;
+  transport: number;
   songId: number | null;
   title: string | null;
+  songOriginalKey: string | null;
+  songOriginalKeySign: "+" | "-" | null;
+  selectedTonicity: string | null;
+  selectedTonicitySign: "+" | "-" | null;
+  selectedSingerTuneId: number | null;
+  selectedSingerTuneTitle: string | null;
+  selectedSingerTuneTune: string | null;
   chords: string | null;
   chordsSource: "LIST" | "SONG" | "NONE";
   lyrics: string | null;

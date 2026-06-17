@@ -92,6 +92,7 @@ model SongSingerTune {
 
   createdByUser         User?    @relation("SongSingerTuneCreatedBy", fields: [createdByUserId], references: [id])
   song                  Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+  listItemsSelected     ListItem[] @relation("ListItemSelectedSingerTune")
 
   @@index([songId])
   @@index([createdByUserId])
@@ -249,12 +250,18 @@ model ListItem {
   chords    String?
   lyrics    String?
   songId    Int?
+  selectedTonicity     String? @db.VarChar(32)
+  selectedTonicitySign String? @db.Char(1)
+  selectedSingerTuneId Int?
 
   // ✅ ΝΕΟ: assets στο list item
   ListItemAsset ListItemAsset[]
 
   list      List    @relation(fields: [listId], references: [id])
   song      Song?   @relation(fields: [songId], references: [id])
+  selectedSingerTune SongSingerTune? @relation("ListItemSelectedSingerTune", fields: [selectedSingerTuneId], references: [id], onDelete: SetNull)
+
+  @@index([selectedSingerTuneId])
 }
 
 model ListMember {

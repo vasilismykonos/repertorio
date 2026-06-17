@@ -5,6 +5,11 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import Button from "@/app/components/buttons/Button";
+import ListItemTonePicker, {
+  normalizeTonicitySign,
+  type ListItemSingerSuggestion,
+  type ListItemToneValue,
+} from "@/app/components/ListItemTonePicker";
 
 type ListItemRow = {
   listItemId: number; // existing (>0) OR temp (<0)
@@ -13,6 +18,14 @@ type ListItemRow = {
 
   songId: number | null;
   title: string | null;
+  songOriginalKey?: string | null;
+  songOriginalKeySign?: "+" | "-" | null;
+  transport?: number;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: "+" | "-" | null;
+  selectedSingerTuneId?: number | null;
+  selectedSingerTuneTitle?: string | null;
+  selectedSingerTuneTune?: string | null;
 
   __isDraft?: boolean;
 };
@@ -33,6 +46,44 @@ function safeReturnTo(input: string): string | null {
   if (!raw) return null;
   if (raw.startsWith("/")) return raw;
   return null;
+}
+
+function nullableText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim();
+  return t ? t : null;
+}
+
+function nullablePositiveInt(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function toneValueFromItem(item: Partial<ListItemRow> | null | undefined): ListItemToneValue {
+  return {
+    selectedTonicity: nullableText(item?.selectedTonicity),
+    selectedTonicitySign: normalizeTonicitySign(item?.selectedTonicitySign),
+    selectedSingerTuneId: nullablePositiveInt(item?.selectedSingerTuneId),
+    selectedSingerTuneTitle: nullableText(item?.selectedSingerTuneTitle),
+    selectedSingerTuneTune: nullableText(item?.selectedSingerTuneTune),
+  };
+}
+
+function normalizeSuggestionTitle(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("el");
+}
+
+function sameTuneSelection(a: Partial<ListItemRow> | null | undefined, b: Partial<ListItemRow> | null | undefined) {
+  const av = toneValueFromItem(a);
+  const bv = toneValueFromItem(b);
+  return (
+    av.selectedTonicity === bv.selectedTonicity &&
+    av.selectedTonicitySign === bv.selectedTonicitySign &&
+    nullablePositiveInt(a?.selectedSingerTuneId) === nullablePositiveInt(b?.selectedSingerTuneId)
+  );
 }
 
 type Props = {
@@ -97,6 +148,13 @@ export default function ListEditSongsClient({
       .map((x) => Number(x.listItemId))
       .filter((id) => Number.isFinite(id) && id > 0),
   );
+  const initialItemByIdRef = useRef<Map<number, ListItemRow>>(
+    new Map(
+      initialNormalized
+        .map((x) => [Number(x.listItemId), x] as const)
+        .filter(([id]) => Number.isFinite(id) && id > 0),
+    ),
+  );
 
   const setError = useCallback(
     (msg: string | null) => {
@@ -123,6 +181,13 @@ export default function ListEditSongsClient({
 
     if (currentExistingIds.length !== initialExistingIdsRef.current.length) return true;
     if (!hasSameNumberArray(currentExistingIds, initialExistingIdsRef.current)) return true;
+
+    for (const it of items ?? []) {
+      const id = Number(it.listItemId);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      const initial = initialItemByIdRef.current.get(id);
+      if (!sameTuneSelection(it, initial)) return true;
+    }
 
     return false;
   }, [items]);
@@ -153,6 +218,8 @@ export default function ListEditSongsClient({
       // merge: server items (truth for existing) + drafts from storage
       const serverById = new Map<number, ListItemRow>();
       for (const it of initialNormalized) serverById.set(Number(it.listItemId), it);
+      const restoredById = new Map<number, ListItemRow>();
+      for (const it of restored) restoredById.set(Number(it.listItemId), it);
 
       const drafts = restored
         .filter((x) => Number(x.listItemId) < 0 || x.__isDraft)
@@ -169,7 +236,22 @@ export default function ListEditSongsClient({
       for (const id of restoredOrder) {
         if (id > 0) {
           const srv = serverById.get(id);
-          if (srv) merged.push(srv);
+          const saved = restoredById.get(id);
+          if (srv) {
+            merged.push({
+              ...srv,
+              selectedTonicity: nullableText(saved?.selectedTonicity) ?? nullableText(srv.selectedTonicity),
+              selectedTonicitySign:
+                normalizeTonicitySign(saved?.selectedTonicitySign) ??
+                normalizeTonicitySign(srv.selectedTonicitySign),
+              selectedSingerTuneId:
+                nullablePositiveInt(saved?.selectedSingerTuneId) ?? nullablePositiveInt(srv.selectedSingerTuneId),
+              selectedSingerTuneTitle:
+                nullableText(saved?.selectedSingerTuneTitle) ?? nullableText(srv.selectedSingerTuneTitle),
+              selectedSingerTuneTune:
+                nullableText(saved?.selectedSingerTuneTune) ?? nullableText(srv.selectedSingerTuneTune),
+            });
+          }
         } else {
           const d = drafts.find((x) => Number(x.listItemId) === id);
           if (d) merged.push(d);
@@ -266,21 +348,90 @@ export default function ListEditSongsClient({
     );
   }
 
+  function updateItemTune(listItemId: number, nextTune: ListItemToneValue) {
+    setError(null);
+    setItems((prev) =>
+      prev.map((item) =>
+        Number(item.listItemId) === Number(listItemId)
+          ? {
+              ...item,
+              selectedTonicity: nextTune.selectedTonicity,
+              selectedTonicitySign: nextTune.selectedTonicitySign,
+              selectedSingerTuneId: nullablePositiveInt(nextTune.selectedSingerTuneId),
+              selectedSingerTuneTitle: nullableText(nextTune.selectedSingerTuneTitle),
+              selectedSingerTuneTune: nullableText(nextTune.selectedSingerTuneTune),
+            }
+          : item,
+      ),
+    );
+  }
+
+  const singerSuggestions = useMemo<ListItemSingerSuggestion[]>(() => {
+    const seen = new Set<string>();
+    const out: ListItemSingerSuggestion[] = [];
+
+    for (const item of items ?? []) {
+      const title = nullableText(item.selectedSingerTuneTitle);
+      if (!title) continue;
+
+      const key = normalizeSuggestionTitle(title);
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      out.push({
+        title,
+        tune: nullableText(item.selectedSingerTuneTune) ?? nullableText(item.selectedTonicity),
+        singerTuneId: nullablePositiveInt(item.selectedSingerTuneId),
+      });
+    }
+
+    return out.slice(0, 8);
+  }, [items]);
+
+  async function hydrateDraftSongKey(tempId: number, songId: number) {
+    try {
+      const res = await fetch(`/api/songs/${songId}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const songOriginalKey = nullableText(data?.originalKey ?? data?.original_key);
+      const songOriginalKeySign = normalizeTonicitySign(
+        data?.originalKeySign ?? data?.original_key_sign,
+      );
+      if (!songOriginalKey && !songOriginalKeySign) return;
+
+      setItems((prev) =>
+        prev.map((item) =>
+          Number(item.listItemId) === Number(tempId)
+            ? {
+                ...item,
+                songOriginalKey: item.songOriginalKey ?? songOriginalKey,
+                songOriginalKeySign: item.songOriginalKeySign ?? songOriginalKeySign,
+              }
+            : item,
+        ),
+      );
+    } catch {
+      // Draft fallback stays blank when the song detail cannot be loaded.
+    }
+  }
+
   function addSongDraft(songId: number, songTitle?: string) {
     setError(null);
     if (!Number.isFinite(songId) || songId <= 0) return;
 
     const title = String(songTitle ?? "").trim();
+    const tempId =
+      Number.isFinite(nextTempIdRef.current) && nextTempIdRef.current < 0 ? nextTempIdRef.current : -1;
+    nextTempIdRef.current = tempId - 1;
 
     // IMPORTANT: duplicate check INSIDE setItems to avoid stale state
     setItems((prev) => {
       const exists = (prev ?? []).some((it) => Number(it.songId) === Number(songId));
       if (exists) return prev;
-
-      const tempId =
-        Number.isFinite(nextTempIdRef.current) && nextTempIdRef.current < 0 ? nextTempIdRef.current : -1;
-
-      nextTempIdRef.current = tempId - 1;
 
       const draft: ListItemRow = {
         listItemId: tempId,
@@ -295,6 +446,7 @@ export default function ListEditSongsClient({
     });
 
     setSongQ("");
+    void hydrateDraftSongKey(tempId, songId);
   }
 
   // ✅ return from songs picker
@@ -485,8 +637,17 @@ export default function ListEditSongsClient({
                 </div>
 
                 <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-                  <div style={{ color: "#fff", fontWeight: 700, display: "flex", gap: 10, alignItems: "center" }}>
-                    <span>
+                  <div
+                    style={{
+                      color: "#fff",
+                      fontWeight: 700,
+                      display: "flex",
+                      gap: 10,
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <span style={{ minWidth: 0 }}>
                       {idx + 1}. {titleText}
                     </span>
 
@@ -505,6 +666,15 @@ export default function ListEditSongsClient({
                         ✅ΝΕΟ
                       </span>
                     ) : null}
+
+                    <ListItemTonePicker
+                      songId={it.songId}
+                      songOriginalKey={it.songOriginalKey}
+                      songOriginalKeySign={it.songOriginalKeySign}
+                      value={toneValueFromItem(it)}
+                      singerSuggestions={singerSuggestions}
+                      onChange={(nextTune) => updateItemTune(Number(it.listItemId), nextTune)}
+                    />
                   </div>
 
                   <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13 }} />

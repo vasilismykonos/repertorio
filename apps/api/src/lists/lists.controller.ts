@@ -121,6 +121,16 @@ type AddListItemBody = {
   lyrics?: string;
   notes?: string | null;
   transport?: number;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: string | null;
+  selectedSingerTuneId?: number | null;
+};
+
+type UpdateListItemBody = {
+  transport?: number;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: string | null;
+  selectedSingerTuneId?: number | null;
 };
 
 type UpdateListBody = {
@@ -593,27 +603,18 @@ export class ListsController {
       lyrics: body.lyrics,
       notes: body.notes ?? undefined,
       transport: body.transport,
-    });
-  }
-
-  @Delete(":id/items/:listItemId")
-  async deleteListItem(
-    @Param("id", ParseIntPipe) id: number,
-    @Param("listItemId", ParseIntPipe) listItemId: number,
-    @Query("userId") userIdStr?: string,
-  ) {
-    const userId = requireUserId(userIdStr);
-
-    return this.listsService.deleteListItem({
-      listId: id,
-      listItemId,
-      userId,
+      selectedTonicity: body.selectedTonicity,
+      selectedTonicitySign: body.selectedTonicitySign,
+      selectedSingerTuneId: body.selectedSingerTuneId,
     });
   }
 
   /**
    * Save/Reorder
    * PUT /lists/:id/items/reorder?userId=
+   *
+   * Keep this route before :listItemId routes; otherwise Nest matches
+   * "reorder" as a dynamic listItemId and ParseIntPipe rejects it.
    */
   @Put(":id/items/reorder")
   async reorderListItems(
@@ -635,4 +636,44 @@ export class ListsController {
       order: orderedItemIds,
     });
   }
+
+  @Put(":id/items/:listItemId")
+  async updateListItem(
+    @Param("id", ParseIntPipe) id: number,
+    @Param("listItemId", ParseIntPipe) listItemId: number,
+    @Query("userId") userIdStr?: string,
+    @Body() body?: UpdateListItemBody,
+  ) {
+    const userId = requireUserId(userIdStr);
+
+    if (!body) {
+      throw new BadRequestException("Body is required.");
+    }
+
+    return this.listsService.updateListItem({
+      listId: id,
+      listItemId,
+      userId,
+      transport: body.transport,
+      selectedTonicity: body.selectedTonicity,
+      selectedTonicitySign: body.selectedTonicitySign,
+      selectedSingerTuneId: body.selectedSingerTuneId,
+    });
+  }
+
+  @Delete(":id/items/:listItemId")
+  async deleteListItem(
+    @Param("id", ParseIntPipe) id: number,
+    @Param("listItemId", ParseIntPipe) listItemId: number,
+    @Query("userId") userIdStr?: string,
+  ) {
+    const userId = requireUserId(userIdStr);
+
+    return this.listsService.deleteListItem({
+      listId: id,
+      listItemId,
+      userId,
+    });
+  }
+
 }

@@ -24,6 +24,7 @@ import SongSingerTunesClient from "./SongSingerTunesClient";
 import SongScoresPanel from "./SongScoresPanel";
 import SongAssetsPanel from "./SongAssetsPanel";
 import SongListPickerModal from "./SongListPickerModal";
+import type { ListItemToneValue } from "@/app/components/ListItemTonePicker";
 import type { Step } from "react-joyride";
 import type { SongDetail } from "./page";
 import { writeOfflineSongDetail } from "@/lib/offlineStore";
@@ -93,8 +94,18 @@ type AddSongToListResponse = {
   listId: number;
   sortId: number;
   songId: number | null;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: "+" | "-" | null;
+  selectedSingerTuneId?: number | null;
   title: string | null;
   itemsCount?: number;
+};
+
+type ListNavItem = {
+  songId: number;
+  selectedTonicity: string | null;
+  selectedTonicitySign: "+" | "-" | null;
+  selectedSingerTuneId: number | null;
 };
 
 const HEADER_OFFSET_PX = 0;
@@ -232,6 +243,16 @@ function toNullablePositiveInt(value: unknown, fallback: number | null = null): 
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+function nullableText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim();
+  return t ? t : null;
+}
+
+function nullableSign(value: unknown): "+" | "-" | null {
+  return value === "+" || value === "-" ? value : null;
+}
+
 function isSafeExternalHttpUrl(value: string): boolean {
   const raw = String(value || "").trim();
   if (!raw) return false;
@@ -279,6 +300,13 @@ export default function SongPageClient(props: Props) {
   const [availableListGroups, setAvailableListGroups] = useState<ListGroupOption[]>([]);
   const [lastSelectedListId, setLastSelectedListId] = useState<number | null>(null);
   const [lastAddedList, setLastAddedList] = useState<SongListOption | null>(null);
+  const [listPickerToneSelection, setListPickerToneSelection] = useState<ListItemToneValue>({
+    selectedTonicity: null,
+    selectedTonicitySign: null,
+    selectedSingerTuneId: null,
+    selectedSingerTuneTitle: null,
+    selectedSingerTuneTune: null,
+  });
   const [roomSendConfirmed, setRoomSendConfirmed] = useState(false);
   const roomSendFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -317,6 +345,11 @@ export default function SongPageClient(props: Props) {
     return value && value.trim() ? value.trim() : null;
   }, [sp]);
 
+  const urlTonicitySign = useMemo(() => {
+    const value = sp.get("tonicitySign");
+    return value === "+" || value === "-" ? value : null;
+  }, [sp]);
+
   const selectedSingerTuneId = useMemo(() => {
     const n = Number(sp.get("singerTuneId") ?? "");
     return Number.isFinite(n) && n > 0 ? n : null;
@@ -324,14 +357,18 @@ export default function SongPageClient(props: Props) {
 
   const hasListContext = Boolean(listId);
 
-  const [listSongIds, setListSongIds] = useState<number[] | null>(null);
+  const [listNavItems, setListNavItems] = useState<ListNavItem[] | null>(null);
+  const listSongIds = useMemo(
+    () => (listNavItems ? listNavItems.map((item) => item.songId) : null),
+    [listNavItems],
+  );
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       if (!listId) {
-        setListSongIds(null);
+        setListNavItems(null);
         return;
       }
 
@@ -340,22 +377,58 @@ export default function SongPageClient(props: Props) {
         const data = await readJson(res);
 
         if (!res.ok) {
-          if (!cancelled) setListSongIds(null);
+          if (!cancelled) setListNavItems(null);
           return;
         }
 
+        const itemsRaw =
+          (data && typeof data === "object" ? (data as any).items : null) as unknown | null;
         const idsRaw =
           (data && typeof data === "object" ? (data as any).songIds : null) as unknown | null;
 
-        const ids = Array.isArray(idsRaw)
-          ? (idsRaw as unknown[])
-              .map((x) => Number(x))
-              .filter((n) => Number.isFinite(n) && n > 0)
+        const itemsFromPayload = Array.isArray(itemsRaw)
+          ? (itemsRaw as any[])
+              .map((item) => {
+                const songId = Number(item?.songId);
+                if (!Number.isFinite(songId) || songId <= 0) return null;
+                const selectedSingerTuneId = Number(item?.selectedSingerTuneId || 0);
+                return {
+                  songId,
+                  selectedTonicity:
+                    typeof item?.selectedTonicity === "string" && item.selectedTonicity.trim()
+                      ? item.selectedTonicity.trim()
+                      : null,
+                  selectedTonicitySign:
+                    item?.selectedTonicitySign === "+" || item?.selectedTonicitySign === "-"
+                      ? item.selectedTonicitySign
+                      : null,
+                  selectedSingerTuneId:
+                    Number.isFinite(selectedSingerTuneId) && selectedSingerTuneId > 0
+                      ? selectedSingerTuneId
+                      : null,
+                } satisfies ListNavItem;
+              })
+              .filter((item): item is ListNavItem => Boolean(item))
           : [];
 
-        if (!cancelled) setListSongIds(ids);
+        const items =
+          itemsFromPayload.length > 0
+            ? itemsFromPayload
+            : Array.isArray(idsRaw)
+              ? (idsRaw as unknown[])
+                  .map((x) => Number(x))
+                  .filter((n) => Number.isFinite(n) && n > 0)
+                  .map((songId) => ({
+                    songId,
+                    selectedTonicity: null,
+                    selectedTonicitySign: null,
+                    selectedSingerTuneId: null,
+                  }))
+              : [];
+
+        if (!cancelled) setListNavItems(items);
       } catch {
-        if (!cancelled) setListSongIds(null);
+        if (!cancelled) setListNavItems(null);
       }
     }
 
@@ -399,11 +472,28 @@ export default function SongPageClient(props: Props) {
     };
   }, [listId, listSongIds, resolvedPos]);
 
+  const currentListNavItem =
+    resolvedPos !== null && listNavItems && resolvedPos >= 0 && resolvedPos < listNavItems.length
+      ? listNavItems[resolvedPos]
+      : null;
+
+  const effectiveUrlTonicity = urlTonicity || currentListNavItem?.selectedTonicity || null;
+  const effectiveUrlTonicitySign =
+    urlTonicitySign || currentListNavItem?.selectedTonicitySign || null;
+  const effectiveSelectedSingerTuneId =
+    selectedSingerTuneId || currentListNavItem?.selectedSingerTuneId || null;
+
   function buildSongHref(targetSongId: number, targetPos: number | null): string {
     if (listNav && targetPos !== null) {
-      return `/songs/${targetSongId}?listId=${encodeURIComponent(
-        String(listNav.listId),
-      )}&listPos=${encodeURIComponent(String(targetPos))}`;
+      const params = new URLSearchParams({
+        listId: String(listNav.listId),
+        listPos: String(targetPos),
+      });
+      const item = listNavItems?.[targetPos] || null;
+      if (item?.selectedTonicity) params.set("tonicity", item.selectedTonicity);
+      if (item?.selectedTonicitySign) params.set("tonicitySign", item.selectedTonicitySign);
+      if (item?.selectedSingerTuneId) params.set("singerTuneId", String(item.selectedSingerTuneId));
+      return `/songs/${targetSongId}?${params.toString()}`;
     }
     return `/songs/${targetSongId}`;
   }
@@ -694,7 +784,33 @@ export default function SongPageClient(props: Props) {
     }
   }
 
+  function buildInitialListPickerToneSelection(): ListItemToneValue {
+    let selectedTonicity = effectiveUrlTonicity;
+    const selectedSingerTuneId = toNullablePositiveInt(effectiveSelectedSingerTuneId);
+
+    if (typeof window !== "undefined") {
+      const raw = (window as any).__repSelectedTonicity;
+      if (typeof raw === "string" && raw.trim()) {
+        selectedTonicity = raw.trim();
+      }
+    }
+
+    const hasExplicitTune = nullableText(selectedTonicity) !== null || selectedSingerTuneId !== null;
+
+    return {
+      selectedTonicity: nullableText(selectedTonicity),
+      selectedTonicitySign:
+        hasExplicitTune
+          ? nullableSign(effectiveUrlTonicitySign) ?? nullableSign(song.originalKeySign)
+          : nullableSign(effectiveUrlTonicitySign),
+      selectedSingerTuneId,
+      selectedSingerTuneTitle: null,
+      selectedSingerTuneTune: null,
+    };
+  }
+
   function openListPicker() {
+    setListPickerToneSelection(buildInitialListPickerToneSelection());
     setListPickerOpen(true);
     setListPickerError(null);
     setListPickerQuery("");
@@ -779,7 +895,12 @@ export default function SongPageClient(props: Props) {
       const res = await fetch(`/api/lists/${list.id}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ songId: song.id }),
+        body: JSON.stringify({
+          songId: song.id,
+          selectedTonicity: nullableText(listPickerToneSelection.selectedTonicity),
+          selectedTonicitySign: nullableSign(listPickerToneSelection.selectedTonicitySign),
+          selectedSingerTuneId: toNullablePositiveInt(listPickerToneSelection.selectedSingerTuneId),
+        }),
       });
 
       const data = (await readJson(res)) as AddSongToListResponse | { error?: string } | null;
@@ -1262,7 +1383,12 @@ export default function SongPageClient(props: Props) {
 
       <SongListPickerModal
         open={listPickerOpen}
+        songId={song.id}
         songTitle={song.title}
+        songOriginalKey={song.originalKey}
+        songOriginalKeySign={song.originalKeySign}
+        toneSelection={listPickerToneSelection}
+        onToneSelectionChange={setListPickerToneSelection}
         query={listPickerQuery}
         onQueryChange={setListPickerQuery}
         loading={listPickerLoading}
@@ -1526,7 +1652,7 @@ export default function SongPageClient(props: Props) {
         open={panels.singerTunes}
         songId={song.id}
         originalKeySign={song.originalKeySign}
-        selectedSingerTuneId={selectedSingerTuneId}
+        selectedSingerTuneId={effectiveSelectedSingerTuneId}
       />
 
       {hasChords && panels.chords ? (
@@ -1536,7 +1662,8 @@ export default function SongPageClient(props: Props) {
             chords={song.chords}
             originalKey={song.originalKey}
             originalKeySign={song.originalKeySign}
-            urlTonicity={urlTonicity}
+            urlTonicity={effectiveUrlTonicity}
+            urlTonicitySign={effectiveUrlTonicitySign}
           />
         </section>
       ) : null}

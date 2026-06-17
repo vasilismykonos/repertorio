@@ -59,9 +59,18 @@ export type ListItemDto = {
   listItemId: number;
   listId: number;
   sortId: number;
+  transport: number;
 
   songId: number | null;
   title: string | null;
+  songOriginalKey: string | null;
+  songOriginalKeySign: "+" | "-" | null;
+
+  selectedTonicity: string | null;
+  selectedTonicitySign: "+" | "-" | null;
+  selectedSingerTuneId: number | null;
+  selectedSingerTuneTitle: string | null;
+  selectedSingerTuneTune: string | null;
 
   chords: string | null;
   chordsSource: "LIST" | "SONG" | "NONE";
@@ -110,6 +119,7 @@ export type AddListItemResponse = ListItemDto & {
   itemsCount: number;
 };
 
+export type UpdateListItemResponse = ListItemDto;
 export type DeleteListItemResponse = { ok: true };
 export type ReorderListItemsResponse = { ok: true };
 
@@ -199,6 +209,91 @@ export class ListsService {
     if (typeof value !== "string") return null;
     const t = value.trim();
     return t.length > 0 ? t : null;
+  }
+
+  private positiveIntOrNull(value: unknown): number | null {
+    const n = Number(value);
+    return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : null;
+  }
+
+  private selectedTonicityOrNull(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    const t = String(value).trim();
+    return t.length > 0 ? t.slice(0, 32) : null;
+  }
+
+  private tonicitySignOrNull(value: unknown): "+" | "-" | null {
+    return value === "+" || value === "-" ? value : null;
+  }
+
+  private listItemToDto(it: any): ListItemDto {
+    const songTitle = this.nonEmptyOrNull(it.song?.title);
+    const songChords = this.nonEmptyOrNull(it.song?.chords);
+    const songLyrics = this.nonEmptyOrNull(it.song?.lyrics);
+
+    const listTitleOv = this.nonEmptyOrNull(it.title);
+    const listChordsOv = this.nonEmptyOrNull(it.chords);
+    const listLyricsOv = this.nonEmptyOrNull(it.lyrics);
+
+    const effectiveTitle = listTitleOv ?? songTitle ?? null;
+
+    const effectiveChords = listChordsOv ?? songChords ?? null;
+    const chordsSource: "LIST" | "SONG" | "NONE" = listChordsOv
+      ? "LIST"
+      : songChords
+        ? "SONG"
+        : "NONE";
+
+    const effectiveLyrics = listLyricsOv ?? songLyrics ?? null;
+    const lyricsSource: "LIST" | "SONG" | "NONE" = listLyricsOv
+      ? "LIST"
+      : songLyrics
+        ? "SONG"
+        : "NONE";
+
+    return {
+      listItemId: Number(it.id),
+      listId: Number(it.listId),
+      sortId: Number(it.sortId) || 0,
+      transport: Number.isInteger(it.transport) ? Number(it.transport) : 0,
+      songId: it.songId ?? null,
+      title: effectiveTitle,
+      songOriginalKey: this.nonEmptyOrNull(it.song?.originalKey),
+      songOriginalKeySign: this.tonicitySignOrNull(it.song?.originalKeySign),
+      selectedTonicity: this.selectedTonicityOrNull(it.selectedTonicity),
+      selectedTonicitySign: this.tonicitySignOrNull(it.selectedTonicitySign),
+      selectedSingerTuneId: it.selectedSingerTuneId ?? null,
+      selectedSingerTuneTitle: this.nonEmptyOrNull(it.selectedSingerTune?.title),
+      selectedSingerTuneTune: this.nonEmptyOrNull(it.selectedSingerTune?.tune),
+      chords: effectiveChords,
+      chordsSource,
+      lyrics: effectiveLyrics,
+      lyricsSource,
+    };
+  }
+
+  private async assertSingerTuneBelongsToSongOrThrow(params: {
+    songId: number | null | undefined;
+    selectedSingerTuneId: number | null | undefined;
+  }) {
+    const selectedSingerTuneId = this.positiveIntOrNull(params.selectedSingerTuneId);
+    if (!selectedSingerTuneId) return null;
+
+    const songId = this.positiveIntOrNull(params.songId);
+    if (!songId) {
+      throw new BadRequestException("Δεν μπορεί να οριστεί φωνή σε item χωρίς τραγούδι.");
+    }
+
+    const row = await this.prisma.songSingerTune.findFirst({
+      where: { id: selectedSingerTuneId, songId },
+      select: { id: true, tune: true },
+    });
+
+    if (!row) {
+      throw new BadRequestException("Η φωνή δεν ανήκει σε αυτό το τραγούδι.");
+    }
+
+    return row;
   }
 
   private async getUserContext(userId: number): Promise<{ isAdmin: boolean }> {
@@ -566,7 +661,7 @@ async getListsIndex(params: {
         members: { where: { userId }, select: { role: true } },
         items: {
           orderBy: [{ sortId: "asc" }, { id: "asc" }],
-          include: { song: true },
+          include: { song: true, selectedSingerTune: true },
         },
       },
     });
@@ -595,43 +690,7 @@ async getListsIndex(params: {
       marked: !!list.marked,
       role,
 
-      items: (list.items ?? []).map((it: any) => {
-        const songTitle = this.nonEmptyOrNull(it.song?.title);
-        const songChords = this.nonEmptyOrNull(it.song?.chords);
-        const songLyrics = this.nonEmptyOrNull(it.song?.lyrics);
-
-        const listTitleOv = this.nonEmptyOrNull(it.title);
-        const listChordsOv = this.nonEmptyOrNull(it.chords);
-        const listLyricsOv = this.nonEmptyOrNull(it.lyrics);
-
-        const effectiveTitle = listTitleOv ?? songTitle ?? null;
-
-        const effectiveChords = listChordsOv ?? songChords ?? null;
-        const chordsSource: "LIST" | "SONG" | "NONE" = listChordsOv
-          ? "LIST"
-          : songChords
-            ? "SONG"
-            : "NONE";
-
-        const effectiveLyrics = listLyricsOv ?? songLyrics ?? null;
-        const lyricsSource: "LIST" | "SONG" | "NONE" = listLyricsOv
-          ? "LIST"
-          : songLyrics
-            ? "SONG"
-            : "NONE";
-
-        return {
-          listItemId: it.id,
-          listId: it.listId,
-          sortId: it.sortId,
-          songId: it.songId ?? null,
-          title: effectiveTitle,
-          chords: effectiveChords,
-          chordsSource,
-          lyrics: effectiveLyrics,
-          lyricsSource,
-        };
-      }),
+      items: (list.items ?? []).map((it: any) => this.listItemToDto(it)),
     };
   }
 
@@ -714,6 +773,9 @@ async getListsIndex(params: {
     lyrics?: string;
     notes?: string | null;
     transport?: number;
+    selectedTonicity?: string | null;
+    selectedTonicitySign?: string | null;
+    selectedSingerTuneId?: number | null;
   }): Promise<AddListItemResponse> {
     const { listId, userId, songId } = params;
 
@@ -742,6 +804,19 @@ async getListsIndex(params: {
     const l = typeof params.lyrics === "string" ? params.lyrics.trim() : "";
     const lyricsToStore = l.length > 0 ? l : null;
 
+    const selectedSingerTune = await this.assertSingerTuneBelongsToSongOrThrow({
+      songId,
+      selectedSingerTuneId: params.selectedSingerTuneId,
+    });
+    const selectedTonicityToStore =
+      this.selectedTonicityOrNull(params.selectedTonicity) ??
+      this.selectedTonicityOrNull(selectedSingerTune?.tune);
+    const selectedTonicitySignToStore = this.tonicitySignOrNull(params.selectedTonicitySign);
+
+    if (selectedTonicityToStore && !selectedTonicitySignToStore) {
+      throw new BadRequestException("Για επιλογή τόνου απαιτείται πρόσημο.");
+    }
+
     const created = await this.prisma.listItem.create({
       data: {
         listId,
@@ -752,51 +827,73 @@ async getListsIndex(params: {
         lyrics: lyricsToStore,
         notes: params.notes ?? null,
         transport: Number.isInteger(params.transport) ? (params.transport as number) : 0,
+        selectedTonicity: selectedTonicityToStore,
+        selectedTonicitySign: selectedTonicitySignToStore,
+        selectedSingerTuneId: selectedSingerTune?.id ?? null,
       },
-      include: { song: true },
+      include: { song: true, selectedSingerTune: true },
     });
-
-    // effective fields (LIST overrides SONG)
-    const songTitle = this.nonEmptyOrNull(created.song?.title);
-    const songChords = this.nonEmptyOrNull(created.song?.chords);
-    const songLyrics = this.nonEmptyOrNull(created.song?.lyrics);
-
-    const listTitleOv = this.nonEmptyOrNull(created.title);
-    const listChordsOv = this.nonEmptyOrNull(created.chords);
-    const listLyricsOv = this.nonEmptyOrNull(created.lyrics);
-
-    const effectiveTitle = listTitleOv ?? songTitle ?? null;
-
-    const effectiveChords = listChordsOv ?? songChords ?? null;
-    const chordsSource: "LIST" | "SONG" | "NONE" = listChordsOv
-      ? "LIST"
-      : songChords
-        ? "SONG"
-        : "NONE";
-
-    const effectiveLyrics = listLyricsOv ?? songLyrics ?? null;
-    const lyricsSource: "LIST" | "SONG" | "NONE" = listLyricsOv
-      ? "LIST"
-      : songLyrics
-        ? "SONG"
-        : "NONE";
 
     const itemsCount = await this.prisma.listItem.count({ where: { listId } });
 
     await this.esSync?.upsertSong(songId);
 
     return {
-      listItemId: created.id,
-      listId: created.listId,
-      sortId: created.sortId,
-      songId: created.songId ?? null,
-      title: effectiveTitle,
-      chords: effectiveChords,
-      chordsSource,
-      lyrics: effectiveLyrics,
-      lyricsSource,
+      ...this.listItemToDto(created),
       itemsCount,
     };
+  }
+
+  async updateListItem(params: {
+    listId: number;
+    listItemId: number;
+    userId: number;
+    transport?: number;
+    selectedTonicity?: string | null;
+    selectedTonicitySign?: string | null;
+    selectedSingerTuneId?: number | null;
+  }): Promise<UpdateListItemResponse> {
+    const { listId, listItemId, userId } = params;
+
+    await this.assertCanEditSongsOrThrow({ listId, userId });
+
+    const existing = await this.prisma.listItem.findFirst({
+      where: { id: listItemId, listId },
+      select: { id: true, songId: true },
+    });
+
+    if (!existing) throw new NotFoundException("List item not found");
+
+    const selectedSingerTune = await this.assertSingerTuneBelongsToSongOrThrow({
+      songId: existing.songId,
+      selectedSingerTuneId: params.selectedSingerTuneId,
+    });
+
+    const selectedTonicityToStore =
+      this.selectedTonicityOrNull(params.selectedTonicity) ??
+      this.selectedTonicityOrNull(selectedSingerTune?.tune);
+    const selectedTonicitySignToStore = this.tonicitySignOrNull(params.selectedTonicitySign);
+
+    if (selectedTonicityToStore && !selectedTonicitySignToStore) {
+      throw new BadRequestException("Για επιλογή τόνου απαιτείται πρόσημο.");
+    }
+
+    const updated = await this.prisma.listItem.update({
+      where: { id: listItemId },
+      data: {
+        ...(Number.isInteger(params.transport) ? { transport: params.transport as number } : {}),
+        selectedTonicity: selectedTonicityToStore,
+        selectedTonicitySign: selectedTonicitySignToStore,
+        selectedSingerTuneId: selectedSingerTune?.id ?? null,
+      },
+      include: { song: true, selectedSingerTune: true },
+    });
+
+    if (typeof existing.songId === 'number' && existing.songId > 0) {
+      await this.esSync?.upsertSong(existing.songId);
+    }
+
+    return this.listItemToDto(updated);
   }
 
   async deleteListItem(params: {

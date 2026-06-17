@@ -6,7 +6,6 @@ import Link from "next/link";
 
 import ActionBar from "@/app/components/ActionBar";
 import { A } from "@/app/components/buttons";
-import ListItemSingerTunePicker from "./ListItemSingerTunePicker";
 
 import type { ListDetailDto } from "./page";
 
@@ -147,19 +146,68 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
   const canEdit = role === "OWNER" || role === "LIST_EDITOR" || role === "SONGS_EDITOR";
 
   const songIdByListItemId = useMemo(() => {
-    const map = new Map<number, { songId: number; pos: number }>();
+    const map = new Map<
+      number,
+      {
+        songId: number;
+        pos: number;
+        selectedTonicity: string | null;
+        selectedTonicitySign: "+" | "-" | null;
+        selectedSingerTuneId: number | null;
+        selectedSingerTuneTitle: string | null;
+      }
+    >();
     let pos = 0;
 
     for (const it of items ?? []) {
       const sid = Number((it as any).songId);
       if (Number.isFinite(sid) && sid > 0) {
-        map.set(Number((it as any).listItemId), { songId: sid, pos });
+        const selectedSingerTuneId = Number((it as any).selectedSingerTuneId || 0);
+        map.set(Number((it as any).listItemId), {
+          songId: sid,
+          pos,
+          selectedTonicity:
+            typeof (it as any).selectedTonicity === "string" && (it as any).selectedTonicity.trim()
+              ? (it as any).selectedTonicity.trim()
+              : null,
+          selectedTonicitySign:
+            (it as any).selectedTonicitySign === "+" || (it as any).selectedTonicitySign === "-"
+              ? (it as any).selectedTonicitySign
+              : null,
+          selectedSingerTuneId:
+            Number.isFinite(selectedSingerTuneId) && selectedSingerTuneId > 0
+              ? selectedSingerTuneId
+              : null,
+          selectedSingerTuneTitle:
+            typeof (it as any).selectedSingerTuneTitle === "string" && (it as any).selectedSingerTuneTitle.trim()
+              ? (it as any).selectedSingerTuneTitle.trim()
+              : null,
+        });
         pos += 1;
       }
     }
 
     return map;
   }, [items]);
+
+  function buildSongHref(info: {
+    songId: number;
+    pos: number;
+    selectedTonicity: string | null;
+    selectedTonicitySign: "+" | "-" | null;
+    selectedSingerTuneId: number | null;
+  }) {
+    const params = new URLSearchParams({
+      listId: String(listId),
+      listPos: String(info.pos),
+    });
+
+    if (info.selectedTonicity) params.set("tonicity", info.selectedTonicity);
+    if (info.selectedTonicitySign) params.set("tonicitySign", info.selectedTonicitySign);
+    if (info.selectedSingerTuneId) params.set("singerTuneId", String(info.selectedSingerTuneId));
+
+    return `/songs/${info.songId}?${params.toString()}`;
+  }
 
   const headerTitle = title || `Λίστα #${listId}`;
   const listSongsHref = `/songs?skip=0&take=50&listIds=${encodeURIComponent(String(listId))}`;
@@ -290,11 +338,17 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
 
             const info = songIdByListItemId.get(listItemId);
             const linkedSongId = info?.songId ? Number(info.songId) : null;
-            const songHref = linkedSongId
-              ? `/songs/${linkedSongId}?listId=${encodeURIComponent(String(listId))}&listPos=${encodeURIComponent(
-                  String(info?.pos ?? ""),
-                )}`
+            const songHref = info && linkedSongId ? buildSongHref(info) : null;
+            const selectedTonicityLabel = info?.selectedTonicity
+              ? `${info.selectedTonicity}${info.selectedTonicitySign ?? ""}`
               : null;
+            const selectionLabel = info?.selectedSingerTuneTitle
+              ? `Φωνή: ${info.selectedSingerTuneTitle}${
+                  selectedTonicityLabel ? ` · ${selectedTonicityLabel}` : ""
+                }`
+              : selectedTonicityLabel
+                ? `Τόνος: ${selectedTonicityLabel}`
+                : null;
 
             const rowStyle: React.CSSProperties = {
               border: "1px solid rgba(255,255,255,0.22)",
@@ -340,10 +394,25 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
                       style={{ ...contentStyle, textDecoration: "none" }}
                     >
                       <span style={numberStyle}>{sortId ? `${sortId}.` : "•"}</span>
-                      <span style={titleStyle}>{titleText}</span>
+                      <span style={titleStyle}>
+                        <span>{titleText}</span>
+                        {selectionLabel ? (
+                          <span
+                            style={{
+                              display: "block",
+                              marginTop: 3,
+                              color: "rgba(255,255,255,0.66)",
+                              fontSize: 13,
+                              fontWeight: 700,
+                              lineHeight: "17px",
+                              textShadow: "none",
+                            }}
+                          >
+                            {selectionLabel}
+                          </span>
+                        ) : null}
+                      </span>
                     </Link>
-
-                    <ListItemSingerTunePicker songId={linkedSongId} songHref={songHref} />
                   </>
                 ) : (
                   <div style={contentStyle}>

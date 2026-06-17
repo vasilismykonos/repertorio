@@ -15,6 +15,9 @@ const NO_STORE_HEADERS = {
 type ListItemDto = {
   songId: number | null;
   sortId: number;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: "+" | "-" | null;
+  selectedSingerTuneId?: number | null;
 };
 
 type ListDetailDto = {
@@ -49,10 +52,35 @@ export async function GET(
   }
 
   const songIds: number[] = [];
+  const items: Array<{
+    songId: number;
+    selectedTonicity: string | null;
+    selectedTonicitySign: "+" | "-" | null;
+    selectedSingerTuneId: number | null;
+  }> = [];
+
   for (const it of data.items ?? []) {
     const sid = Number(it.songId);
-    if (Number.isFinite(sid) && sid > 0) songIds.push(sid);
+    if (Number.isFinite(sid) && sid > 0) {
+      const selectedSingerTuneId = Number(it.selectedSingerTuneId || 0);
+      songIds.push(sid);
+      items.push({
+        songId: sid,
+        selectedTonicity:
+          typeof it.selectedTonicity === "string" && it.selectedTonicity.trim()
+            ? it.selectedTonicity.trim()
+            : null,
+        selectedTonicitySign:
+          it.selectedTonicitySign === "+" || it.selectedTonicitySign === "-"
+            ? it.selectedTonicitySign
+            : null,
+        selectedSingerTuneId:
+          Number.isFinite(selectedSingerTuneId) && selectedSingerTuneId > 0
+            ? selectedSingerTuneId
+            : null,
+      });
+    }
   }
 
-  return NextResponse.json({ listId, songIds }, { status: 200, headers: NO_STORE_HEADERS });
+  return NextResponse.json({ listId, songIds, items }, { status: 200, headers: NO_STORE_HEADERS });
 }

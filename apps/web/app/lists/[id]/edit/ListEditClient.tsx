@@ -51,6 +51,34 @@ function toPositiveInt(value: any): number | null {
   return n;
 }
 
+function nullableText(value: any): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim();
+  return t ? t : null;
+}
+
+function nullableSign(value: any): "+" | "-" | null {
+  return value === "+" || value === "-" ? value : null;
+}
+
+function itemTuneSnapshot(item: any) {
+  return {
+    selectedTonicity: nullableText(item?.selectedTonicity),
+    selectedTonicitySign: nullableSign(item?.selectedTonicitySign),
+    selectedSingerTuneId: toPositiveInt(item?.selectedSingerTuneId),
+  };
+}
+
+function sameItemTuneSelection(a: any, b: any) {
+  const av = itemTuneSnapshot(a);
+  const bv = itemTuneSnapshot(b);
+  return (
+    av.selectedTonicity === bv.selectedTonicity &&
+    av.selectedTonicitySign === bv.selectedTonicitySign &&
+    av.selectedSingerTuneId === bv.selectedSingerTuneId
+  );
+}
+
 function safeReturnTo(input: string): string | null {
   const raw = String(input || "").trim();
   if (!raw) return null;
@@ -244,6 +272,9 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
         body: JSON.stringify({
           songId,
           title: typeof draft?.title === "string" ? draft.title : undefined,
+          selectedTonicity: nullableText(draft?.selectedTonicity),
+          selectedTonicitySign: nullableSign(draft?.selectedTonicitySign),
+          selectedSingerTuneId: toPositiveInt(draft?.selectedSingerTuneId),
         }),
       },
     );
@@ -324,7 +355,33 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
         tempToReal.set(tempId, realId);
       }
 
-      // 4) REORDER with ONLY positive ids
+      // 4) UPDATE tone/singer selection on existing items when changed
+      for (const it of items ?? []) {
+        if (isDraftItem(it)) continue;
+
+        const listItemId = Number(it.listItemId);
+        if (!Number.isFinite(listItemId) || listItemId <= 0) continue;
+
+        const initial = initialItemsRef.current.find(
+          (candidate) => Number(candidate?.listItemId) === listItemId,
+        );
+        if (sameItemTuneSelection(it, initial)) continue;
+
+        await fetchJson(
+          `/lists/${list.id}/items/${listItemId}?userId=${encodeURIComponent(String(viewerUserId))}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              selectedTonicity: nullableText(it?.selectedTonicity),
+              selectedTonicitySign: nullableSign(it?.selectedTonicitySign),
+              selectedSingerTuneId: toPositiveInt(it?.selectedSingerTuneId),
+            }),
+          },
+        );
+      }
+
+      // 5) REORDER with ONLY positive ids
       const finalOrderIds: number[] = [];
       for (const it of items ?? []) {
         const id = Number(it.listItemId);
@@ -346,7 +403,7 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
         body: JSON.stringify({ order: cleaned }),
       });
 
-      // 5) cleanup drafts session
+      // 6) cleanup drafts session
       if (typeof window !== "undefined") {
         try {
           window.sessionStorage.removeItem(sessionKeyForList(list.id));

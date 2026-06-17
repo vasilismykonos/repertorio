@@ -1,8 +1,35 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Button from "../../components/buttons/Button";
 import { A } from "../../components/buttons";
+import type { ListItemToneValue } from "@/app/components/ListItemTonePicker";
+
+const ListItemTonePicker = dynamic(
+  () => import("@/app/components/ListItemTonePicker"),
+  {
+    ssr: false,
+    loading: () => (
+      <button
+        type="button"
+        disabled
+        style={{
+          minHeight: 34,
+          padding: "6px 10px",
+          borderRadius: 10,
+          border: "1px solid rgba(255,255,255,0.32)",
+          background: "#181818",
+          color: "#fff",
+          fontWeight: 800,
+          opacity: 0.72,
+        }}
+      >
+        Τόνος / φωνή
+      </button>
+    ),
+  },
+);
 
 type ListRole = "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
 
@@ -36,7 +63,12 @@ type CreateListInput = {
 
 type Props = {
   open: boolean;
+  songId: number;
   songTitle: string;
+  songOriginalKey?: string | null;
+  songOriginalKeySign?: "+" | "-" | null;
+  toneSelection: ListItemToneValue;
+  onToneSelectionChange: (value: ListItemToneValue) => void;
   query: string;
   onQueryChange: (value: string) => void;
   loading: boolean;
@@ -79,7 +111,12 @@ const inputStyle: React.CSSProperties = {
 
 export default function SongListPickerModal({
   open,
+  songId,
   songTitle,
+  songOriginalKey,
+  songOriginalKeySign,
+  toneSelection,
+  onToneSelectionChange,
   query,
   onQueryChange,
   loading,
@@ -230,7 +267,28 @@ export default function SongListPickerModal({
           </Button>
         </div>
 
-        <div style={{ padding: 16, borderBottom: "1px solid #222", display: "grid", gap: 10 }}>
+        <div style={{ padding: 16, borderBottom: "1px solid #222", display: "grid", gap: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ color: "rgba(255,255,255,0.82)", fontWeight: 700 }}>
+              Τόνος / φωνή:
+            </span>
+            <ListItemTonePicker
+              songId={songId}
+              songOriginalKey={songOriginalKey}
+              songOriginalKeySign={songOriginalKeySign}
+              value={toneSelection}
+              onChange={onToneSelectionChange}
+              disabled={mutating}
+            />
+          </div>
+
           <input
             type="text"
             value={query}
