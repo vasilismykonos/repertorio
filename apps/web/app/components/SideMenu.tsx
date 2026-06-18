@@ -19,6 +19,8 @@ import {
   RefreshCw,
   RotateCw,
   Trash2,
+  Info,
+  ExternalLink,
 } from "lucide-react";
 import type { OfflineRuntimeStatus } from "@/lib/offlineSync";
 import { APP_CHANGELOG, APP_VERSION } from "@/lib/appVersion";
@@ -186,6 +188,11 @@ export default function SideMenu(props: Props) {
   const [onlineLoading, setOnlineLoading] = useState(false);
   const [onlineError, setOnlineError] = useState<string | null>(null);
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) setSourcesOpen(false);
+  }, [isOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -547,7 +554,10 @@ export default function SideMenu(props: Props) {
               <button
                 type="button"
                 className="smh-version-pill"
-                onClick={() => setVersionHistoryOpen((value) => !value)}
+                onClick={() => {
+                  setSourcesOpen(false);
+                  setVersionHistoryOpen((value) => !value);
+                }}
                 aria-expanded={versionHistoryOpen}
                 title="Ιστορικό αλλαγών"
               >
@@ -611,7 +621,7 @@ export default function SideMenu(props: Props) {
                   disabled={offlineActionBusy || offlineStatus.syncing || !offlineStatus.online}
                   title={offlineStatus.online ? "Επιβολή συγχρονισμού τώρα" : "Χρειάζεται σύνδεση internet"}
                 >
-                  <RotateCw size={14} />
+                  <RotateCw size={18} />
                   <span>Συγχρονισμός τώρα</span>
                 </button>
                 <button
@@ -621,7 +631,7 @@ export default function SideMenu(props: Props) {
                   disabled={controlsDisabled}
                   title="Διαγραφή offline δεδομένων συγχρονισμού από αυτή τη συσκευή"
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={18} />
                   <span>Διαγραφή δεδομένων</span>
                 </button>
               </div>
@@ -735,13 +745,71 @@ export default function SideMenu(props: Props) {
 
         <div className="smh-footer">
           <div className="smh-footer-links">
-            Πηγές;
-            <a href="https://notttes.blogspot.com/" onClick={onClose}>
-              Παρτιτούρες (Παίξε μπουζούκι, παίξε...)
-            </a>
-            <a href="https://rebetiko.sealabs.net/" onClick={onClose}>
-              Πληροφορίες (sealabs)
-            </a>
+            <button
+              type="button"
+              className="smh-footer-action"
+              onClick={() => {
+                setVersionHistoryOpen(false);
+                setSourcesOpen((value) => !value);
+              }}
+              aria-expanded={sourcesOpen}
+              aria-controls="smh-sources-popover"
+              title="Πηγές"
+            >
+              <Info size={14} />
+              <span>Πηγές</span>
+            </button>
+
+            {sourcesOpen ? (
+              <div
+                id="smh-sources-popover"
+                className="smh-sources-popover"
+                role="dialog"
+                aria-label="Πηγές"
+              >
+                <div className="smh-sources-head">
+                  <strong>Πηγές</strong>
+                  <button
+                    type="button"
+                    className="smh-sources-close"
+                    onClick={() => setSourcesOpen(false)}
+                    aria-label="Κλείσιμο πηγών"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="smh-sources-list">
+                  <a
+                    className="smh-source-link"
+                    href="https://notttes.blogspot.com/"
+                    onClick={() => {
+                      setSourcesOpen(false);
+                      onClose();
+                    }}
+                  >
+                    <span className="smh-source-text">
+                      <span className="smh-source-title">Παρτιτούρες</span>
+                      <span className="smh-source-url">Παίξε μπουζούκι, παίξε...</span>
+                    </span>
+                    <ExternalLink size={14} />
+                  </a>
+                  <a
+                    className="smh-source-link"
+                    href="https://rebetiko.sealabs.net/"
+                    onClick={() => {
+                      setSourcesOpen(false);
+                      onClose();
+                    }}
+                  >
+                    <span className="smh-source-text">
+                      <span className="smh-source-title">Πληροφορίες</span>
+                      <span className="smh-source-url">sealabs</span>
+                    </span>
+                    <ExternalLink size={14} />
+                  </a>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="smh-footer-meta">
@@ -1258,13 +1326,94 @@ export default function SideMenu(props: Props) {
             font-size: 12px;
           }
 
-          .smh-footer-links a {
-            color: rgba(255, 255, 255, 0.82);
-            text-decoration: none;
+          .smh-footer-action {
+            width: fit-content;
+            max-width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.06);
+            color: rgba(255, 255, 255, 0.88);
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 900;
+            line-height: 1;
           }
 
-          .smh-footer-links a:hover {
-            text-decoration: underline;
+          .smh-footer-action:hover {
+            background: rgba(255, 255, 255, 0.1);
+          }
+
+          .smh-sources-popover {
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(10, 10, 10, 0.94);
+            border-radius: 14px;
+            padding: 10px;
+            color: rgba(255, 255, 255, 0.88);
+            box-shadow: 0 14px 28px rgba(0, 0, 0, 0.24);
+          }
+
+          .smh-sources-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+          }
+
+          .smh-sources-close {
+            width: 28px;
+            height: 28px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            color: #fff;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+          }
+
+          .smh-sources-list {
+            display: grid;
+            gap: 8px;
+          }
+
+          .smh-source-link {
+            color: rgba(255, 255, 255, 0.82);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            min-width: 0;
+            border-radius: 10px;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.05);
+          }
+
+          .smh-source-link:hover {
+            background: rgba(255, 255, 255, 0.09);
+          }
+
+          .smh-source-text {
+            display: grid;
+            gap: 2px;
+            min-width: 0;
+          }
+
+          .smh-source-title {
+            color: rgba(255, 255, 255, 0.92);
+            font-weight: 900;
+          }
+
+          .smh-source-url {
+            color: rgba(255, 255, 255, 0.56);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
 
           .smh-footer-meta {

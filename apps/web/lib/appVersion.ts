@@ -6,9 +6,28 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.40";
+export const APP_VERSION = "3.0.42";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.42",
+    date: "2026-06-18",
+    level: "patch",
+    title: "Μεγαλύτερα εικονίδια συγχρονισμού",
+    items: [
+      "Τα εικονίδια στα κουμπιά “Συγχρονισμός τώρα” και “Διαγραφή δεδομένων” στο menu έγιναν πιο ευδιάκριτα.",
+    ],
+  },
+  {
+    version: "3.0.41",
+    date: "2026-06-18",
+    level: "patch",
+    title: "Πηγές σε popup στο μενού",
+    items: [
+      "Οι πηγές στο menu εμφανίζονται πλέον από διακριτό κουμπί αντί να καταλαμβάνουν μόνιμο χώρο στο κάτω μέρος.",
+      "Το popup των πηγών ακολουθεί το υπάρχον ύφος του menu και δεν κάνει πρόσθετα API requests.",
+    ],
+  },
   {
     version: "3.0.40",
     date: "2026-06-18",
