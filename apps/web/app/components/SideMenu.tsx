@@ -108,6 +108,32 @@ type MeResponse = {
   role: string | null;
 };
 
+type OnlinePresenceUser = {
+  id: number;
+  label: string;
+  avatarUrl: string | null;
+  lastSeenAt: string;
+  secondsAgo: number;
+};
+
+type OnlinePresenceResponse = {
+  ok: boolean;
+  authenticated?: boolean;
+  count?: number;
+  onlineCount?: number;
+  users?: OnlinePresenceUser[];
+  generatedAt?: string;
+  error?: string;
+};
+
+function formatOnlineAgo(secondsAgo: number): string {
+  const seconds = Number(secondsAgo);
+  if (!Number.isFinite(seconds) || seconds < 15) return "τώρα";
+  if (seconds < 60) return `${Math.round(seconds)}δ`;
+  const minutes = Math.round(seconds / 60);
+  return `${minutes}λ`;
+}
+
 export default function SideMenu(props: Props) {
   const {
     isOpen,
@@ -156,6 +182,9 @@ export default function SideMenu(props: Props) {
   const [roomUserCountLocal, setRoomUserCountLocal] = useState<number | null>(null);
   const [roomLoadingLocal, setRoomLoadingLocal] = useState(false);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
+  const [onlineUsers, setOnlineUsers] = useState<OnlinePresenceUser[]>([]);
+  const [onlineLoading, setOnlineLoading] = useState(false);
+  const [onlineError, setOnlineError] = useState<string | null>(null);
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
 
   useEffect(() => {
@@ -252,15 +281,63 @@ export default function SideMenu(props: Props) {
     if (typeof window === "undefined") return;
     if (!isOpen) return;
 
-    const handler = (e: Event) => {
-      const d = (e as CustomEvent).detail || {};
-      const n = typeof d.uniqueUsers === "number" ? d.uniqueUsers : null;
-      setOnlineCount(n);
+    if (!isLoggedIn || offlineStatus?.online === false) {
+      setOnlineCount(null);
+      setOnlineUsers([]);
+      setOnlineLoading(false);
+      setOnlineError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadOnlineUsers = async () => {
+      if (document.visibilityState !== "visible") return;
+
+      try {
+        setOnlineLoading(true);
+        setOnlineError(null);
+
+        const res = await fetch("/api/presence/online?windowSec=180&take=20", {
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+        });
+        const data = (await res.json().catch(() => null)) as OnlinePresenceResponse | null;
+
+        if (cancelled) return;
+
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error || `presence ${res.status}`);
+        }
+
+        const count = Number(data.count ?? data.onlineCount ?? 0);
+        setOnlineCount(Number.isFinite(count) ? count : 0);
+        setOnlineUsers(Array.isArray(data.users) ? data.users : []);
+      } catch {
+        if (!cancelled) {
+          setOnlineCount(null);
+          setOnlineUsers([]);
+          setOnlineError("Δεν φορτώθηκαν οι online χρήστες.");
+        }
+      } finally {
+        if (!cancelled) setOnlineLoading(false);
+      }
     };
 
-    window.addEventListener("rep_presence_counts", handler as any);
-    return () => window.removeEventListener("rep_presence_counts", handler as any);
-  }, [isOpen]);
+    void loadOnlineUsers();
+    const id = window.setInterval(loadOnlineUsers, 30_000);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadOnlineUsers();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [isOpen, isLoggedIn, offlineStatus?.online]);
 
   // Canonical admin detection μέσω /users/me (+ self-heal)
   const [isAdminResolved, setIsAdminResolved] = useState<boolean>(false);
@@ -668,7 +745,41 @@ export default function SideMenu(props: Props) {
           </div>
 
           <div className="smh-footer-meta">
-            <span>Χρήστες online: {onlineCount ?? "—"}</span>
+            <div className="smh-online">
+              <div className="smh-online-head">
+                <span className={cx("smh-dot", onlineCount !== null && "on")} />
+                <span>
+                  Χρήστες online:{" "}
+                  {onlineLoading && onlineCount === null ? "…" : onlineCount ?? "—"}
+                </span>
+              </div>
+
+              {!isLoggedIn ? (
+                <span className="smh-online-note">Η λίστα εμφανίζεται μετά τη σύνδεση.</span>
+              ) : offlineStatus?.online === false ? (
+                <span className="smh-online-note">Εκτός σύνδεσης.</span>
+              ) : onlineError ? (
+                <span className="smh-online-note">{onlineError}</span>
+              ) : onlineUsers.length > 0 ? (
+                <div className="smh-online-users" aria-label="Online χρήστες">
+                  {onlineUsers.map((user) => (
+                    <span key={user.id} className="smh-online-user" title={user.label}>
+                      {user.avatarUrl ? (
+                        <img src={user.avatarUrl} alt="" />
+                      ) : (
+                        <span className="smh-online-initial">
+                          {user.label.trim().slice(0, 1).toLocaleUpperCase("el") || "?"}
+                        </span>
+                      )}
+                      <span className="smh-online-name">{user.label}</span>
+                      <span className="smh-online-ago">{formatOnlineAgo(user.secondsAgo)}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : onlineLoading ? (
+                <span className="smh-online-note">Φόρτωση online χρηστών…</span>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -1164,6 +1275,83 @@ export default function SideMenu(props: Props) {
             align-items: center;
             gap: 10px;
             flex-wrap: wrap;
+          }
+
+          .smh-online {
+            display: grid;
+            gap: 8px;
+            width: 100%;
+            min-width: 0;
+          }
+
+          .smh-online-head {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: rgba(255, 255, 255, 0.72);
+            font-weight: 800;
+          }
+
+          .smh-online-note {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 11px;
+            line-height: 1.35;
+          }
+
+          .smh-online-users {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            min-width: 0;
+          }
+
+          .smh-online-user {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            max-width: 100%;
+            border: 1px solid rgba(34, 197, 94, 0.18);
+            background: rgba(34, 197, 94, 0.08);
+            color: rgba(255, 255, 255, 0.86);
+            border-radius: 999px;
+            padding: 3px 7px 3px 3px;
+            line-height: 1;
+          }
+
+          .smh-online-user img,
+          .smh-online-initial {
+            width: 18px;
+            height: 18px;
+            flex: 0 0 18px;
+            border-radius: 999px;
+            object-fit: cover;
+            background: rgba(255, 255, 255, 0.14);
+          }
+
+          .smh-online-initial {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 900;
+          }
+
+          .smh-online-name {
+            min-width: 0;
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-weight: 800;
+          }
+
+          .smh-online-ago {
+            color: rgba(255, 255, 255, 0.52);
+            font-size: 10px;
+            font-weight: 800;
+            white-space: nowrap;
           }
 
           @media (max-width: 420px) {

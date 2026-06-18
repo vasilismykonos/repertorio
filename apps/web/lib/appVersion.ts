@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.39";
+export const APP_VERSION = "3.0.40";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.40",
+    date: "2026-06-18",
+    level: "patch",
+    title: "Νέο ελαφρύ σύστημα online χρηστών",
+    items: [
+      "Το menu εμφανίζει πλέον online χρήστες από ανεξάρτητο presence endpoint και όχι από τα Rooms.",
+      "Το heartbeat του συνδεδεμένου χρήστη γίνεται αραιά, μόνο όταν το tab είναι ενεργό και υπάρχει σύνδεση.",
+      "Η λίστα των online χρηστών φορτώνεται μόνο όταν ανοίγει το menu, ώστε να μην επιβαρύνεται η αρχική φόρτωση.",
+    ],
+  },
   {
     version: "3.0.39",
     date: "2026-06-18",

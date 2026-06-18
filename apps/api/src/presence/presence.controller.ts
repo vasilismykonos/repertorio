@@ -11,6 +11,17 @@ export class PresenceController {
     return this.presence.onlineCount(n);
   }
 
+  @Get("online-users")
+  async onlineUsers(
+    @Query("windowSec") windowSec?: string,
+    @Query("take") take?: string,
+  ) {
+    return this.presence.onlineUsers({
+      windowSec: windowSec ? Number(windowSec) : undefined,
+      take: take ? Number(take) : undefined,
+    });
+  }
+
   @Post("ping")
   async ping(@Query("userId") userId?: string) {
     const id = Number(userId);
