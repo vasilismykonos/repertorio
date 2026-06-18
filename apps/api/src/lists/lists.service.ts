@@ -24,6 +24,12 @@ export type ListSummaryDto = {
 
   // ✅ NEW
   containsSong?: boolean;
+  listItemId?: number | null;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: "+" | "-" | null;
+  selectedSingerTuneId?: number | null;
+  selectedSingerTuneTitle?: string | null;
+  selectedSingerTuneTune?: string | null;
 
   // aliases (UI compatibility)
   name?: string;
@@ -588,8 +594,19 @@ async getListsIndex(params: {
     countsByListId.set(listId, current);
   }
 
-  // ✅ NEW: λίστες που περιέχουν ήδη το songId
+  // ✅ NEW: λίστες που περιέχουν ήδη το songId μαζί με την επιλογή τόνου/φωνής
   const containsSongSet = new Set<number>();
+  const selectedItemByListId = new Map<
+    number,
+    {
+      listItemId: number;
+      selectedTonicity: string | null;
+      selectedTonicitySign: "+" | "-" | null;
+      selectedSingerTuneId: number | null;
+      selectedSingerTuneTitle: string | null;
+      selectedSingerTuneTune: string | null;
+    }
+  >();
 
   if (typeof songId === "number" && songId > 0 && listIds.length > 0) {
     const selectedRows = await this.prisma.listItem.findMany({
@@ -597,13 +614,35 @@ async getListsIndex(params: {
         listId: { in: listIds },
         songId,
       },
-      select: { listId: true },
-      distinct: ["listId"],
+      orderBy: [{ listId: "asc" }, { sortId: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+        listId: true,
+        selectedTonicity: true,
+        selectedTonicitySign: true,
+        selectedSingerTuneId: true,
+        selectedSingerTune: {
+          select: {
+            title: true,
+            tune: true,
+          },
+        },
+      },
     });
 
     for (const row of selectedRows) {
       if (typeof row.listId === "number") {
         containsSongSet.add(row.listId);
+        if (!selectedItemByListId.has(row.listId)) {
+          selectedItemByListId.set(row.listId, {
+            listItemId: row.id,
+            selectedTonicity: this.selectedTonicityOrNull(row.selectedTonicity),
+            selectedTonicitySign: this.tonicitySignOrNull(row.selectedTonicitySign),
+            selectedSingerTuneId: row.selectedSingerTuneId ?? null,
+            selectedSingerTuneTitle: this.nonEmptyOrNull(row.selectedSingerTune?.title),
+            selectedSingerTuneTune: this.nonEmptyOrNull(row.selectedSingerTune?.tune),
+          });
+        }
       }
     }
   }
@@ -622,6 +661,8 @@ async getListsIndex(params: {
       const t = r.title ?? "";
       const memberRoleCounts = countsByListId.get(r.id) ?? emptyCounts();
 
+      const selectedItem = selectedItemByListId.get(r.id);
+
       return {
         id: r.id,
         title: t,
@@ -632,6 +673,12 @@ async getListsIndex(params: {
 
         // ✅ NEW
         containsSong: containsSongSet.has(r.id),
+        listItemId: selectedItem?.listItemId ?? null,
+        selectedTonicity: selectedItem?.selectedTonicity ?? null,
+        selectedTonicitySign: selectedItem?.selectedTonicitySign ?? null,
+        selectedSingerTuneId: selectedItem?.selectedSingerTuneId ?? null,
+        selectedSingerTuneTitle: selectedItem?.selectedSingerTuneTitle ?? null,
+        selectedSingerTuneTune: selectedItem?.selectedSingerTuneTune ?? null,
 
         memberRoleCounts,
 

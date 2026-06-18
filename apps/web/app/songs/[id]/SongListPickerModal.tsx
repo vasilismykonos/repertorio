@@ -4,7 +4,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Button from "../../components/buttons/Button";
 import { A } from "../../components/buttons";
-import type { ListItemToneValue } from "@/app/components/ListItemTonePicker";
+import type {
+  ListItemSingerSuggestion,
+  ListItemToneValue,
+} from "@/app/components/ListItemTonePicker";
 
 const ListItemTonePicker = dynamic(
   () => import("@/app/components/ListItemTonePicker"),
@@ -40,6 +43,12 @@ type SongListOption = {
   marked: boolean;
   role: ListRole;
   itemsCount: number;
+  listItemId?: number | null;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: "+" | "-" | null;
+  selectedSingerTuneId?: number | null;
+  selectedSingerTuneTitle?: string | null;
+  selectedSingerTuneTune?: string | null;
   name?: string;
   listTitle?: string;
   list_title?: string;
@@ -67,8 +76,12 @@ type Props = {
   songTitle: string;
   songOriginalKey?: string | null;
   songOriginalKeySign?: "+" | "-" | null;
-  toneSelection: ListItemToneValue;
-  onToneSelectionChange: (value: ListItemToneValue) => void;
+  defaultToneSelection: ListItemToneValue;
+  listToneSelections: Record<number, ListItemToneValue | undefined>;
+  onListToneSelectionChange: (
+    list: SongListOption,
+    value: ListItemToneValue,
+  ) => void | Promise<void>;
   query: string;
   onQueryChange: (value: string) => void;
   loading: boolean;
@@ -79,7 +92,7 @@ type Props = {
   lastSelectedListId: number | null;
   submittingListId: number | null;
   onClose: () => void;
-  onSelectList: (list: SongListOption) => void | Promise<void>;
+  onSelectList: (list: SongListOption, toneSelection: ListItemToneValue) => void | Promise<void>;
   onCreateList: (input: CreateListInput) => Promise<SongListOption>;
   normalizeListTitle: (list: Partial<SongListOption> | null | undefined) => string;
 };
@@ -95,6 +108,55 @@ function stripTrailingCount(label: string): string {
 function normalizeGroupTitle(group: Partial<ListGroupOption> | null | undefined): string {
   const raw = group?.fullTitle || group?.title || "";
   return stripTrailingCount(raw);
+}
+
+function nullableText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim();
+  return t ? t : null;
+}
+
+function nullablePositiveInt(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function nullableSign(value: unknown): "+" | "-" | null {
+  return value === "+" || value === "-" ? value : null;
+}
+
+function toneValueFromList(
+  list: Partial<SongListOption> | null | undefined,
+  fallback?: ListItemToneValue,
+): ListItemToneValue {
+  return {
+    selectedTonicity: nullableText(list?.selectedTonicity) ?? fallback?.selectedTonicity ?? null,
+    selectedTonicitySign:
+      nullableSign(list?.selectedTonicitySign) ?? fallback?.selectedTonicitySign ?? null,
+    selectedSingerTuneId:
+      nullablePositiveInt(list?.selectedSingerTuneId) ??
+      fallback?.selectedSingerTuneId ??
+      null,
+    selectedSingerTuneTitle:
+      nullableText(list?.selectedSingerTuneTitle) ??
+      fallback?.selectedSingerTuneTitle ??
+      null,
+    selectedSingerTuneTune:
+      nullableText(list?.selectedSingerTuneTune) ??
+      fallback?.selectedSingerTuneTune ??
+      null,
+  };
+}
+
+function normalizeSuggestionTitle(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("el");
+}
+
+function canEditListSongs(list: SongListOption): boolean {
+  return list.role === "OWNER" || list.role === "LIST_EDITOR" || list.role === "SONGS_EDITOR";
 }
 
 const inputStyle: React.CSSProperties = {
@@ -115,8 +177,9 @@ export default function SongListPickerModal({
   songTitle,
   songOriginalKey,
   songOriginalKeySign,
-  toneSelection,
-  onToneSelectionChange,
+  defaultToneSelection,
+  listToneSelections,
+  onListToneSelectionChange,
   query,
   onQueryChange,
   loading,
@@ -151,6 +214,28 @@ export default function SongListPickerModal({
 
     return labels;
   }, [availableGroups]);
+
+  const singerSuggestions = useMemo<ListItemSingerSuggestion[]>(() => {
+    const seen = new Set<string>();
+    const out: ListItemSingerSuggestion[] = [];
+
+    for (const list of availableLists) {
+      const title = nullableText(list.selectedSingerTuneTitle);
+      if (!title) continue;
+
+      const key = normalizeSuggestionTitle(title);
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      out.push({
+        title,
+        tune: nullableText(list.selectedSingerTuneTune ?? list.selectedTonicity),
+        singerTuneId: nullablePositiveInt(list.selectedSingerTuneId),
+      });
+    }
+
+    return out.slice(0, 8);
+  }, [availableLists]);
 
   const sortedFilteredLists = useMemo(() => {
     return [...filteredLists].sort((a, b) => {
@@ -193,7 +278,7 @@ export default function SongListPickerModal({
         groupId: null,
         marked: false,
       });
-      await onSelectList(list);
+      await onSelectList(list, defaultToneSelection);
     } catch (e: any) {
       setLocalError(String(e?.message || e || "Αποτυχία δημιουργίας λίστας."));
     } finally {
@@ -268,27 +353,6 @@ export default function SongListPickerModal({
         </div>
 
         <div style={{ padding: 16, borderBottom: "1px solid #222", display: "grid", gap: 12 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              flexWrap: "wrap",
-            }}
-          >
-            <span style={{ color: "rgba(255,255,255,0.82)", fontWeight: 700 }}>
-              Τόνος / φωνή:
-            </span>
-            <ListItemTonePicker
-              songId={songId}
-              songOriginalKey={songOriginalKey}
-              songOriginalKeySign={songOriginalKeySign}
-              value={toneSelection}
-              onChange={onToneSelectionChange}
-              disabled={mutating}
-            />
-          </div>
-
           <input
             type="text"
             value={query}
@@ -356,22 +420,20 @@ export default function SongListPickerModal({
                 const busy = submittingListId === list.id;
                 const alreadySelected = isListAlreadySelected(list);
                 const isLastSelected = list.id === lastSelectedListId;
+                const rowToneSelection =
+                  listToneSelections[list.id] ??
+                  toneValueFromList(list, alreadySelected ? undefined : defaultToneSelection);
                 const title = normalizeListTitle(list);
                 const groupLabel =
                   list.groupId === null
                     ? "Χωρίς ομάδα"
                     : groupLabelById.get(list.groupId) || `Ομάδα #${list.groupId}`;
-                const disabled = mutating || alreadySelected;
+                const canChangeTone = !alreadySelected || canEditListSongs(list);
+                const actionDisabled = mutating || alreadySelected;
 
                 return (
-                  <button
+                  <div
                     key={list.id}
-                    type="button"
-                    onClick={() => {
-                      if (alreadySelected) return;
-                      void onSelectList(list);
-                    }}
-                    disabled={disabled}
                     style={{
                       width: "100%",
                       textAlign: "left",
@@ -380,7 +442,7 @@ export default function SongListPickerModal({
                       background: busy ? "#18221a" : alreadySelected ? "#0f1f17" : "#111",
                       color: alreadySelected ? "#d7ffe8" : "inherit",
                       padding: "12px 14px",
-                      cursor: disabled ? "default" : "pointer",
+                      boxSizing: "border-box",
                       opacity: mutating && !busy ? 0.7 : 1,
                     }}
                   >
@@ -442,14 +504,70 @@ export default function SongListPickerModal({
                       <div
                         style={{
                           flexShrink: 0,
-                          fontWeight: alreadySelected ? 700 : 400,
-                          color: alreadySelected ? "#9df0ba" : undefined,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          flexWrap: "wrap",
+                          justifyContent: "flex-end",
                         }}
                       >
-                        {busy ? "Προσθήκη..." : alreadySelected ? "Επιλεγμένο" : "Επιλογή"}
+                        <div style={{ display: "grid", gap: 4, justifyItems: "end" }}>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              color: "rgba(255,255,255,0.7)",
+                              fontWeight: 700,
+                            }}
+                          >
+                            Τόνος / φωνή
+                          </span>
+                          <ListItemTonePicker
+                            songId={songId}
+                            songOriginalKey={songOriginalKey}
+                            songOriginalKeySign={songOriginalKeySign}
+                            value={rowToneSelection}
+                            onChange={(nextValue) => {
+                              void onListToneSelectionChange(list, nextValue);
+                            }}
+                            singerSuggestions={singerSuggestions}
+                            disabled={mutating || !canChangeTone}
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (alreadySelected) return;
+                            void onSelectList(list, rowToneSelection);
+                          }}
+                          disabled={actionDisabled}
+                          style={{
+                            minHeight: 36,
+                            borderRadius: 10,
+                            border: alreadySelected ? "1px solid #1f6f45" : "1px solid #444",
+                            background: busy
+                              ? "#1b2b1f"
+                              : alreadySelected
+                                ? "#102a1b"
+                                : "#1b1b1b",
+                            color: alreadySelected ? "#9df0ba" : "#fff",
+                            padding: "7px 12px",
+                            fontWeight: 800,
+                            cursor: actionDisabled ? "default" : "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {busy
+                            ? alreadySelected
+                              ? "Αποθήκευση..."
+                              : "Προσθήκη..."
+                            : alreadySelected
+                              ? "Επιλεγμένο"
+                              : "Επιλογή"}
+                        </button>
                       </div>
                     </div>
-                  </button>
+                  </div>
                 );
               })
             )}

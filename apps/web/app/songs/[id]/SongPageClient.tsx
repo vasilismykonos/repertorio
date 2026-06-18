@@ -66,6 +66,12 @@ type SongListOption = {
   marked: boolean;
   role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
   itemsCount: number;
+  listItemId?: number | null;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: "+" | "-" | null;
+  selectedSingerTuneId?: number | null;
+  selectedSingerTuneTitle?: string | null;
+  selectedSingerTuneTune?: string | null;
   containsSong?: boolean;
   selected?: boolean;
   isSelected?: boolean;
@@ -97,6 +103,8 @@ type AddSongToListResponse = {
   selectedTonicity?: string | null;
   selectedTonicitySign?: "+" | "-" | null;
   selectedSingerTuneId?: number | null;
+  selectedSingerTuneTitle?: string | null;
+  selectedSingerTuneTune?: string | null;
   title: string | null;
   itemsCount?: number;
 };
@@ -253,6 +261,36 @@ function nullableSign(value: unknown): "+" | "-" | null {
   return value === "+" || value === "-" ? value : null;
 }
 
+function isListAlreadySelected(list: Partial<SongListOption> | null | undefined): boolean {
+  return Boolean(list?.containsSong || list?.selected || list?.isSelected);
+}
+
+function toneValueFromListSelection(
+  list: Partial<SongListOption> | null | undefined,
+): ListItemToneValue {
+  return {
+    selectedTonicity: nullableText(list?.selectedTonicity),
+    selectedTonicitySign: nullableSign(list?.selectedTonicitySign),
+    selectedSingerTuneId: toNullablePositiveInt(list?.selectedSingerTuneId),
+    selectedSingerTuneTitle: nullableText(list?.selectedSingerTuneTitle),
+    selectedSingerTuneTune: nullableText(list?.selectedSingerTuneTune),
+  };
+}
+
+function listWithToneSelection(
+  list: SongListOption,
+  value: ListItemToneValue,
+): SongListOption {
+  return {
+    ...list,
+    selectedTonicity: nullableText(value.selectedTonicity),
+    selectedTonicitySign: nullableSign(value.selectedTonicitySign),
+    selectedSingerTuneId: toNullablePositiveInt(value.selectedSingerTuneId),
+    selectedSingerTuneTitle: nullableText(value.selectedSingerTuneTitle),
+    selectedSingerTuneTune: nullableText(value.selectedSingerTuneTune),
+  };
+}
+
 function isSafeExternalHttpUrl(value: string): boolean {
   const raw = String(value || "").trim();
   if (!raw) return false;
@@ -307,6 +345,9 @@ export default function SongPageClient(props: Props) {
     selectedSingerTuneTitle: null,
     selectedSingerTuneTune: null,
   });
+  const [listPickerToneByListId, setListPickerToneByListId] = useState<
+    Record<number, ListItemToneValue>
+  >({});
   const [roomSendConfirmed, setRoomSendConfirmed] = useState(false);
   const roomSendFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -811,6 +852,7 @@ export default function SongPageClient(props: Props) {
 
   function openListPicker() {
     setListPickerToneSelection(buildInitialListPickerToneSelection());
+    setListPickerToneByListId({});
     setListPickerOpen(true);
     setListPickerError(null);
     setListPickerQuery("");
@@ -887,7 +929,10 @@ export default function SongPageClient(props: Props) {
     return list;
   }
 
-  async function handleAddSongToList(list: SongListOption) {
+  async function handleAddSongToList(
+    list: SongListOption,
+    toneSelection: ListItemToneValue = buildInitialListPickerToneSelection(),
+  ) {
     setListPickerSubmittingListId(list.id);
     setListPickerError(null);
 
@@ -897,9 +942,9 @@ export default function SongPageClient(props: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           songId: song.id,
-          selectedTonicity: nullableText(listPickerToneSelection.selectedTonicity),
-          selectedTonicitySign: nullableSign(listPickerToneSelection.selectedTonicitySign),
-          selectedSingerTuneId: toNullablePositiveInt(listPickerToneSelection.selectedSingerTuneId),
+          selectedTonicity: nullableText(toneSelection.selectedTonicity),
+          selectedTonicitySign: nullableSign(toneSelection.selectedTonicitySign),
+          selectedSingerTuneId: toNullablePositiveInt(toneSelection.selectedSingerTuneId),
         }),
       });
 
@@ -917,16 +962,45 @@ export default function SongPageClient(props: Props) {
         data && typeof data === "object" && typeof (data as any).itemsCount === "number"
           ? Number((data as any).itemsCount)
           : list.itemsCount + 1;
+      const selectedListBase = listWithToneSelection(list, {
+        selectedTonicity:
+          data && typeof data === "object"
+            ? nullableText((data as any).selectedTonicity) ?? toneSelection.selectedTonicity
+            : toneSelection.selectedTonicity,
+        selectedTonicitySign:
+          data && typeof data === "object"
+            ? nullableSign((data as any).selectedTonicitySign) ?? toneSelection.selectedTonicitySign
+            : toneSelection.selectedTonicitySign,
+        selectedSingerTuneId:
+          data && typeof data === "object"
+            ? toNullablePositiveInt(
+                (data as any).selectedSingerTuneId,
+                toneSelection.selectedSingerTuneId ?? null,
+              )
+            : toneSelection.selectedSingerTuneId,
+        selectedSingerTuneTitle:
+          data && typeof data === "object"
+            ? nullableText((data as any).selectedSingerTuneTitle) ?? toneSelection.selectedSingerTuneTitle
+            : toneSelection.selectedSingerTuneTitle,
+        selectedSingerTuneTune:
+          data && typeof data === "object"
+            ? nullableText((data as any).selectedSingerTuneTune) ?? toneSelection.selectedSingerTuneTune
+            : toneSelection.selectedSingerTuneTune,
+      });
+      const selectedList = {
+        ...selectedListBase,
+        listItemId:
+          data && typeof data === "object"
+            ? toNullablePositiveInt((data as any).listItemId, selectedListBase.listItemId ?? null)
+            : selectedListBase.listItemId ?? null,
+        itemsCount: nextItemsCount,
+        containsSong: true,
+        selected: true,
+        isSelected: true,
+      };
 
       setAvailableLists((prev) => {
         let found = false;
-        const selectedList = {
-          ...list,
-          itemsCount: nextItemsCount,
-          containsSong: true,
-          selected: true,
-          isSelected: true,
-        };
 
         const next = prev.map((x) => {
           if (x.id !== list.id) return x;
@@ -937,13 +1011,11 @@ export default function SongPageClient(props: Props) {
         return sortListsForPicker(found ? next : [...next, selectedList]);
       });
 
-      setLastAddedList({
-        ...list,
-        itemsCount: nextItemsCount,
-        containsSong: true,
-        selected: true,
-        isSelected: true,
-      });
+      setListPickerToneByListId((prev) => ({
+        ...prev,
+        [list.id]: toneValueFromListSelection(selectedList),
+      }));
+      setLastAddedList(selectedList);
       setLastSelectedListId(list.id);
 
       try {
@@ -955,6 +1027,97 @@ export default function SongPageClient(props: Props) {
     } catch (e: any) {
       setListPickerError(
         String(e?.message || e || "Αποτυχία προσθήκης του τραγουδιού στη λίστα."),
+      );
+    } finally {
+      setListPickerSubmittingListId(null);
+    }
+  }
+
+  async function handleListPickerToneSelectionChange(
+    list: SongListOption,
+    nextValue: ListItemToneValue,
+  ) {
+    if (!isListAlreadySelected(list)) {
+      setListPickerToneByListId((prev) => ({
+        ...prev,
+        [list.id]: nextValue,
+      }));
+      return;
+    }
+
+    const listItemId = toNullablePositiveInt(list.listItemId);
+    if (!listItemId) {
+      setListPickerError("Δεν βρέθηκε το item της λίστας για ενημέρωση τόνου/φωνής.");
+      return;
+    }
+
+    setListPickerSubmittingListId(list.id);
+    setListPickerError(null);
+
+    try {
+      const res = await fetch(`/api/lists/${list.id}/items/${listItemId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          selectedTonicity: nullableText(nextValue.selectedTonicity),
+          selectedTonicitySign: nullableSign(nextValue.selectedTonicitySign),
+          selectedSingerTuneId: toNullablePositiveInt(nextValue.selectedSingerTuneId),
+        }),
+      });
+
+      const data = (await readJson(res)) as AddSongToListResponse | { error?: string } | null;
+
+      if (!res.ok) {
+        const msg =
+          data && typeof data === "object" && "error" in data && typeof data.error === "string"
+            ? data.error
+            : "Αποτυχία αποθήκευσης τόνου/φωνής στη λίστα.";
+        throw new Error(msg);
+      }
+
+      const storedToneValue: ListItemToneValue = {
+        selectedTonicity:
+          data && typeof data === "object"
+            ? nullableText((data as any).selectedTonicity) ?? nextValue.selectedTonicity
+            : nextValue.selectedTonicity,
+        selectedTonicitySign:
+          data && typeof data === "object"
+            ? nullableSign((data as any).selectedTonicitySign) ?? nextValue.selectedTonicitySign
+            : nextValue.selectedTonicitySign,
+        selectedSingerTuneId:
+          data && typeof data === "object"
+            ? toNullablePositiveInt(
+                (data as any).selectedSingerTuneId,
+                nextValue.selectedSingerTuneId ?? null,
+              )
+            : nextValue.selectedSingerTuneId,
+        selectedSingerTuneTitle:
+          data && typeof data === "object"
+            ? nullableText((data as any).selectedSingerTuneTitle) ??
+              nextValue.selectedSingerTuneTitle
+            : nextValue.selectedSingerTuneTitle,
+        selectedSingerTuneTune:
+          data && typeof data === "object"
+            ? nullableText((data as any).selectedSingerTuneTune) ??
+              nextValue.selectedSingerTuneTune
+            : nextValue.selectedSingerTuneTune,
+      };
+
+      setAvailableLists((prev) =>
+        sortListsForPicker(
+          prev.map((item) =>
+            item.id === list.id ? listWithToneSelection(item, storedToneValue) : item,
+          ),
+        ),
+      );
+      setListPickerToneByListId((prev) => ({
+        ...prev,
+        [list.id]: storedToneValue,
+      }));
+    } catch (e: any) {
+      setListPickerError(
+        String(e?.message || e || "Αποτυχία αποθήκευσης τόνου/φωνής στη λίστα."),
       );
     } finally {
       setListPickerSubmittingListId(null);
@@ -1387,8 +1550,9 @@ export default function SongPageClient(props: Props) {
         songTitle={song.title}
         songOriginalKey={song.originalKey}
         songOriginalKeySign={song.originalKeySign}
-        toneSelection={listPickerToneSelection}
-        onToneSelectionChange={setListPickerToneSelection}
+        defaultToneSelection={listPickerToneSelection}
+        listToneSelections={listPickerToneByListId}
+        onListToneSelectionChange={handleListPickerToneSelectionChange}
         query={listPickerQuery}
         onQueryChange={setListPickerQuery}
         loading={listPickerLoading}

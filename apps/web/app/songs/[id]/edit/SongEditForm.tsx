@@ -16,6 +16,9 @@ import SongAssetsEditorClient, { type SongAssetDto } from "./SongAssetsEditorCli
 import SongDuplicateWarning, {
   type SongDuplicateCandidate,
 } from "./SongDuplicateWarning";
+import SongOriginalKeyPicker, {
+  type OriginalKeySign,
+} from "./SongOriginalKeyPicker";
 
 type SongVersionDto = {
   id: number;
@@ -44,7 +47,7 @@ export type SongForEdit = {
   characteristics: string | null;
 
   originalKey: string | null;
-  originalKeySign: "+" | "-";
+  originalKeySign: "+" | "-" | null;
 
   chords: string | null;
   status: string | null;
@@ -192,6 +195,19 @@ function baseChordToOriginalKeyCodeString(
   return String(101 + idx);
 }
 
+function originalKeyCodeStringToBaseChord(
+  value: string | null | undefined,
+): (typeof GREEK_CHORDS)[number] | null {
+  const n = Number(String(value ?? "").trim());
+  if (!Number.isFinite(n)) return null;
+  const tone = GREEK_CHORDS[Math.trunc(n) - 101];
+  return tone ?? null;
+}
+
+function normalizeOriginalKeySign(value: unknown): OriginalKeySign | null {
+  return value === "+" || value === "-" ? value : null;
+}
+
 export default function SongEditForm({
   song,
   credits,
@@ -237,6 +253,15 @@ export default function SongEditForm({
   const router = useRouter();
 
   const [chordsLive, setChordsLive] = useState<string>(song.chords ?? "");
+  const initialOriginalKey = String(song.originalKey ?? "").trim() || null;
+  const [selectedOriginalKey, setSelectedOriginalKey] = useState<string | null>(
+    initialOriginalKey,
+  );
+  const [selectedOriginalKeySign, setSelectedOriginalKeySign] =
+    useState<OriginalKeySign | null>(
+      initialOriginalKey ? normalizeOriginalKeySign(song.originalKeySign) ?? "+" : null,
+    );
+  const [originalKeyPickerOpen, setOriginalKeyPickerOpen] = useState(false);
   const [duplicateStatus, setDuplicateStatus] = useState<
     "idle" | "loading" | "done" | "error"
   >("idle");
@@ -339,6 +364,17 @@ export default function SongEditForm({
       baseChord: det.baseChord,
     };
   }, [chordsLive]);
+
+  const effectiveOriginalKey = selectedOriginalKey ?? computedForSave.originalKey;
+  const effectiveOriginalKeySign: OriginalKeySign | null = selectedOriginalKey
+    ? selectedOriginalKeySign ?? "+"
+    : computedForSave.originalKey
+      ? normalizeOriginalKeySign(computedForSave.originalKeySign) ?? "+"
+      : null;
+  const effectiveBaseChord = selectedOriginalKey
+    ? originalKeyCodeStringToBaseChord(selectedOriginalKey)
+    : computedForSave.baseChord;
+  const originalKeySourceLabel = selectedOriginalKey ? "Τονικότητα" : "Αυτόματα";
 
   function handleCancel() {
     if (isCreate) router.push("/songs");
@@ -451,14 +487,10 @@ export default function SongEditForm({
 
       const firstLyrics = deriveFirstLyricsFromLyrics(lyrics);
 
-      const computedOriginalKey = computedForSave.baseChord
-        ? computedForSave.originalKey
-        : (song.originalKey ?? null);
-
-      const computedOriginalKeySign =
-        computedForSave.baseChord && computedForSave.originalKeySign
-          ? computedForSave.originalKeySign
-          : song.originalKeySign;
+      const computedOriginalKey = effectiveOriginalKey ?? null;
+      const computedOriginalKeySign = effectiveOriginalKey
+        ? effectiveOriginalKeySign
+        : null;
 
       const status =
         formData.get("status")?.toString().trim() || statusValue || "PENDING_APPROVAL";
@@ -720,28 +752,59 @@ export default function SongEditForm({
                   Συγχορδίες
                 </label>
 
-                {computedForSave.baseChord ? (
-                  <span
-                    style={{
-                      padding: "2px 8px",
-                      borderRadius: 999,
-                      border: "1px solid #333",
-                      background: "#111",
-                      fontSize: 12,
-                      lineHeight: "18px",
-                      opacity: 0.95,
-                      whiteSpace: "nowrap",
-                    }}
-                    title="Τονικότητα που θα αποθηκευτεί"
-                  >
-                    Τονικότητα:{" "}
-                    <strong>
-                      {computedForSave.baseChord}
-                      {computedForSave.originalKeySign ?? ""}
-                    </strong>
-                  </span>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setOriginalKeyPickerOpen(true)}
+                  style={{
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    border: "1px solid #333",
+                    background: "#111",
+                    color: "#fff",
+                    fontSize: 12,
+                    lineHeight: "18px",
+                    opacity: 0.95,
+                    whiteSpace: "nowrap",
+                    cursor: "pointer",
+                    fontWeight: 650,
+                  }}
+                  title="Επιλογή τονικότητας τραγουδιού"
+                >
+                  {effectiveBaseChord ? (
+                    <>
+                      {originalKeySourceLabel}:{" "}
+                      <strong>
+                        {effectiveBaseChord}
+                        {effectiveOriginalKeySign ?? ""}
+                      </strong>
+                    </>
+                  ) : (
+                    "Επιλογή τονικότητας"
+                  )}
+                </button>
               </div>
+
+              <SongOriginalKeyPicker
+                open={originalKeyPickerOpen}
+                value={{
+                  originalKey: selectedOriginalKey,
+                  originalKeySign: selectedOriginalKeySign,
+                }}
+                detected={{
+                  originalKey: computedForSave.originalKey,
+                  originalKeySign: normalizeOriginalKeySign(
+                    computedForSave.originalKeySign,
+                  ),
+                }}
+                onClose={() => setOriginalKeyPickerOpen(false)}
+                onSave={(nextValue) => {
+                  setSelectedOriginalKey(nextValue.originalKey);
+                  setSelectedOriginalKeySign(
+                    normalizeOriginalKeySign(nextValue.originalKeySign) ?? "+",
+                  );
+                  setOriginalKeyPickerOpen(false);
+                }}
+              />
 
               <textarea
                 id="chords"

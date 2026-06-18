@@ -11,6 +11,12 @@ type ListSummaryDto = {
   role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
   itemsCount: number;
   containsSong?: boolean;
+  listItemId?: number | null;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: "+" | "-" | null;
+  selectedSingerTuneId?: number | null;
+  selectedSingerTuneTitle?: string | null;
+  selectedSingerTuneTune?: string | null;
   name?: string;
   listTitle?: string;
   list_title?: string;
