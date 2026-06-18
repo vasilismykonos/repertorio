@@ -6,6 +6,7 @@ export const SONG_CREATE_ROLES: UserRole[] = [
   "AUTHOR",
   "CONTRIBUTOR",
   "SUBSCRIBER",
+  "USER",
 ];
 
 export const SONG_EDIT_ROLES: UserRole[] = [

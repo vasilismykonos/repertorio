@@ -67,7 +67,7 @@ export default async function NewSongPage() {
     originalKey: null,
     originalKeySign: "+",
     chords: null,
-    status: "DRAFT",
+    status: "PENDING_APPROVAL",
 
     categoryId: null,
     rythmId: null,

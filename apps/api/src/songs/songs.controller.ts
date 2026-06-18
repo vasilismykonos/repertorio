@@ -6,6 +6,7 @@ import {
   Delete,
   Get,
   GoneException,
+  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
@@ -79,6 +80,14 @@ type SongFullMultipartBody = Record<string, any> & {
   tagIds?: unknown;
   assets?: unknown;
   versions?: unknown;
+};
+
+type DuplicateCandidatesBody = {
+  title?: string | null;
+  firstLyrics?: string | null;
+  lyrics?: string | null;
+  excludeSongId?: number | string | null;
+  take?: number | string | null;
 };
 
 function isTruthyFlag(v: unknown): boolean {
@@ -260,6 +269,19 @@ export class SongsController {
     @Query('take') take?: string,
   ) {
     return this.songsService.findOfflineChanges(since, take);
+  }
+
+  @Post('duplicate-candidates')
+  @HttpCode(200)
+  async duplicateCandidates(@Body() body: DuplicateCandidatesBody) {
+    return this.songsService.findDuplicateCandidates({
+      title: typeof body.title === 'string' ? body.title : null,
+      firstLyrics:
+        typeof body.firstLyrics === 'string' ? body.firstLyrics : null,
+      lyrics: typeof body.lyrics === 'string' ? body.lyrics : null,
+      excludeSongId: toNumberOrNull(body.excludeSongId),
+      take: body.take ?? null,
+    });
   }
 
   @Get(':id')

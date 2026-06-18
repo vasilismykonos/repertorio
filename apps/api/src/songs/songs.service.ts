@@ -20,6 +20,10 @@ import {
 
 // ✅ NEW
 import { ElasticsearchSongsSyncService } from '../elasticsearch/elasticsearch-songs-sync.service';
+import {
+  rankSongDuplicateCandidates,
+  SongDuplicateCandidateDto,
+} from './song-duplicate-candidates';
 
 type TagDto = {
   id: number;
@@ -395,6 +399,55 @@ export class SongsService {
     private readonly prisma: PrismaService,
     @Optional() private readonly esSync?: ElasticsearchSongsSyncService,
   ) {}
+
+  async findDuplicateCandidates(args: {
+    title?: string | null;
+    firstLyrics?: string | null;
+    lyrics?: string | null;
+    excludeSongId?: number | null;
+    take?: number | string | null;
+  }): Promise<{ items: SongDuplicateCandidateDto[] }> {
+    const takeRaw = Math.trunc(Number(args.take ?? 8));
+    const take = Math.min(Math.max(Number.isFinite(takeRaw) ? takeRaw : 8, 1), 12);
+    const excludeSongId =
+      typeof args.excludeSongId === 'number' &&
+      Number.isFinite(args.excludeSongId) &&
+      args.excludeSongId > 0
+        ? Math.trunc(args.excludeSongId)
+        : null;
+    const needsFullLyrics =
+      String(args.lyrics ?? '').trim().length >= 40 ||
+      String(args.firstLyrics ?? '').trim().length >= 10;
+
+    const rows = await this.prisma.song.findMany({
+      where: excludeSongId ? { id: { not: excludeSongId } } : undefined,
+      select: {
+        id: true,
+        title: true,
+        firstLyrics: true,
+        lyrics: needsFullLyrics,
+      },
+      orderBy: [{ id: 'asc' }],
+      take: 6000,
+    });
+
+    return {
+      items: rankSongDuplicateCandidates(
+        {
+          title: args.title,
+          firstLyrics: args.firstLyrics,
+          lyrics: args.lyrics,
+        },
+        rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          firstLyrics: row.firstLyrics,
+          lyrics: needsFullLyrics ? (row as any).lyrics : null,
+        })),
+        take,
+      ),
+    };
+  }
 
   private computeSearchVersionMeta(versions: any[]) {
     const singerFrontNames: string[] = [];

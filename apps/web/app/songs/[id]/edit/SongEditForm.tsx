@@ -13,6 +13,9 @@ import DiscographiesEditorClient from "./DiscographiesEditorClient";
 import SongCreditsEditorClient from "./SongCreditsEditorClient";
 import CategoryRythmPickerClient from "./CategoryRythmPickerClient";
 import SongAssetsEditorClient, { type SongAssetDto } from "./SongAssetsEditorClient";
+import SongDuplicateWarning, {
+  type SongDuplicateCandidate,
+} from "./SongDuplicateWarning";
 
 type SongVersionDto = {
   id: number;
@@ -203,11 +206,16 @@ export default function SongEditForm({
 }: Props) {
   const isCreate = !!createMode;
   const [statusValue, setStatusValue] = useState(song.status ?? "PENDING_APPROVAL");
+  const [titleLive, setTitleLive] = useState(song.title ?? "");
+  const [lyricsLive, setLyricsLive] = useState(song.lyrics ?? "");
 
   const scoreUrl =
     song.hasScore && song.scoreFile ? `/api/scores/${song.scoreFile}` : null;
 
-  const firstLyricsDerived = deriveFirstLyricsFromLyrics(song.lyrics);
+  const firstLyricsDerived = React.useMemo(
+    () => deriveFirstLyricsFromLyrics(lyricsLive),
+    [lyricsLive],
+  );
 
   const initialTagIds = song.tags.map((t) => t.id);
   const initialAssets = song.assets;
@@ -229,6 +237,80 @@ export default function SongEditForm({
   const router = useRouter();
 
   const [chordsLive, setChordsLive] = useState<string>(song.chords ?? "");
+  const [duplicateStatus, setDuplicateStatus] = useState<
+    "idle" | "loading" | "done" | "error"
+  >("idle");
+  const [duplicateCandidates, setDuplicateCandidates] = useState<
+    SongDuplicateCandidate[]
+  >([]);
+  const [allowLikelyDuplicate, setAllowLikelyDuplicate] = useState(false);
+
+  const duplicateCheckKey = React.useMemo(() => {
+    return JSON.stringify([
+      titleLive.trim(),
+      firstLyricsDerived.trim(),
+      lyricsLive.trim().slice(0, 2000),
+    ]);
+  }, [firstLyricsDerived, lyricsLive, titleLive]);
+
+  React.useEffect(() => {
+    if (!isCreate) return;
+    setAllowLikelyDuplicate(false);
+  }, [duplicateCheckKey, isCreate]);
+
+  React.useEffect(() => {
+    if (!isCreate) return;
+
+    const title = titleLive.trim();
+    const lyrics = lyricsLive.trim();
+    const firstLyrics = firstLyricsDerived.trim();
+    const hasEnoughInput =
+      title.length >= 3 || firstLyrics.length >= 10 || lyrics.length >= 40;
+
+    if (!hasEnoughInput) {
+      setDuplicateStatus("idle");
+      setDuplicateCandidates([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setDuplicateStatus("loading");
+
+      try {
+        const res = await fetch("/api/songs/duplicate-candidates", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "include",
+          cache: "no-store",
+          signal: controller.signal,
+          body: JSON.stringify({
+            title,
+            firstLyrics,
+            lyrics,
+            take: 6,
+          }),
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const json = await res.json().catch(() => null);
+        const items = Array.isArray(json?.items) ? json.items : [];
+        setDuplicateCandidates(items);
+        setDuplicateStatus("done");
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+        console.error("[SongEditForm] duplicate check failed", err);
+        setDuplicateCandidates([]);
+        setDuplicateStatus("error");
+      }
+    }, 650);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [firstLyricsDerived, isCreate, lyricsLive, titleLive]);
 
   const computedForSave = React.useMemo(() => {
     const text = (chordsLive ?? "").toString();
@@ -271,6 +353,17 @@ export default function SongEditForm({
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (isBusy) return;
+
+    const hasLikelyDuplicate =
+      isCreate && duplicateCandidates.some((candidate) => candidate.level === "high");
+
+    if (hasLikelyDuplicate && !allowLikelyDuplicate) {
+      alert(
+        "Βρέθηκε πολύ πιθανό υπάρχον τραγούδι. Έλεγξέ το πρώτα και, αν είναι όντως νέο τραγούδι, πάτησε «Δημιουργία νέου παρόλα αυτά».",
+      );
+      return;
+    }
+
     setIsBusy(true);
 
     try {
@@ -575,11 +668,21 @@ export default function SongEditForm({
                 type="text"
                 id="title"
                 name="title"
-                defaultValue={song.title}
+                value={titleLive}
+                onChange={(e) => setTitleLive(e.currentTarget.value)}
                 required
                 className="song-edit-input-light"
               />
             </div>
+
+            {isCreate ? (
+              <SongDuplicateWarning
+                status={duplicateStatus}
+                candidates={duplicateCandidates}
+                allowCreateAnyway={allowLikelyDuplicate}
+                onAllowCreateAnyway={() => setAllowLikelyDuplicate(true)}
+              />
+            ) : null}
 
             <div className="song-edit-field">
               <label htmlFor="status">Κατάσταση</label>
@@ -691,7 +794,8 @@ export default function SongEditForm({
                 id="lyrics"
                 name="lyrics"
                 rows={10}
-                defaultValue={song.lyrics ?? ""}
+                value={lyricsLive}
+                onChange={(e) => setLyricsLive(e.currentTarget.value)}
                 className="song-edit-input-light"
               />
             </div>
@@ -729,7 +833,7 @@ export default function SongEditForm({
           <div className="song-edit-section">
             <h2 className="song-edit-section-title">Δισκογραφίες</h2>
             <DiscographiesEditorClient
-              songTitle={song.title}
+              songTitle={titleLive || song.title}
               initialVersions={initialVersions}
               hiddenInputId="versionsJson"
             />

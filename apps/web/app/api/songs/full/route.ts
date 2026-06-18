@@ -7,10 +7,23 @@ import {
   proxyJson,
   readBodyAsJson,
 } from "../../_lib/proxy";
+import { getCurrentUserFromApi } from "@/lib/currentUser";
+import {
+  canChangeSongStatus,
+  canCreateSong,
+} from "@/lib/permissions";
 
 export async function POST(req: NextRequest) {
   const baseUrl = getApiBaseUrl();
   if (!baseUrl) return missingApiBaseUrlResponse();
+
+  const currentUser = await getCurrentUserFromApi(req).catch(() => null);
+  if (!canCreateSong(currentUser?.role)) {
+    return NextResponse.json(
+      { message: "Δεν έχετε δικαίωμα δημιουργίας τραγουδιού." },
+      { status: 403 },
+    );
+  }
 
   let bodyJson: Record<string, any>;
   try {
@@ -20,6 +33,11 @@ export async function POST(req: NextRequest) {
       { message: e?.message || "Invalid request body" },
       { status: 400 },
     );
+  }
+
+  bodyJson.createdByUserId = currentUser?.id ?? null;
+  if (!canChangeSongStatus(currentUser?.role)) {
+    bodyJson.status = "PENDING_APPROVAL";
   }
 
   /**
