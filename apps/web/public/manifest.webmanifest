@@ -1,9 +1,12 @@
 {
   "name": "Repertorio",
   "short_name": "Repertorio",
+  "id": "/",
+  "description": "Πλατφόρμα μουσικής για επαγγελματίες και ερασιτέχνες μουσικούς",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#ffffff",
   "theme_color": "#111111",

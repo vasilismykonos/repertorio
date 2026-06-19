@@ -27,7 +27,7 @@ import SongListPickerModal from "./SongListPickerModal";
 import type { ListItemToneValue } from "@/app/components/ListItemTonePicker";
 import type { Step } from "react-joyride";
 import type { SongDetail } from "./page";
-import { writeOfflineSongDetail } from "@/lib/offlineStore";
+import { readOfflineListsForCurrentUser, writeOfflineSongDetail } from "@/lib/offlineStore";
 
 const GuidedTour = dynamic(
   () =>
@@ -121,6 +121,13 @@ const HEADER_OFFSET_PX = 0;
 const ROOM_POS_STORAGE_KEY = "repertorio_room_button_pos_v1";
 const ROOM_MARGIN = 16;
 const DRAG_CLICK_THRESHOLD_PX = 6;
+const LIST_SWIPE_LOCK_PX = 8;
+const LIST_SWIPE_MIN_X = 64;
+const LIST_SWIPE_MAX_Y = 90;
+const LIST_SWIPE_MAX_TIME = 1000;
+const LIST_SWIPE_SETTLE_MS = 120;
+const LIST_SWIPE_RESET_MS = 520;
+const LIST_SWIPE_MAX_VISUAL_OFFSET = 360;
 
 const TOUR_STORAGE_KEY = "tour_song_page_v1";
 const LIST_PICKER_LAST_SELECTED_STORAGE_KEY = "repertorio_last_selected_list_id_v1";
@@ -259,6 +266,64 @@ function nullableText(value: unknown): string | null {
 
 function nullableSign(value: unknown): "+" | "-" | null {
   return value === "+" || value === "-" ? value : null;
+}
+
+function normalizeListNavItem(item: any): ListNavItem | null {
+  const songId = Number(item?.songId ?? item?.song_id);
+  if (!Number.isFinite(songId) || songId <= 0) return null;
+
+  const selectedSingerTuneId = Number(item?.selectedSingerTuneId ?? item?.selected_singer_tune_id ?? 0);
+
+  return {
+    songId: Math.trunc(songId),
+    selectedTonicity: nullableText(item?.selectedTonicity ?? item?.selected_tonicity),
+    selectedTonicitySign: nullableSign(item?.selectedTonicitySign ?? item?.selected_tonicity_sign),
+    selectedSingerTuneId:
+      Number.isFinite(selectedSingerTuneId) && selectedSingerTuneId > 0
+        ? Math.trunc(selectedSingerTuneId)
+        : null,
+  };
+}
+
+function normalizeListNavItemsFromPayload(data: any): ListNavItem[] {
+  const itemsRaw = data && typeof data === "object" ? data.items : null;
+  const idsRaw = data && typeof data === "object" ? data.songIds : null;
+
+  const itemsFromPayload = Array.isArray(itemsRaw)
+    ? itemsRaw
+        .map(normalizeListNavItem)
+        .filter((item): item is ListNavItem => Boolean(item))
+    : [];
+
+  if (itemsFromPayload.length > 0) return itemsFromPayload;
+
+  return Array.isArray(idsRaw)
+    ? idsRaw
+        .map((x) => Number(x))
+        .filter((n) => Number.isFinite(n) && n > 0)
+        .map((songId) => ({
+          songId: Math.trunc(songId),
+          selectedTonicity: null,
+          selectedTonicitySign: null,
+          selectedSingerTuneId: null,
+        }))
+    : [];
+}
+
+async function readOfflineListNavItems(listId: number): Promise<ListNavItem[] | null> {
+  const snapshot = await readOfflineListsForCurrentUser().catch(() => null);
+  const key = String(listId);
+  const detail = snapshot?.detailsById?.[key] || null;
+
+  if (detail) {
+    const items = normalizeListNavItemsFromPayload(detail);
+    if (items.length > 0) return items;
+  }
+
+  const summaries = Array.isArray(snapshot?.data?.items) ? snapshot.data.items : [];
+  const summary = summaries.find((item: any) => Number(item?.id ?? item?.listId) === listId) || null;
+  const summaryItems = normalizeListNavItemsFromPayload(summary);
+  return summaryItems.length > 0 ? summaryItems : null;
 }
 
 function isListAlreadySelected(list: Partial<SongListOption> | null | undefined): boolean {
@@ -413,63 +478,30 @@ export default function SongPageClient(props: Props) {
         return;
       }
 
+      const applyOfflineFallback = async () => {
+        const offlineItems = await readOfflineListNavItems(listId).catch(() => null);
+        if (!cancelled) setListNavItems(offlineItems);
+      };
+
       try {
         const res = await fetch(`/api/lists/${listId}/song-ids`, { cache: "no-store" });
         const data = await readJson(res);
 
         if (!res.ok) {
-          if (!cancelled) setListNavItems(null);
+          await applyOfflineFallback();
           return;
         }
 
-        const itemsRaw =
-          (data && typeof data === "object" ? (data as any).items : null) as unknown | null;
-        const idsRaw =
-          (data && typeof data === "object" ? (data as any).songIds : null) as unknown | null;
+        const items = normalizeListNavItemsFromPayload(data);
 
-        const itemsFromPayload = Array.isArray(itemsRaw)
-          ? (itemsRaw as any[])
-              .map((item) => {
-                const songId = Number(item?.songId);
-                if (!Number.isFinite(songId) || songId <= 0) return null;
-                const selectedSingerTuneId = Number(item?.selectedSingerTuneId || 0);
-                return {
-                  songId,
-                  selectedTonicity:
-                    typeof item?.selectedTonicity === "string" && item.selectedTonicity.trim()
-                      ? item.selectedTonicity.trim()
-                      : null,
-                  selectedTonicitySign:
-                    item?.selectedTonicitySign === "+" || item?.selectedTonicitySign === "-"
-                      ? item.selectedTonicitySign
-                      : null,
-                  selectedSingerTuneId:
-                    Number.isFinite(selectedSingerTuneId) && selectedSingerTuneId > 0
-                      ? selectedSingerTuneId
-                      : null,
-                } satisfies ListNavItem;
-              })
-              .filter((item): item is ListNavItem => Boolean(item))
-          : [];
+        if (items.length > 0) {
+          if (!cancelled) setListNavItems(items);
+          return;
+        }
 
-        const items =
-          itemsFromPayload.length > 0
-            ? itemsFromPayload
-            : Array.isArray(idsRaw)
-              ? (idsRaw as unknown[])
-                  .map((x) => Number(x))
-                  .filter((n) => Number.isFinite(n) && n > 0)
-                  .map((songId) => ({
-                    songId,
-                    selectedTonicity: null,
-                    selectedTonicitySign: null,
-                    selectedSingerTuneId: null,
-                  }))
-              : [];
-
-        if (!cancelled) setListNavItems(items);
+        await applyOfflineFallback();
       } catch {
-        if (!cancelled) setListNavItems(null);
+        await applyOfflineFallback();
       }
     }
 
@@ -554,24 +586,150 @@ export default function SongPageClient(props: Props) {
     router.push(buildSongHref(listNav.nextSongId, listNav.nextPos));
   }
 
+  const [swipeOffsetX, setSwipeOffsetX] = useState(0);
+  const [swipeDragging, setSwipeDragging] = useState(false);
+  const [swipeSettling, setSwipeSettling] = useState(false);
+  const swipeResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const touchRef = useRef<{
     x0: number;
     y0: number;
     x1: number;
     y1: number;
     t0: number;
+    lock: "x" | "y" | null;
   } | null>(null);
+
+  const pointerSwipeRef = useRef<{
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+    t0: number;
+    pointerId: number;
+    active: boolean;
+    lock: "x" | "y" | null;
+  } | null>(null);
+
+  function clearSwipeResetTimer() {
+    if (swipeResetTimerRef.current) {
+      clearTimeout(swipeResetTimerRef.current);
+      swipeResetTimerRef.current = null;
+    }
+  }
+
+  function resetSwipeVisual() {
+    clearSwipeResetTimer();
+    setSwipeDragging(false);
+    setSwipeSettling(false);
+    setSwipeOffsetX(0);
+  }
+
+  function cancelSwipeGesture() {
+    touchRef.current = null;
+    pointerSwipeRef.current = null;
+    resetSwipeVisual();
+  }
+
+  function canSwipeDirection(dx: number) {
+    if (!listNav) return false;
+    if (dx < 0) return Boolean(listNav.nextSongId && listNav.nextPos !== null);
+    if (dx > 0) return Boolean(listNav.prevSongId && listNav.prevPos !== null);
+    return false;
+  }
+
+  function visualSwipeOffset(dx: number) {
+    const viewportWidth =
+      typeof window !== "undefined" && Number.isFinite(window.innerWidth)
+        ? window.innerWidth
+        : 360;
+    const maxOffset = Math.min(
+      LIST_SWIPE_MAX_VISUAL_OFFSET,
+      Math.max(160, viewportWidth * 0.82),
+    );
+    const resisted = canSwipeDirection(dx) ? dx : dx * 0.28;
+    return Math.max(-maxOffset, Math.min(maxOffset, resisted));
+  }
+
+  function lockSwipeAxis(dx: number, dy: number): "x" | "y" | null {
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+    if (adx < LIST_SWIPE_LOCK_PX && ady < LIST_SWIPE_LOCK_PX) return null;
+    return adx > ady * 1.15 ? "x" : "y";
+  }
+
+  function updateSwipeVisual(dx: number) {
+    setSwipeDragging(true);
+    setSwipeSettling(false);
+    setSwipeOffsetX(visualSwipeOffset(dx));
+  }
+
+  function finishSwipe(dx: number, dy: number, dt: number) {
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+    const shouldNavigate =
+      adx >= LIST_SWIPE_MIN_X &&
+      ady <= LIST_SWIPE_MAX_Y &&
+      dt <= LIST_SWIPE_MAX_TIME &&
+      canSwipeDirection(dx);
+
+    setSwipeDragging(false);
+
+    if (!shouldNavigate) {
+      setSwipeSettling(true);
+      setSwipeOffsetX(0);
+      clearSwipeResetTimer();
+      swipeResetTimerRef.current = setTimeout(() => {
+        setSwipeSettling(false);
+        swipeResetTimerRef.current = null;
+      }, LIST_SWIPE_SETTLE_MS);
+      return;
+    }
+
+    const viewportWidth =
+      typeof window !== "undefined" && Number.isFinite(window.innerWidth)
+        ? window.innerWidth
+        : 360;
+    const exitOffset = dx < 0 ? -viewportWidth : viewportWidth;
+
+    setSwipeSettling(true);
+    setSwipeOffsetX(exitOffset);
+    clearSwipeResetTimer();
+    swipeResetTimerRef.current = setTimeout(() => {
+      if (dx < 0) goNext();
+      else goPrev();
+
+      swipeResetTimerRef.current = setTimeout(() => {
+        setSwipeOffsetX(0);
+        setSwipeSettling(false);
+        swipeResetTimerRef.current = null;
+      }, LIST_SWIPE_RESET_MS);
+    }, LIST_SWIPE_SETTLE_MS);
+  }
+
+  useEffect(() => {
+    return () => clearSwipeResetTimer();
+  }, []);
+
+  useEffect(() => {
+    touchRef.current = null;
+    pointerSwipeRef.current = null;
+    resetSwipeVisual();
+  }, [song.id, listId]);
 
   function onTouchStart(e: React.TouchEvent) {
     if (!hasListContext) return;
     if (e.touches.length !== 1) return;
+    if (isInteractiveTarget(e.target)) return;
     const t = e.touches[0];
+    clearSwipeResetTimer();
     touchRef.current = {
       x0: t.clientX,
       y0: t.clientY,
       x1: t.clientX,
       y1: t.clientY,
       t0: Date.now(),
+      lock: null,
     };
   }
 
@@ -582,43 +740,37 @@ export default function SongPageClient(props: Props) {
     const t = e.touches[0];
     touchRef.current.x1 = t.clientX;
     touchRef.current.y1 = t.clientY;
+
+    const dx = t.clientX - touchRef.current.x0;
+    const dy = t.clientY - touchRef.current.y0;
+
+    if (!touchRef.current.lock) {
+      touchRef.current.lock = lockSwipeAxis(dx, dy);
+    }
+
+    if (touchRef.current.lock === "x") {
+      e.preventDefault();
+      updateSwipeVisual(dx);
+    }
   }
 
   function onTouchEnd() {
     if (!hasListContext) return;
-    if (!listNav) return;
 
     const s = touchRef.current;
     touchRef.current = null;
     if (!s) return;
+    if (s.lock !== "x") {
+      resetSwipeVisual();
+      return;
+    }
 
     const dx = s.x1 - s.x0;
     const dy = s.y1 - s.y0;
-    const adx = Math.abs(dx);
-    const ady = Math.abs(dy);
     const dt = Date.now() - s.t0;
 
-    const MIN_X = 60;
-    const MAX_Y = 60;
-    const MAX_TIME = 900;
-
-    if (adx < MIN_X) return;
-    if (ady > MAX_Y) return;
-    if (dt > MAX_TIME) return;
-
-    if (dx < 0) goNext();
-    else goPrev();
+    finishSwipe(dx, dy, dt);
   }
-
-  const pointerSwipeRef = useRef<{
-    x0: number;
-    y0: number;
-    x1: number;
-    y1: number;
-    t0: number;
-    pointerId: number;
-    active: boolean;
-  } | null>(null);
 
   function isInteractiveTarget(target: EventTarget | null) {
     const el = target as HTMLElement | null;
@@ -630,9 +782,17 @@ export default function SongPageClient(props: Props) {
 
   function onPointerDownSection(e: React.PointerEvent) {
     if (!hasListContext) return;
+    if (e.pointerType !== "mouse") return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (isInteractiveTarget(e.target)) return;
 
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Pointer capture is best-effort for desktop drag.
+    }
+
+    clearSwipeResetTimer();
     pointerSwipeRef.current = {
       x0: e.clientX,
       y0: e.clientY,
@@ -641,6 +801,7 @@ export default function SongPageClient(props: Props) {
       t0: Date.now(),
       pointerId: e.pointerId,
       active: true,
+      lock: null,
     };
   }
 
@@ -651,33 +812,43 @@ export default function SongPageClient(props: Props) {
     if (e.pointerId !== s.pointerId) return;
     s.x1 = e.clientX;
     s.y1 = e.clientY;
+
+    const dx = s.x1 - s.x0;
+    const dy = s.y1 - s.y0;
+
+    if (!s.lock) {
+      s.lock = lockSwipeAxis(dx, dy);
+    }
+
+    if (s.lock === "x") {
+      updateSwipeVisual(dx);
+    }
   }
 
   function onPointerUpSection(e: React.PointerEvent) {
     if (!hasListContext) return;
-    if (!listNav) return;
 
     const s = pointerSwipeRef.current;
     pointerSwipeRef.current = null;
     if (!s || !s.active) return;
     if (e.pointerId !== s.pointerId) return;
 
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Best-effort cleanup.
+    }
+
+    if (s.lock !== "x") {
+      resetSwipeVisual();
+      return;
+    }
+
     const dx = s.x1 - s.x0;
     const dy = s.y1 - s.y0;
-    const adx = Math.abs(dx);
-    const ady = Math.abs(dy);
     const dt = Date.now() - s.t0;
 
-    const MIN_X = 80;
-    const MAX_Y = 80;
-    const MAX_TIME = 900;
-
-    if (adx < MIN_X) return;
-    if (ady > MAX_Y) return;
-    if (dt > MAX_TIME) return;
-
-    if (dx < 0) goNext();
-    else goPrev();
+    finishSwipe(dx, dy, dt);
   }
 
   useEffect(() => {
@@ -1490,15 +1661,27 @@ export default function SongPageClient(props: Props) {
     setTourOpenSignal((x) => x + 1);
   }
 
+  const swipeIsActive = swipeDragging || swipeSettling || Math.abs(swipeOffsetX) > 0.5;
+
   return (
     <section
-      style={{ padding: "0px 10px", maxWidth: 900, margin: "0 auto", touchAction: "pan-y" }}
+      style={{
+        padding: "0px 10px",
+        maxWidth: 900,
+        margin: "0 auto",
+        touchAction: "pan-y",
+        transform: swipeIsActive ? `translate3d(${swipeOffsetX}px, 0, 0)` : undefined,
+        transition: swipeDragging ? "none" : "transform 140ms cubic-bezier(0.22, 1, 0.36, 1)",
+        willChange: swipeIsActive ? "transform" : undefined,
+      }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
+      onTouchCancel={cancelSwipeGesture}
       onPointerDown={onPointerDownSection}
       onPointerMove={onPointerMoveSection}
       onPointerUp={onPointerUpSection}
+      onPointerCancel={cancelSwipeGesture}
     >
       <ActionBar
         left={<>{A.backLink({ href: backHref, title: backTitle, label: backLabel })}</>}

@@ -10,6 +10,64 @@ type BeforeInstallPromptEvent = Event & {
   }>;
 };
 
+function isIosDevice() {
+  if (typeof window === "undefined") return false;
+  return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+}
+
+function isStandaloneDisplay() {
+  if (typeof window === "undefined") return false;
+  const standaloneMedia = window.matchMedia?.("(display-mode: standalone)").matches;
+  const iosStandalone = (window.navigator as any).standalone === true;
+  return Boolean(standaloneMedia || iosStandalone);
+}
+
+function isLikelyChromiumBrowser() {
+  if (typeof window === "undefined") return false;
+  const ua = window.navigator.userAgent.toLowerCase();
+  return (
+    ua.includes("chrome") ||
+    ua.includes("crios") ||
+    ua.includes("edg/") ||
+    ua.includes("edga/") ||
+    ua.includes("brave")
+  );
+}
+
+function installUnavailableMessage() {
+  if (isIosDevice()) {
+    return (
+      "Σε iPhone/iPad η εγκατάσταση γίνεται από το μενού Κοινοποίηση (Share) " +
+      "→ Προσθήκη στην οθόνη Αφετηρίας (Add to Home Screen)."
+    );
+  }
+
+  if (isStandaloneDisplay()) {
+    return "Η εφαρμογή είναι ήδη εγκατεστημένη και τρέχει ως εφαρμογή.";
+  }
+
+  if (!window.isSecureContext) {
+    return "Η εγκατάσταση χρειάζεται ασφαλή σύνδεση HTTPS.";
+  }
+
+  if (!("serviceWorker" in navigator)) {
+    return "Ο browser που χρησιμοποιείς δεν υποστηρίζει εγκατάσταση εφαρμογής από αυτό το site.";
+  }
+
+  if (isLikelyChromiumBrowser()) {
+    return (
+      "Ο browser δεν δίνει αυτή τη στιγμή αυτόματο παράθυρο εγκατάστασης.\n\n" +
+      "Μπορείς να δοκιμάσεις από το μενού του browser (⋮) → Εγκατάσταση εφαρμογής ή Προσθήκη στην αρχική οθόνη.\n\n" +
+      "Αν η εφαρμογή έχει ήδη εγκατασταθεί ή αν ακυρώθηκε πρόσφατα η εγκατάσταση, ο Chrome μπορεί να κρύψει προσωρινά το παράθυρο εγκατάστασης."
+    );
+  }
+
+  return (
+    "Η εγκατάσταση δεν είναι διαθέσιμη σε αυτόν τον browser.\n" +
+    "Δοκίμασε με Chrome, Edge ή Brave από ασφαλή σύνδεση HTTPS."
+  );
+}
+
 export function PwaInstallLinkHandler() {
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
 
@@ -35,31 +93,18 @@ export function PwaInstallLinkHandler() {
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
     window.addEventListener("appinstalled", handleAppInstalled);
 
-    // Συνδέουμε το click στο <a id="installAppLink">
-    const link = document.getElementById("installAppLink");
-
     const handleClick = async (event: Event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const link = target?.closest("#installAppLink");
+      if (!link) return;
+
       event.preventDefault();
       console.log("[PWA] installAppLink clicked");
 
       const deferredPrompt = deferredPromptRef.current;
 
       if (!deferredPrompt) {
-        // Δεν έχουμε διαθέσιμο prompt
-        if (/iphone|ipad|ipod/i.test(window.navigator.userAgent)) {
-          alert(
-            "Σε iPhone/iPad η εγκατάσταση γίνεται από το μενού Κοινοποίηση (Share) " +
-              "→ Προσθήκη στην οθόνη Αφετηρίας (Add to Home Screen)."
-          );
-        } else {
-          alert(
-            "Η εγκατάσταση δεν είναι διαθέσιμη αυτή τη στιγμή.\n" +
-              "Έλεγξε ότι:\n" +
-              "• Χρησιμοποιείς Chrome/Edge/Brave.\n" +
-              "• Το site φορτώνει μέσω HTTPS.\n" +
-              "• Η εφαρμογή δεν είναι ήδη εγκατεστημένη."
-          );
-        }
+        alert(installUnavailableMessage());
         return;
       }
 
@@ -83,12 +128,8 @@ export function PwaInstallLinkHandler() {
       }
     };
 
-    if (link) {
-      link.addEventListener("click", handleClick);
-      console.log("[PWA] Attached click handler to #installAppLink");
-    } else {
-      console.warn("[PWA] #installAppLink not found in DOM");
-    }
+    document.addEventListener("click", handleClick);
+    console.log("[PWA] Attached delegated click handler for #installAppLink");
 
     // Cleanup
     return () => {
@@ -97,10 +138,7 @@ export function PwaInstallLinkHandler() {
         handleBeforeInstallPrompt
       );
       window.removeEventListener("appinstalled", handleAppInstalled);
-
-      if (link) {
-        link.removeEventListener("click", handleClick);
-      }
+      document.removeEventListener("click", handleClick);
     };
   }, []);
 

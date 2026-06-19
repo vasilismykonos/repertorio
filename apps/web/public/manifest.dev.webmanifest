@@ -1,8 +1,12 @@
 {
   "name": "Repertorio (DEV)",
   "short_name": "Repertorio DEV",
+  "id": "/?env=dev",
+  "description": "Δοκιμαστική έκδοση του Repertorio",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#2b0b0b",
   "theme_color": "#2b0b0b",
   "icons": [
