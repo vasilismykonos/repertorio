@@ -1397,7 +1397,14 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
     if (filters.status) {
       for (const st of parseCsv(filters.status)) {
-        const label = st === "PUBLISHED" ? "Δημοσιευμένο" : st === "DRAFT" ? "Πρόχειρο" : st;
+        const label =
+          st === "PENDING_APPROVAL"
+            ? "Προς έγκριση"
+            : st === "PUBLISHED"
+              ? "Δημοσιευμένο"
+              : st === "DRAFT"
+                ? "Πρόχειρο"
+                : st;
         chips.push({
           key: `status:${st}`,
           label: `Κατάσταση: ${label}`,

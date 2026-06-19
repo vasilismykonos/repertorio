@@ -416,6 +416,7 @@ export function FiltersPanel(props: FiltersPanelProps) {
   const summaryStatus = (() => {
     const s = statusSet;
     const out: string[] = [];
+    if (s.has("PENDING_APPROVAL")) out.push("Προς έγκριση");
     if (s.has("PUBLISHED")) out.push("Δημοσιευμένο");
     if (s.has("DRAFT")) out.push("Πρόχειρο");
     return out.join(", ");
