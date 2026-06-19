@@ -739,6 +739,7 @@ export function FiltersPanel(props: FiltersPanelProps) {
           summary={summaryStatus}
         >
           {[
+            { key: "PENDING_APPROVAL", label: "Προς έγκριση" },
             { key: "PUBLISHED", label: "Δημοσιευμένο" },
             { key: "DRAFT", label: "Πρόχειρο" },
           ].map((s) => (
