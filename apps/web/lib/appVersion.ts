@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.58";
+export const APP_VERSION = "3.0.59";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.59",
+    date: "2026-06-21",
+    level: "patch",
+    title: "Hotfix Rooms UI",
+    items: [
+      "Αφαιρέθηκε προσωρινά η νέα σύνοψη της οθόνης Rooms για να αποφευχθεί client-side exception σε συσκευές που είχαν παλιό bundle.",
+      "Ο νέος μηχανισμός ACK παραλαβής τραγουδιών στα Rooms παραμένει ενεργός.",
+    ],
+  },
   {
     version: "3.0.58",
     date: "2026-06-21",
