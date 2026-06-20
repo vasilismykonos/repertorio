@@ -6,9 +6,18 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.60";
+export const APP_VERSION = "3.0.61";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.61",
+    date: "2026-06-21",
+    level: "patch",
+    title: "Πιο αναγνωρίσιμο κουμπί YouTube",
+    items: [
+      "Στην προβολή τραγουδιού το κουμπί YouTube έγινε κόκκινο με λευκό play σύμβολο, ώστε να ξεχωρίζει άμεσα ως άνοιγμα στο YouTube.",
+    ],
+  },
   {
     version: "3.0.60",
     date: "2026-06-21",

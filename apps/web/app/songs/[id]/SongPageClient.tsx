@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ListMusic,
-  PlayCircle,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -588,6 +587,67 @@ function youtubeUrlForSong(song: SongDetail): string {
     .slice(0, 5)
     .join(" ");
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${song.title} ${words}`.trim())}`;
+}
+
+function YouTubeActionButton({
+  onClick,
+  disabled = false,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title="Άνοιγμα αναζήτησης στο YouTube"
+      aria-label="Άνοιγμα αναζήτησης στο YouTube"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 7,
+        minHeight: 36,
+        padding: "0 13px",
+        border: "1px solid rgba(255,255,255,0.16)",
+        borderRadius: 8,
+        background: "#ff0000",
+        color: "#fff",
+        fontSize: 14,
+        fontWeight: 800,
+        lineHeight: 1,
+        letterSpacing: 0,
+        boxShadow: "0 2px 8px rgba(255,0,0,0.25)",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.74 : 1,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 22,
+          height: 16,
+          borderRadius: 4,
+          background: "#fff",
+          color: "#ff0000",
+          flex: "0 0 auto",
+        }}
+      >
+        <svg width="8" height="9" viewBox="0 0 8 9" focusable="false">
+          <path
+            fill="currentColor"
+            d="M7.4 4.5.8 8.3V.7l6.6 3.8Z"
+          />
+        </svg>
+      </span>
+      <span>YouTube</span>
+    </button>
+  );
 }
 
 function offlineSongIdForClient(value: any): number | null {
@@ -2069,16 +2129,7 @@ export default function SongPageClient(props: Props) {
           right={
             <>
               {viewSafeYoutubeUrl ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={noop}
-                  title="Άνοιγμα αναζήτησης στο YouTube"
-                  aria-label="Άνοιγμα αναζήτησης στο YouTube"
-                  icon={PlayCircle}
-                >
-                  YouTube
-                </Button>
+                <YouTubeActionButton onClick={noop} disabled />
               ) : null}
 
               <Button
@@ -2427,16 +2478,7 @@ export default function SongPageClient(props: Props) {
         right={
           <>
             {safeYoutubeUrl ? (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={openYoutube}
-                title="Άνοιγμα αναζήτησης στο YouTube"
-                aria-label="Άνοιγμα αναζήτησης στο YouTube"
-                icon={PlayCircle}
-              >
-                YouTube
-              </Button>
+              <YouTubeActionButton onClick={openYoutube} />
             ) : null}
 
             <Button
