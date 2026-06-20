@@ -141,6 +141,15 @@ function triYesNoSummary(csv: string, yesLabel: string, noLabel: string): string
   return "";
 }
 
+function lyricsSummary(csv: string): string {
+  const s = parseCsvToSet(csv);
+  const labels: string[] = [];
+  if (s.has("1") || s.has("true")) labels.push("Έχει");
+  if (s.has("0") || s.has("false")) labels.push("Χωρίς");
+  if (s.has("instrumental")) labels.push("Οργανικά");
+  return labels.join(", ");
+}
+
 function normalizeYearDraft(raw: string): string {
   return String(raw ?? "").replace(/[^\d]/g, "").slice(0, 4);
 }
@@ -398,7 +407,7 @@ export function FiltersPanel(props: FiltersPanelProps) {
       ? `${yearFrom || "…"}–${yearTo || "…"}`
       : "";
 
-  const summaryLyrics = triYesNoSummary(lyrics, "Έχει", "Χωρίς");
+  const summaryLyrics = lyricsSummary(lyrics);
   const summaryChords = triYesNoSummary(chords, "Έχει", "Χωρίς");
   const summaryPart = triYesNoSummary(partiture, "Έχει", "Χωρίς");
 
@@ -580,6 +589,19 @@ export function FiltersPanel(props: FiltersPanelProps) {
               }}
             />
             Χωρίς στίχους <span style={{ color: "#888" }}>({lyricsCounts["0"] ?? 0})</span>
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#ddd" }}>
+            <input
+              type="checkbox"
+              checked={lyricsSet.has("instrumental")}
+              onChange={() => {
+                const next = new Set(lyricsSet);
+                toggleInSet(next, "instrumental");
+                onChangeFilters({ lyrics: toCsvFromSet(next) });
+              }}
+            />
+            Οργανικά <span style={{ color: "#888" }}>({lyricsCounts.instrumental ?? 0})</span>
           </label>
         </AccordionSection>
 

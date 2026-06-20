@@ -624,6 +624,31 @@ function matchesTri(filterCsv: any, value: any): boolean {
   return (actual && wantsYes) || (!actual && wantsNo);
 }
 
+function matchesLyricsFilter(filterCsv: any, song: any): boolean {
+  const wanted = csvValues(filterCsv);
+  if (wanted.length === 0) return true;
+
+  const normalized = wanted.map((x) =>
+    String(x || "")
+      .toLocaleLowerCase("el-GR")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, ""),
+  );
+  const wantsLyrics = normalized.some((x) => x === "1" || x === "true");
+  const wantsNoLyrics = normalized.some((x) => x === "0" || x === "false" || x === "null");
+  const wantsInstrumental = normalized.some(
+    (x) => x === "instrumental" || x === "organiko" || x === "organika" || x === "οργανικο" || x === "οργανικα",
+  );
+
+  const isInstrumental = songIsInstrumental(song);
+  const hasLyrics = songHasLyrics(song);
+
+  if (wantsInstrumental && isInstrumental) return true;
+  if (wantsLyrics && hasLyrics) return true;
+  if (wantsNoLyrics && !hasLyrics && !isInstrumental) return true;
+  return false;
+}
+
 function queryTokens(value: any): string[] {
   const text = normalizeText(value);
   return text ? text.split(" ").filter(Boolean) : [];
@@ -749,14 +774,7 @@ function matchesOfflineFilters(song: any, filters: any, tokens: string[]): boole
 
   if (!matchesTri(filters?.chords, song?.hasChords ?? song?.chords)) return false;
   if (!matchesTri(filters?.partiture, song?.hasScore ?? song?.partiture)) return false;
-  if (!matchesTri(filters?.lyrics, songHasLyrics(song))) return false;
-  if (
-    csvValues(filters?.lyrics).includes("0") &&
-    !csvValues(filters?.lyrics).includes("1") &&
-    songIsInstrumental(song)
-  ) {
-    return false;
-  }
+  if (!matchesLyricsFilter(filters?.lyrics, song)) return false;
   if (!oneIdMatch(filters?.category_id, song?.categoryId ?? song?.category_id)) return false;
   if (!oneIdMatch(filters?.rythm_id, song?.rythmId ?? song?.rythm_id ?? song?.rhythmId ?? song?.rhythm_id)) return false;
   if (!anyCsvMatch(filters?.tagIds, song?.tagIds)) return false;

@@ -620,6 +620,15 @@ function triYesNoSummary(csv: string, yesLabel: string, noLabel: string): string
   return "";
 }
 
+function lyricsSummary(csv: string): string {
+  const set = new Set(parseCsv(csv));
+  const labels: string[] = [];
+  if (set.has("1") || set.has("true")) labels.push("Έχει στίχους");
+  if (set.has("0") || set.has("false")) labels.push("Χωρίς στίχους");
+  if (set.has("instrumental")) labels.push("Οργανικά");
+  return labels.join(", ");
+}
+
 function blurActiveElementSoon() {
   if (typeof window === "undefined") return;
   const el = document.activeElement as HTMLElement | null;
@@ -758,6 +767,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const [lyricsCounts, setLyricsCounts] = useState<Record<string, number>>({
     "1": 0,
     "0": 0,
+    instrumental: 0,
   } as any);
 
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
@@ -1026,8 +1036,10 @@ export default function SongsSearchClient({ searchParams }: Props) {
         const withLyrics = pickBucketCount(aggs.hasLyrics, "1") + pickBucketCount(aggs.hasLyrics, "true");
         let withoutLyrics = Math.max(0, totalAll - withLyrics);
 
+        let instrumentalTotal = 0;
+
         if (aggs.instrumentalHasLyrics) {
-          const instrumentalTotal =
+          instrumentalTotal =
             typeof (aggs.instrumentalHasLyrics as any)?.doc_count === "number"
               ? (aggs.instrumentalHasLyrics as any).doc_count
               : 0;
@@ -1043,7 +1055,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
           withoutLyrics = Math.max(0, withoutLyrics - instrumentalWithoutLyrics);
         }
 
-        setLyricsCounts({ "1": withLyrics, "0": withoutLyrics } as any);
+        setLyricsCounts({ "1": withLyrics, "0": withoutLyrics, instrumental: instrumentalTotal } as any);
       }
 
       if (aggs.status && Array.isArray(aggs.status.buckets)) {
@@ -1357,7 +1369,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
       });
     }
 
-    const lyricsSum = triYesNoSummary(filters.lyrics, "Έχει στίχους", "Χωρίς στίχους");
+    const lyricsSum = lyricsSummary(filters.lyrics);
     if (lyricsSum) {
       chips.push({
         key: "lyrics",

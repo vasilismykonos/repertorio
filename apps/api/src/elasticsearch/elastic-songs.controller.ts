@@ -235,6 +235,52 @@ export class ElasticSongsController {
     return { wantTrue, wantFalse };
   }
 
+  private parseLyricsCsv(
+    value?: string,
+  ): { wantLyrics: boolean; wantNoLyrics: boolean; wantInstrumental: boolean } | undefined {
+    if (value == null) return undefined;
+
+    const parts = String(value)
+      .split(',')
+      .map((x) => String(x ?? '').trim())
+      .filter(Boolean);
+
+    if (!parts.length) return undefined;
+
+    let wantLyrics = false;
+    let wantNoLyrics = false;
+    let wantInstrumental = false;
+
+    for (const p of parts) {
+      const b = this.parseBoolLike(p, { nullMeansFalse: true });
+      if (b === true) {
+        wantLyrics = true;
+        continue;
+      }
+      if (b === false) {
+        wantNoLyrics = true;
+        continue;
+      }
+
+      const normalized = p
+        .toLocaleLowerCase('el-GR')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+      if (
+        normalized === 'instrumental' ||
+        normalized === 'organiko' ||
+        normalized === 'organika' ||
+        normalized === 'οργανικο' ||
+        normalized === 'οργανικα'
+      ) {
+        wantInstrumental = true;
+      }
+    }
+
+    if (!wantLyrics && !wantNoLyrics && !wantInstrumental) return undefined;
+    return { wantLyrics, wantNoLyrics, wantInstrumental };
+  }
+
   private parseStringCsv(value?: string): string[] | undefined {
     if (value == null) return undefined;
     const parts = String(value)
@@ -359,9 +405,7 @@ export class ElasticSongsController {
       );
 
       const chordsWanted = this.parseBoolCsv(chordsStr);
-      const lyricsWanted = this.parseBoolCsv(lyricsStr, {
-        nullMeansFalse: true,
-      });
+      const lyricsWanted = this.parseLyricsCsv(lyricsStr);
       const scoreWanted = this.parseBoolCsv(partitureStr);
 
       const tagsIds = this.parseIdsFromAliases(tagsStr, tagIdsStr);
@@ -430,15 +474,25 @@ export class ElasticSongsController {
         filters.push({ term: { hasScore: scoreWanted.wantTrue } });
       }
 
-      if (lyricsWanted && lyricsWanted.wantTrue !== lyricsWanted.wantFalse) {
-        const wantLyrics = lyricsWanted.wantTrue;
-        filters.push({ term: { hasLyrics: wantLyrics } });
-
-        // "Χωρίς στίχους" σημαίνει ότι λείπουν στίχοι, όχι οργανικό κομμάτι.
-        if (!wantLyrics) {
-          filters.push({
-            bool: { must_not: [{ term: { isInstrumental: true } }] },
+      if (lyricsWanted) {
+        const clauses: any[] = [];
+        if (lyricsWanted.wantLyrics) {
+          clauses.push({ term: { hasLyrics: true } });
+        }
+        if (lyricsWanted.wantNoLyrics) {
+          clauses.push({
+            bool: {
+              filter: [{ term: { hasLyrics: false } }],
+              must_not: [{ term: { isInstrumental: true } }],
+            },
           });
+        }
+        if (lyricsWanted.wantInstrumental) {
+          clauses.push({ term: { isInstrumental: true } });
+        }
+
+        if (clauses.length > 0 && clauses.length < 3) {
+          filters.push({ bool: { should: clauses, minimum_should_match: 1 } });
         }
       }
 

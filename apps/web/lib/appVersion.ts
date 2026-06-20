@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.55";
+export const APP_VERSION = "3.0.56";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.56",
+    date: "2026-06-20",
+    level: "patch",
+    title: "Φίλτρο οργανικών τραγουδιών",
+    items: [
+      "Στο φίλτρο στίχων προστέθηκε ξεχωριστή επιλογή «Οργανικά» που βασίζεται στο πεδίο οργανικού τραγουδιού και όχι σε tag.",
+      "Η online και offline αναζήτηση χρησιμοποιούν την ίδια λογική για «Έχει στίχους», «Χωρίς στίχους» και «Οργανικά».",
+    ],
+  },
   {
     version: "3.0.55",
     date: "2026-06-20",
