@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.59";
+export const APP_VERSION = "3.0.60";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.60",
+    date: "2026-06-21",
+    level: "patch",
+    title: "Σταθερότερη αποθήκευση και ανανέωση εφαρμογής",
+    items: [
+      "Η αποθήκευση τραγουδιού δεν εμφανίζει πλέον ωμό HTML όταν ο server επιστρέψει προσωρινό 502/503/504, αλλά καθαρό μήνυμα επανάληψης.",
+      "Η ανανέωση PWA μετά από νέα έκδοση γίνεται όταν ο χρήστης είναι αδρανής, ώστε να μη φαίνεται σαν δεύτερη φόρτωση πάνω στην πρώτη χρήση ή μέσα σε φόρμα.",
+    ],
+  },
   {
     version: "3.0.59",
     date: "2026-06-21",

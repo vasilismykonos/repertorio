@@ -388,6 +388,34 @@ export default function SongEditForm({
     form?.requestSubmit();
   }
 
+  function buildSaveErrorMessage(status: number, statusText: string, responseText: string) {
+    const cleanText = responseText.trim();
+    const looksLikeHtml =
+      cleanText.startsWith("<!DOCTYPE") ||
+      cleanText.startsWith("<html") ||
+      /<title>.*<\/title>/i.test(cleanText);
+
+    if (status === 502 || status === 503 || status === 504 || looksLikeHtml) {
+      return "Αποτυχία αποθήκευσης τραγουδιού: ο server δεν απάντησε σωστά. Δοκίμασε ξανά σε λίγο.";
+    }
+
+    if (!cleanText) {
+      return `Αποτυχία αποθήκευσης τραγουδιού: HTTP ${status}${statusText ? ` ${statusText}` : ""}`;
+    }
+
+    try {
+      const parsed = JSON.parse(cleanText);
+      const message = parsed?.message || parsed?.error;
+      if (message) {
+        return `Αποτυχία αποθήκευσης τραγουδιού: ${message}`;
+      }
+    } catch {
+      // Keep the plain text fallback below.
+    }
+
+    return `Αποτυχία αποθήκευσης τραγουδιού: HTTP ${status}${statusText ? ` ${statusText}` : ""}\n${cleanText}`;
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (isBusy) return;
@@ -532,11 +560,7 @@ export default function SongEditForm({
 
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        alert(
-          `Αποτυχία αποθήκευσης τραγουδιού: HTTP ${res.status}${
-            text ? "\n" + text : ""
-          }`,
-        );
+        alert(buildSaveErrorMessage(res.status, res.statusText, text));
         return;
       }
 

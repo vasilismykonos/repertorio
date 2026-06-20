@@ -5,12 +5,14 @@ import { APP_VERSION } from "@/lib/appVersion";
 
 const PAGE_SHELL_URLS = ["/", "/songs", "/lists", "/songs/offline-shell?offlineShell=1", "/lists/offline-shell?offlineShell=1"];
 const APP_VERSION_STORAGE_KEY = "repertorio_app_version";
+const APP_RELOAD_STORAGE_KEY = "repertorio_app_reload_version";
 const CACHE_PREFIXES = ["repertorio-static-", "repertorio-pages-"];
 const PWA_INITIAL_SHELL_WARMUP_DELAY_MS = 5 * 1000;
 const PWA_WARMUP_DELAY_MS = 120 * 1000;
 const PWA_WARMUP_IDLE_TIMEOUT_MS = 15 * 1000;
 const PWA_WARMUP_RETRY_DELAY_MS = 30 * 1000;
 const PWA_USER_IDLE_GRACE_MS = 25 * 1000;
+const PWA_RELOAD_RETRY_DELAY_MS = 10 * 1000;
 
 let lastPwaActivityAt = Date.now();
 
@@ -48,6 +50,40 @@ function pwaUserIsIdle() {
   if (typeof window === "undefined") return false;
   if (document.visibilityState === "hidden") return false;
   return Date.now() - lastPwaActivityAt >= PWA_USER_IDLE_GRACE_MS;
+}
+
+function activeElementIsEditing() {
+  if (typeof document === "undefined") return false;
+  const active = document.activeElement;
+  if (!active) return false;
+  const tagName = active.tagName.toLowerCase();
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    (active as HTMLElement).isContentEditable
+  );
+}
+
+function scheduleSafeAppReload() {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (window.sessionStorage.getItem(APP_RELOAD_STORAGE_KEY) === APP_VERSION) return;
+    window.sessionStorage.setItem(APP_RELOAD_STORAGE_KEY, APP_VERSION);
+  } catch {
+    // Reload throttling is best-effort.
+  }
+
+  const tryReload = () => {
+    if (document.visibilityState === "hidden" || (pwaUserIsIdle() && !activeElementIsEditing())) {
+      window.location.reload();
+      return;
+    }
+    window.setTimeout(tryReload, PWA_RELOAD_RETRY_DELAY_MS);
+  };
+
+  window.setTimeout(tryReload, PWA_RELOAD_RETRY_DELAY_MS);
 }
 
 function installPwaActivityTracking(): () => void {
@@ -132,8 +168,7 @@ export function PwaProvider() {
       const storedVersion = window.localStorage.getItem(APP_VERSION_STORAGE_KEY);
       if (storedVersion && storedVersion !== APP_VERSION) {
         window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
-        void clearOldAppCaches().finally(() => window.location.reload());
-        return;
+        void clearOldAppCaches().finally(scheduleSafeAppReload);
       }
       if (!storedVersion) window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
     } catch {
@@ -151,7 +186,7 @@ export function PwaProvider() {
         if (reloading) return;
         reloading = true;
 
-        window.location.reload();
+        scheduleSafeAppReload();
       };
 
       navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
