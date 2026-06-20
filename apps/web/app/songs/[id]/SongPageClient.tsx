@@ -27,7 +27,11 @@ import SongListPickerModal from "./SongListPickerModal";
 import type { ListItemToneValue } from "@/app/components/ListItemTonePicker";
 import type { Step } from "react-joyride";
 import type { SongDetail } from "./page";
-import { readOfflineListsForCurrentUser, writeOfflineSongDetail } from "@/lib/offlineStore";
+import {
+  readOfflineListsForCurrentUser,
+  readOfflineSongs,
+  writeOfflineSongDetail,
+} from "@/lib/offlineStore";
 
 const GuidedTour = dynamic(
   () =>
@@ -111,9 +115,19 @@ type AddSongToListResponse = {
 
 type ListNavItem = {
   songId: number;
+  title: string | null;
   selectedTonicity: string | null;
   selectedTonicitySign: "+" | "-" | null;
   selectedSingerTuneId: number | null;
+};
+
+type ListNavState = {
+  listId: number;
+  curPos: number;
+  prevPos: number | null;
+  nextPos: number | null;
+  prevSongId: number | null;
+  nextSongId: number | null;
 };
 
 const HEADER_OFFSET_PX = 0;
@@ -122,11 +136,14 @@ const ROOM_POS_STORAGE_KEY = "repertorio_room_button_pos_v1";
 const ROOM_MARGIN = 16;
 const DRAG_CLICK_THRESHOLD_PX = 6;
 const LIST_SWIPE_LOCK_PX = 8;
-const LIST_SWIPE_MIN_X = 64;
-const LIST_SWIPE_MAX_Y = 90;
-const LIST_SWIPE_MAX_TIME = 1000;
-const LIST_SWIPE_SETTLE_MS = 120;
-const LIST_SWIPE_RESET_MS = 520;
+const LIST_SWIPE_MIN_X = 28;
+const LIST_SWIPE_DISTANCE_RATIO = 0.09;
+const LIST_SWIPE_MAX_TRIGGER_X = 48;
+const LIST_SWIPE_FLICK_MIN_X = 22;
+const LIST_SWIPE_FLICK_VELOCITY = 0.24;
+const LIST_SWIPE_MAX_Y = 120;
+const LIST_SWIPE_SETTLE_MS = 170;
+const LIST_SWIPE_NAV_FALLBACK_MS = 5000;
 const LIST_SWIPE_MAX_VISUAL_OFFSET = 360;
 
 const TOUR_STORAGE_KEY = "tour_song_page_v1";
@@ -276,6 +293,7 @@ function normalizeListNavItem(item: any): ListNavItem | null {
 
   return {
     songId: Math.trunc(songId),
+    title: nullableText(item?.title ?? item?.songTitle ?? item?.song_title ?? item?.name),
     selectedTonicity: nullableText(item?.selectedTonicity ?? item?.selected_tonicity),
     selectedTonicitySign: nullableSign(item?.selectedTonicitySign ?? item?.selected_tonicity_sign),
     selectedSingerTuneId:
@@ -303,6 +321,7 @@ function normalizeListNavItemsFromPayload(data: any): ListNavItem[] {
         .filter((n) => Number.isFinite(n) && n > 0)
         .map((songId) => ({
           songId: Math.trunc(songId),
+          title: null,
           selectedTonicity: null,
           selectedTonicitySign: null,
           selectedSingerTuneId: null,
@@ -366,6 +385,255 @@ function isSafeExternalHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function cleanSongText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") return cleanSongText(String(value));
+
+  const text = value.trim();
+  if (!text) return null;
+
+  const upper = text.toUpperCase();
+  if (upper === "NULL" || upper === "UNDEFINED" || upper === "N/A") return null;
+
+  return text;
+}
+
+function pickSongText(...values: unknown[]): string | null {
+  for (const value of values) {
+    const text = cleanSongText(value);
+    if (text) return text;
+  }
+  return null;
+}
+
+function normalizeSongTagsForClient(raw: unknown): SongDetail["tags"] {
+  if (!Array.isArray(raw)) return [];
+  const byId = new Map<number, SongDetail["tags"][number]>();
+
+  for (const tag of raw as any[]) {
+    const id = Number(tag?.id);
+    const title = cleanSongText(tag?.title);
+    if (!Number.isFinite(id) || id <= 0 || !title) continue;
+
+    if (!byId.has(id)) {
+      byId.set(id, {
+        id,
+        title,
+        slug: cleanSongText(tag?.slug) || "",
+      });
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
+function normalizeSongAssetsForClient(raw: unknown): SongDetail["assets"] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((asset: any) => {
+      const id = Number(asset?.id);
+      if (!Number.isFinite(id) || id <= 0) return null;
+
+      const sort = Number(asset?.sort);
+
+      return {
+        id,
+        kind: String(asset?.kind ?? "").toUpperCase() === "LINK" ? "LINK" : "FILE",
+        type: String(asset?.type ?? "GENERIC").toUpperCase(),
+        title: cleanSongText(asset?.title),
+        url: cleanSongText(asset?.url),
+        filePath: cleanSongText(asset?.filePath ?? asset?.file_path),
+        mimeType: cleanSongText(asset?.mimeType ?? asset?.mime_type),
+        sizeBytes: cleanSongText(asset?.sizeBytes ?? asset?.size_bytes),
+        label: cleanSongText(asset?.label),
+        sort: Number.isFinite(sort) ? sort : 0,
+        isPrimary: asset?.isPrimary === true || asset?.is_primary === true,
+      } satisfies SongDetail["assets"][number];
+    })
+    .filter((asset): asset is SongDetail["assets"][number] => Boolean(asset))
+    .sort((a, b) => {
+      if (a.sort !== b.sort) return a.sort - b.sort;
+      return a.id - b.id;
+    });
+}
+
+function normalizeSongVersionsForClient(raw: unknown): SongDetail["versions"] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw.map((version: any, index: number) => {
+    const id = Number(version?.id ?? version?.versionId ?? version?.version_id ?? index + 1);
+    const yearRaw = version?.year ?? version?.Year ?? version?.releaseYear ?? version?.release_year;
+    const year = Number(yearRaw);
+
+    return {
+      id: Number.isFinite(id) && id > 0 ? id : index + 1,
+      year: Number.isFinite(year) ? year : null,
+      singerFront: pickSongText(
+        version?.singerFront,
+        version?.singer_front,
+        version?.singer_front_name,
+        version?.singerFrontName,
+        version?.singerFrontTitle,
+      ),
+      singerBack: pickSongText(
+        version?.singerBack,
+        version?.singer_back,
+        version?.singer_back_name,
+        version?.singerBackName,
+      ),
+      solist: pickSongText(
+        version?.solist,
+        version?.soloist,
+        version?.solist_name,
+        version?.soloist_name,
+        version?.solistName,
+        version?.soloistName,
+      ),
+      youtubeSearch: pickSongText(
+        version?.youtubeSearch,
+        version?.youtube_search,
+        version?.youtubeQuery,
+        version?.youtube_query,
+      ),
+      singerFrontId:
+        version?.singerFrontId ?? version?.singer_front_id ?? version?.singerfront_id ?? null,
+      singerBackId:
+        version?.singerBackId ?? version?.singer_back_id ?? version?.singerback_id ?? null,
+      solistId: version?.solistId ?? version?.soloistId ?? version?.solist_id ?? version?.soloist_id ?? null,
+    };
+  });
+}
+
+function normalizeSongDetailForClient(raw: any): SongDetail | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  const id = Number(raw.id ?? raw.songId ?? raw.song_id ?? raw.legacySongId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  const assets = normalizeSongAssetsForClient(raw.assets);
+  const title = cleanSongText(raw.title) || `Τραγούδι #${Math.trunc(id)}`;
+
+  return {
+    id: Math.trunc(id),
+    title,
+    firstLyrics: raw.firstLyrics ?? raw.first_lyrics ?? null,
+    lyrics: raw.lyrics ?? null,
+    characteristics: raw.characteristics ?? null,
+    originalKey: raw.originalKey ?? raw.original_key ?? null,
+    originalKeySign: nullableSign(raw.originalKeySign ?? raw.original_key_sign),
+    chords: raw.chords ?? null,
+    status: raw.status ?? null,
+
+    categoryId: raw.categoryId ?? raw.category_id ?? null,
+    rythmId: raw.rythmId ?? raw.rythm_id ?? raw.rhythmId ?? raw.rhythm_id ?? null,
+    makamId: raw.makamId ?? raw.makam_id ?? null,
+
+    categoryTitle: raw.categoryTitle ?? raw.category_title ?? null,
+    composerName: raw.composerName ?? raw.composer_name ?? null,
+    lyricistName: raw.lyricistName ?? raw.lyricist_name ?? null,
+    rythmTitle:
+      raw.rythmTitle ?? raw.rythm_title ?? raw.rhythmTitle ?? raw.rhythm_title ?? null,
+    basedOnSongId: raw.basedOnSongId ?? raw.based_on_song_id ?? null,
+    basedOnSongTitle: raw.basedOnSongTitle ?? raw.based_on_song_title ?? null,
+    views: typeof raw.views === "number" ? raw.views : Number(raw.views ?? 0) || 0,
+
+    createdByUserId:
+      raw.createdByUserId ??
+      raw.createdById ??
+      raw.created_by_user_id ??
+      raw.created_by_id ??
+      null,
+    createdByDisplayName:
+      raw.createdByDisplayName ??
+      raw.createdByName ??
+      raw.created_by_display_name ??
+      raw.created_by_name ??
+      null,
+
+    tags: normalizeSongTagsForClient(raw.tags),
+    hasScore: Boolean(raw.hasScore ?? raw.partiture) || assets.some((asset) => isMxlScoreAsset(asset)),
+    assets,
+    versions: normalizeSongVersionsForClient(raw.versions),
+  };
+}
+
+function songIsOrganicForClient(song: SongDetail): boolean {
+  const byTags = song.tags.some((tag) => {
+    const title = String(tag.title || "").trim().toLocaleLowerCase("el-GR");
+    const slug = String(tag.slug || "").trim().toLocaleLowerCase("el-GR");
+    return title === "οργανικό" || slug === "οργανικό";
+  });
+  if (byTags) return true;
+
+  return String(song.characteristics || "")
+    .split(",")
+    .map((item) => item.trim().toLocaleLowerCase("el-GR"))
+    .some((item) => item === "οργανικό");
+}
+
+function finalLyricsForSong(song: SongDetail): string {
+  if (songIsOrganicForClient(song)) return "(Οργανικό)";
+  if (!song.lyrics || song.lyrics.trim() === "") return "(Χωρίς διαθέσιμους στίχους)";
+  return song.lyrics;
+}
+
+function youtubeUrlForSong(song: SongDetail): string {
+  const words = String(song.firstLyrics || song.lyrics || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 5)
+    .join(" ");
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${song.title} ${words}`.trim())}`;
+}
+
+function offlineSongIdForClient(value: any): number | null {
+  const id = Math.trunc(Number(value?.id ?? value?.legacySongId ?? value?.song_id ?? value?.songId));
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+async function readOfflineSongDetailForClient(songId: number): Promise<SongDetail | null> {
+  const id = Math.trunc(Number(songId));
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  const snapshot = await readOfflineSongs().catch(() => null);
+  const detail = snapshot?.detailsById?.[String(id)] || null;
+  if (detail) return normalizeSongDetailForClient(detail);
+
+  const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+  const summary = items.find((item: any) => offlineSongIdForClient(item) === id) || null;
+  return summary ? normalizeSongDetailForClient(summary) : null;
+}
+
+async function loadSongDetailForClient(songId: number): Promise<SongDetail | null> {
+  const id = Math.trunc(Number(songId));
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  const offlineDetailPromise = readOfflineSongDetailForClient(id).catch(() => null);
+  const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+  if (isOffline) return offlineDetailPromise;
+
+  try {
+    const res = await fetch(`/api/songs/${id}?noIncrement=1`, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    const data = await readJson(res);
+    if (res.ok) {
+      const detail = normalizeSongDetailForClient(data);
+      if (detail) {
+        void writeOfflineSongDetail(detail).catch(() => null);
+        return detail;
+      }
+    }
+  } catch {
+    // Fall back to offline cache below.
+  }
+
+  return offlineDetailPromise;
 }
 
 export default function SongPageClient(props: Props) {
@@ -524,7 +792,7 @@ export default function SongPageClient(props: Props) {
     return idx >= 0 ? idx : null;
   }, [listId, listPosParam, listSongIds, song.id]);
 
-  const listNav = useMemo(() => {
+  const listNav = useMemo<ListNavState | null>(() => {
     if (!listId) return null;
     if (!listSongIds || listSongIds.length === 0) return null;
     if (resolvedPos === null) return null;
@@ -545,6 +813,25 @@ export default function SongPageClient(props: Props) {
     };
   }, [listId, listSongIds, resolvedPos]);
 
+  function listNavForPos(pos: number | null | undefined): ListNavState | null {
+    if (!listId || !listSongIds || pos === null || pos === undefined) return null;
+    if (pos < 0 || pos >= listSongIds.length) return null;
+
+    const prevPos = pos - 1;
+    const nextPos = pos + 1;
+    const prevSongId = prevPos >= 0 && prevPos < listSongIds.length ? listSongIds[prevPos] : null;
+    const nextSongId = nextPos >= 0 && nextPos < listSongIds.length ? listSongIds[nextPos] : null;
+
+    return {
+      listId,
+      curPos: pos,
+      prevPos: prevSongId ? prevPos : null,
+      nextPos: nextSongId ? nextPos : null,
+      prevSongId,
+      nextSongId,
+    };
+  }
+
   const currentListNavItem =
     resolvedPos !== null && listNavItems && resolvedPos >= 0 && resolvedPos < listNavItems.length
       ? listNavItems[resolvedPos]
@@ -555,6 +842,47 @@ export default function SongPageClient(props: Props) {
     urlTonicitySign || currentListNavItem?.selectedTonicitySign || null;
   const effectiveSelectedSingerTuneId =
     selectedSingerTuneId || currentListNavItem?.selectedSingerTuneId || null;
+  const adjacentSongCacheRef = useRef<Map<number, SongDetail>>(new Map());
+  const [adjacentSongs, setAdjacentSongs] = useState<{
+    prev: SongDetail | null;
+    next: SongDetail | null;
+  }>({ prev: null, next: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    const prevSongId = listNav?.prevSongId ?? null;
+    const nextSongId = listNav?.nextSongId ?? null;
+
+    setAdjacentSongs({
+      prev: prevSongId ? adjacentSongCacheRef.current.get(prevSongId) ?? null : null,
+      next: nextSongId ? adjacentSongCacheRef.current.get(nextSongId) ?? null : null,
+    });
+
+    async function loadOne(direction: "prev" | "next", songId: number | null) {
+      if (!songId) return;
+
+      const cached = adjacentSongCacheRef.current.get(songId);
+      if (cached) {
+        if (!cancelled) {
+          setAdjacentSongs((current) => ({ ...current, [direction]: cached }));
+        }
+        return;
+      }
+
+      const detail = await loadSongDetailForClient(songId).catch(() => null);
+      if (cancelled || !detail) return;
+
+      adjacentSongCacheRef.current.set(songId, detail);
+      setAdjacentSongs((current) => ({ ...current, [direction]: detail }));
+    }
+
+    void loadOne("prev", prevSongId);
+    void loadOne("next", nextSongId);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [listNav?.prevSongId, listNav?.nextSongId]);
 
   function buildSongHref(targetSongId: number, targetPos: number | null): string {
     if (listNav && targetPos !== null) {
@@ -586,6 +914,7 @@ export default function SongPageClient(props: Props) {
     router.push(buildSongHref(listNav.nextSongId, listNav.nextPos));
   }
 
+  const swipeViewportRef = useRef<HTMLElement | null>(null);
   const [swipeOffsetX, setSwipeOffsetX] = useState(0);
   const [swipeDragging, setSwipeDragging] = useState(false);
   const [swipeSettling, setSwipeSettling] = useState(false);
@@ -638,17 +967,41 @@ export default function SongPageClient(props: Props) {
     return false;
   }
 
+  function hasAdjacentSwipeSurface(dx: number) {
+    if (dx < 0) return Boolean(adjacentSongs.next);
+    if (dx > 0) return Boolean(adjacentSongs.prev);
+    return false;
+  }
+
+  function canCompleteSwipe(dx: number) {
+    return canSwipeDirection(dx) && hasAdjacentSwipeSurface(dx);
+  }
+
+  function swipeViewportWidth() {
+    const measured = swipeViewportRef.current?.getBoundingClientRect().width;
+    if (measured && Number.isFinite(measured) && measured > 0) return measured;
+    if (typeof window !== "undefined" && Number.isFinite(window.innerWidth)) {
+      return window.innerWidth;
+    }
+    return 360;
+  }
+
   function visualSwipeOffset(dx: number) {
-    const viewportWidth =
-      typeof window !== "undefined" && Number.isFinite(window.innerWidth)
-        ? window.innerWidth
-        : 360;
+    const viewportWidth = swipeViewportWidth();
     const maxOffset = Math.min(
       LIST_SWIPE_MAX_VISUAL_OFFSET,
       Math.max(160, viewportWidth * 0.82),
     );
-    const resisted = canSwipeDirection(dx) ? dx : dx * 0.28;
+    const resisted = canCompleteSwipe(dx) ? dx : dx * 0.22;
     return Math.max(-maxOffset, Math.min(maxOffset, resisted));
+  }
+
+  function swipeTriggerDistance() {
+    const viewportWidth = swipeViewportWidth();
+    return Math.min(
+      LIST_SWIPE_MAX_TRIGGER_X,
+      Math.max(LIST_SWIPE_MIN_X, viewportWidth * LIST_SWIPE_DISTANCE_RATIO),
+    );
   }
 
   function lockSwipeAxis(dx: number, dy: number): "x" | "y" | null {
@@ -667,11 +1020,15 @@ export default function SongPageClient(props: Props) {
   function finishSwipe(dx: number, dy: number, dt: number) {
     const adx = Math.abs(dx);
     const ady = Math.abs(dy);
+    const velocity = dt > 0 ? adx / dt : 0;
+    const triggerDistance = swipeTriggerDistance();
+    const mostlyHorizontal = ady <= Math.max(LIST_SWIPE_MAX_Y, adx * 0.7);
+    const passedDistance = adx >= triggerDistance;
+    const flicked = adx >= LIST_SWIPE_FLICK_MIN_X && velocity >= LIST_SWIPE_FLICK_VELOCITY;
     const shouldNavigate =
-      adx >= LIST_SWIPE_MIN_X &&
-      ady <= LIST_SWIPE_MAX_Y &&
-      dt <= LIST_SWIPE_MAX_TIME &&
-      canSwipeDirection(dx);
+      mostlyHorizontal &&
+      (passedDistance || flicked) &&
+      canCompleteSwipe(dx);
 
     setSwipeDragging(false);
 
@@ -686,10 +1043,7 @@ export default function SongPageClient(props: Props) {
       return;
     }
 
-    const viewportWidth =
-      typeof window !== "undefined" && Number.isFinite(window.innerWidth)
-        ? window.innerWidth
-        : 360;
+    const viewportWidth = swipeViewportWidth();
     const exitOffset = dx < 0 ? -viewportWidth : viewportWidth;
 
     setSwipeSettling(true);
@@ -703,7 +1057,7 @@ export default function SongPageClient(props: Props) {
         setSwipeOffsetX(0);
         setSwipeSettling(false);
         swipeResetTimerRef.current = null;
-      }, LIST_SWIPE_RESET_MS);
+      }, LIST_SWIPE_NAV_FALLBACK_MS);
     }, LIST_SWIPE_SETTLE_MS);
   }
 
@@ -716,6 +1070,29 @@ export default function SongPageClient(props: Props) {
     pointerSwipeRef.current = null;
     resetSwipeVisual();
   }, [song.id, listId]);
+
+  useEffect(() => {
+    if (!listNav) return;
+
+    try {
+      if (listNav.prevSongId && listNav.prevPos !== null) {
+        router.prefetch(buildSongHref(listNav.prevSongId, listNav.prevPos));
+      }
+      if (listNav.nextSongId && listNav.nextPos !== null) {
+        router.prefetch(buildSongHref(listNav.nextSongId, listNav.nextPos));
+      }
+    } catch {
+      // Prefetch is an enhancement; normal navigation still works without it.
+    }
+  }, [
+    listNav?.listId,
+    listNav?.prevSongId,
+    listNav?.prevPos,
+    listNav?.nextSongId,
+    listNav?.nextPos,
+    listNavItems,
+    router,
+  ]);
 
   function onTouchStart(e: React.TouchEvent) {
     if (!hasListContext) return;
@@ -749,7 +1126,6 @@ export default function SongPageClient(props: Props) {
     }
 
     if (touchRef.current.lock === "x") {
-      e.preventDefault();
       updateSwipeVisual(dx);
     }
   }
@@ -1663,16 +2039,367 @@ export default function SongPageClient(props: Props) {
 
   const swipeIsActive = swipeDragging || swipeSettling || Math.abs(swipeOffsetX) > 0.5;
 
+  function renderAdjacentSongSurface(direction: "prev" | "next", viewSong: SongDetail) {
+    const pos = direction === "next" ? listNav?.nextPos : listNav?.prevPos;
+    const viewNav = listNavForPos(pos);
+    const viewItem = pos !== null && pos !== undefined ? listNavItems?.[pos] || null : null;
+    const viewAssets: any[] = Array.isArray((viewSong as any).assets) ? (viewSong as any).assets : [];
+    const viewHasAssets = viewAssets.length > 0;
+    const viewHasScores =
+      Boolean((viewSong as any).hasScore) || viewAssets.some((asset) => isMxlScoreAsset(asset));
+    const viewHasChords = Boolean(viewSong.chords && viewSong.chords.trim() !== "");
+    const viewYoutubeUrl = youtubeUrlForSong(viewSong);
+    const viewSafeYoutubeUrl = isSafeExternalHttpUrl(viewYoutubeUrl) ? viewYoutubeUrl : "";
+    const viewFinalLyrics = finalLyricsForSong(viewSong);
+    const viewSelectedTonicity = viewItem?.selectedTonicity || null;
+    const viewSelectedTonicitySign = viewItem?.selectedTonicitySign || null;
+    const viewSelectedSingerTuneId = viewItem?.selectedSingerTuneId || null;
+    const noop = () => {};
+
+    return (
+      <div
+        style={{
+          background: "#000",
+          minHeight: "100%",
+          paddingBottom: 28,
+        }}
+      >
+        <ActionBar
+          left={<>{A.backLink({ href: backHref, title: backTitle, label: backLabel })}</>}
+          right={
+            <>
+              {viewSafeYoutubeUrl ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={noop}
+                  title="Άνοιγμα αναζήτησης στο YouTube"
+                  aria-label="Άνοιγμα αναζήτησης στο YouTube"
+                  icon={PlayCircle}
+                >
+                  YouTube
+                </Button>
+              ) : null}
+
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={noop}
+                title="Προσθήκη του τραγουδιού σε λίστα"
+                aria-label="Προσθήκη του τραγουδιού σε λίστα"
+                icon={ListMusic}
+              >
+                Σε λίστα
+              </Button>
+
+              {A.help({ title: "Βοήθεια", label: "Βοήθεια", onClick: noop })}
+              {A.share({ shareTitle: viewSong.title, label: "Share" })}
+
+              {canEdit
+                ? A.editLink({
+                    href: `/songs/${viewSong.id}/edit`,
+                    title: "Επεξεργασία τραγουδιού",
+                    label: "Επεξεργασία",
+                  })
+                : null}
+            </>
+          }
+        />
+
+        <header style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 8 }}>
+            <h1
+              style={{
+                fontSize: "1.8rem",
+                fontWeight: 700,
+                margin: 0,
+                lineHeight: 1.1,
+              }}
+            >
+              {viewSong.title}
+            </h1>
+
+            {viewSong.rythmTitle ? (
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: "0.9rem",
+                  lineHeight: 1.1,
+                  color: "#aaa",
+                }}
+              >
+                {viewSong.rythmTitle}
+              </div>
+            ) : null}
+          </div>
+
+          {viewNav ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginTop: 10,
+                flexWrap: "wrap",
+              }}
+            >
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={noop}
+                disabled={!viewNav.prevSongId || viewNav.prevPos === null}
+                title="Προηγούμενο τραγούδι"
+                aria-label="Προηγούμενο τραγούδι"
+                icon={ChevronLeft}
+              />
+
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={noop}
+                title="Επιστροφή στη λίστα"
+                aria-label="Επιστροφή στη λίστα"
+                icon={ListMusic}
+              >
+                Λίστα
+              </Button>
+
+              <div
+                style={{
+                  fontSize: "0.95rem",
+                  opacity: 0.85,
+                  padding: "6px 14px",
+                  borderRadius: 999,
+                  border: "1px solid #333",
+                  background: "#111",
+                  minWidth: 70,
+                  textAlign: "center",
+                }}
+                title="Θέση στη λίστα"
+              >
+                {viewNav.curPos + 1} / {listSongIds?.length ?? 0}
+              </div>
+
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={noop}
+                disabled={!viewNav.nextSongId || viewNav.nextPos === null}
+                title="Επόμενο τραγούδι"
+                aria-label="Επόμενο τραγούδι"
+                icon={ChevronRight}
+              />
+            </div>
+          ) : null}
+        </header>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6, marginBottom: 14 }}>
+          <span style={{ display: "inline-flex" }}>
+            <Button
+              type="button"
+              variant={panels.singerTunes ? "primary" : "secondary"}
+              onClick={noop}
+              title={panels.singerTunes ? "Απόκρυψη τονικοτήτων" : "Εμφάνιση τονικοτήτων"}
+              aria-pressed={panels.singerTunes}
+              icon={Mic}
+            >
+              Tunes
+            </Button>
+          </span>
+
+          <span style={{ display: "inline-flex" }}>
+            <Button
+              type="button"
+              variant={panels.info ? "primary" : "secondary"}
+              onClick={noop}
+              title={panels.info ? "Απόκρυψη πληροφοριών" : "Εμφάνιση πληροφοριών"}
+              aria-pressed={panels.info}
+              icon={Info}
+            >
+              Info
+            </Button>
+          </span>
+
+          <span style={{ display: "inline-flex" }}>
+            <Button
+              type="button"
+              variant={panels.chords ? "primary" : "secondary"}
+              onClick={noop}
+              title={
+                !viewHasChords
+                  ? "Δεν υπάρχουν ακόρντα για αυτό το τραγούδι"
+                  : panels.chords
+                    ? "Απόκρυψη ακόρντων"
+                    : "Εμφάνιση ακόρντων"
+              }
+              aria-pressed={panels.chords}
+              icon={Guitar}
+              disabled={!viewHasChords}
+            >
+              Chords
+            </Button>
+          </span>
+
+          <span style={{ display: "inline-flex" }}>
+            <Button
+              type="button"
+              variant={panels.scores ? "primary" : "secondary"}
+              onClick={noop}
+              title={
+                !viewHasScores
+                  ? "Δεν υπάρχει παρτιτούρα MXL για αυτό το τραγούδι"
+                  : panels.scores
+                    ? "Απόκρυψη παρτιτούρας"
+                    : "Εμφάνιση παρτιτούρας"
+              }
+              aria-pressed={panels.scores}
+              icon={Music}
+              disabled={!viewHasScores}
+            >
+              Scores
+            </Button>
+          </span>
+
+          <SongAssetsPanel
+            open={panels.assets}
+            hasAssets={viewHasAssets}
+            assets={viewAssets}
+            onToggle={noop}
+          />
+        </div>
+
+        {viewSong.tags.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+            {viewSong.tags.map((tag) => (
+              <span
+                key={tag.id}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 99,
+                  border: "1px solid #333",
+                  background: "#111",
+                  fontSize: 14,
+                }}
+                title={tag.slug ? `slug: ${tag.slug}` : undefined}
+              >
+                #{tag.title}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div
+          style={{
+            height: 1,
+            background: "linear-gradient(to right, #333, transparent)",
+            marginBottom: 14,
+            marginTop: 14,
+          }}
+        />
+
+        <SongInfoToggle
+          open={panels.info}
+          songTitle={viewSong.title}
+          categoryTitle={viewSong.categoryTitle}
+          composerName={viewSong.composerName}
+          lyricistName={viewSong.lyricistName}
+          rythmTitle={viewSong.rythmTitle}
+          basedOnSongTitle={viewSong.basedOnSongTitle}
+          basedOnSongId={viewSong.basedOnSongId}
+          characteristics={viewSong.characteristics}
+          views={viewSong.views}
+          createdByUserId={viewSong.createdByUserId}
+          createdByDisplayName={viewSong.createdByDisplayName}
+          status={viewSong.status}
+          versions={viewSong.versions}
+        />
+
+        <SongSingerTunesClient
+          open={panels.singerTunes}
+          songId={viewSong.id}
+          originalKeySign={viewSong.originalKeySign}
+          selectedSingerTuneId={viewSelectedSingerTuneId}
+        />
+
+        {viewHasChords && panels.chords ? (
+          <section style={{ marginTop: 0, marginBottom: 0 }}>
+            <SongChordsClient
+              songId={viewSong.id}
+              chords={viewSong.chords}
+              originalKey={viewSong.originalKey}
+              originalKeySign={viewSong.originalKeySign}
+              urlTonicity={viewSelectedTonicity}
+              urlTonicitySign={viewSelectedTonicitySign}
+            />
+          </section>
+        ) : null}
+
+        <section style={{ marginTop: 0, marginBottom: 24 }}>
+          <pre
+            style={{
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
+              padding: "6px 10px",
+              margin: 0,
+              borderRadius: 10,
+              border: "1px solid #333",
+              background: "#0b0b0b",
+              fontSize: Math.round(LYRICS_BASE_FONT_SIZE * lyricsScale),
+              lineHeight: 1.12,
+              touchAction: "pan-y",
+              WebkitTextSizeAdjust: "100%",
+            }}
+          >
+            {viewFinalLyrics}
+          </pre>
+        </section>
+
+        <SongScoresPanel open={panels.scores} assets={viewAssets} />
+      </div>
+    );
+  }
+
+  function renderAdjacentLayer(direction: "prev" | "next", viewSong: SongDetail | null) {
+    if (!viewSong) return null;
+
+    const sideTransform =
+      direction === "next"
+        ? `translate3d(calc(100% + ${swipeOffsetX}px), 0, 0)`
+        : `translate3d(calc(-100% + ${swipeOffsetX}px), 0, 0)`;
+
+    return (
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          zIndex: 0,
+          pointerEvents: "none",
+          visibility: swipeIsActive ? "visible" : "hidden",
+          transform: sideTransform,
+          transition: swipeDragging
+            ? "none"
+            : `transform ${LIST_SWIPE_SETTLE_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+          willChange: swipeIsActive ? "transform" : undefined,
+        }}
+      >
+        {renderAdjacentSongSurface(direction, viewSong)}
+      </div>
+    );
+  }
+
   return (
     <section
+      ref={swipeViewportRef}
       style={{
         padding: "0px 10px",
         maxWidth: 900,
         margin: "0 auto",
         touchAction: "pan-y",
-        transform: swipeIsActive ? `translate3d(${swipeOffsetX}px, 0, 0)` : undefined,
-        transition: swipeDragging ? "none" : "transform 140ms cubic-bezier(0.22, 1, 0.36, 1)",
-        willChange: swipeIsActive ? "transform" : undefined,
+        position: "relative",
+        overflowX: "hidden",
+        isolation: "isolate",
       }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
@@ -1683,6 +2410,18 @@ export default function SongPageClient(props: Props) {
       onPointerUp={onPointerUpSection}
       onPointerCancel={cancelSwipeGesture}
     >
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          background: "#000",
+          transform: swipeIsActive ? `translate3d(${swipeOffsetX}px, 0, 0)` : undefined,
+          transition: swipeDragging
+            ? "none"
+            : `transform ${LIST_SWIPE_SETTLE_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+          willChange: swipeIsActive ? "transform" : undefined,
+        }}
+      >
       <ActionBar
         left={<>{A.backLink({ href: backHref, title: backTitle, label: backLabel })}</>}
         right={
@@ -2041,6 +2780,10 @@ export default function SongPageClient(props: Props) {
       <SongScoresPanel open={panels.scores} assets={(song as any).assets ?? []} />
 
       {schemaNode}
+      </div>
+
+      {renderAdjacentLayer("prev", adjacentSongs.prev)}
+      {renderAdjacentLayer("next", adjacentSongs.next)}
 
       <div
         data-no-swipe

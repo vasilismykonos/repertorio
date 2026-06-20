@@ -220,42 +220,47 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
   return (
     <section style={{ padding: "1rem" }}>
       <ActionBar
-        left={
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-            {A.backLink({ href: "/lists", label: "Πίσω" })}
-
-            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              {marked ? (
-                <span
-                  aria-label="Αγαπημένη λίστα"
-                  title="Αγαπημένη λίστα"
-                  style={{
-                    color: "#f5a623",
-                    fontSize: 20,
-                    lineHeight: 1,
-                    textShadow: "0 1px 2px rgba(0,0,0,0.35)",
-                    flex: "0 0 auto",
-                  }}
-                >
-                  ★
-                </span>
-              ) : null}
-
+        left={A.backLink({ href: "/lists", label: "Πίσω" })}
+        title={
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              minWidth: 0,
+              maxWidth: "100%",
+              overflow: "hidden",
+            }}
+          >
+            {marked ? (
               <span
+                aria-label="Αγαπημένη λίστα"
+                title="Αγαπημένη λίστα"
                 style={{
-                  fontWeight: 900,
-                  fontSize: 16,
-                  letterSpacing: 0.2,
-                  color: "rgba(255,255,255,0.96)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
+                  color: "#f5a623",
+                  fontSize: 18,
+                  lineHeight: 1,
+                  textShadow: "0 1px 2px rgba(0,0,0,0.35)",
+                  flex: "0 0 auto",
                 }}
-                title={headerTitle}
               >
-                {headerTitle}
+                ★
               </span>
-            </div>
+            ) : null}
+
+            <span
+              style={{
+                minWidth: 0,
+                maxWidth: "100%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={headerTitle}
+            >
+              {headerTitle}
+            </span>
           </div>
         }
         right={

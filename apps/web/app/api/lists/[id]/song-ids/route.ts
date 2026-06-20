@@ -15,6 +15,7 @@ const NO_STORE_HEADERS = {
 type ListItemDto = {
   songId: number | null;
   sortId: number;
+  title?: string | null;
   selectedTonicity?: string | null;
   selectedTonicitySign?: "+" | "-" | null;
   selectedSingerTuneId?: number | null;
@@ -54,6 +55,7 @@ export async function GET(
   const songIds: number[] = [];
   const items: Array<{
     songId: number;
+    title: string | null;
     selectedTonicity: string | null;
     selectedTonicitySign: "+" | "-" | null;
     selectedSingerTuneId: number | null;
@@ -66,6 +68,7 @@ export async function GET(
       songIds.push(sid);
       items.push({
         songId: sid,
+        title: typeof it.title === "string" && it.title.trim() ? it.title.trim() : null,
         selectedTonicity:
           typeof it.selectedTonicity === "string" && it.selectedTonicity.trim()
             ? it.selectedTonicity.trim()
