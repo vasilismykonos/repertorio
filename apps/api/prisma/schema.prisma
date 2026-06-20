@@ -54,6 +54,7 @@ model Song {
   updatedAt        DateTime         @updatedAt
   createdByUserId  Int?
   originalKeySign  String?          @db.Char(1)
+  isInstrumental   Boolean          @default(false)
 
   listItems        ListItem[]
 
@@ -75,6 +76,7 @@ model Song {
   @@index([categoryId])
   @@index([rythmId])
   @@index([createdByUserId])
+  @@index([isInstrumental])
 }
 
 model SongSingerTune {

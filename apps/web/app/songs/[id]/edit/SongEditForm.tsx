@@ -38,6 +38,7 @@ export type SongForEdit = {
   title: string;
   firstLyrics: string | null;
   lyrics: string | null;
+  isInstrumental: boolean;
 
   composerName?: string | null;
   lyricistName?: string | null;
@@ -224,6 +225,7 @@ export default function SongEditForm({
   const [statusValue, setStatusValue] = useState(song.status ?? "PENDING_APPROVAL");
   const [titleLive, setTitleLive] = useState(song.title ?? "");
   const [lyricsLive, setLyricsLive] = useState(song.lyrics ?? "");
+  const [isInstrumental, setIsInstrumental] = useState(Boolean(song.isInstrumental));
 
   const scoreUrl =
     song.hasScore && song.scoreFile ? `/api/scores/${song.scoreFile}` : null;
@@ -485,7 +487,7 @@ export default function SongEditForm({
         lyricistArtistIds = [];
       }
 
-      const firstLyrics = deriveFirstLyricsFromLyrics(lyrics);
+      const firstLyrics = isInstrumental ? null : deriveFirstLyricsFromLyrics(lyrics);
 
       const computedOriginalKey = effectiveOriginalKey ?? null;
       const computedOriginalKeySign = effectiveOriginalKey
@@ -498,7 +500,8 @@ export default function SongEditForm({
       const body: any = {
         title: title.trim() || undefined,
         firstLyrics: firstLyrics ?? undefined,
-        lyrics,
+        lyrics: isInstrumental ? null : lyrics,
+        isInstrumental,
         chords,
         characteristics: song.characteristics ?? null,
         originalKey: computedOriginalKey,
@@ -853,13 +856,52 @@ export default function SongEditForm({
 
             <div className="song-edit-field">
               <label htmlFor="lyrics">Στίχοι</label>
+              <button
+                type="button"
+                onClick={() => setIsInstrumental((value) => !value)}
+                aria-pressed={isInstrumental}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  width: "fit-content",
+                  margin: "0 0 8px",
+                  padding: "7px 12px",
+                  borderRadius: 8,
+                  border: isInstrumental ? "1px solid #00bcd4" : "1px solid #333",
+                  background: isInstrumental ? "#073843" : "#111",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontWeight: 750,
+                }}
+                title="Όταν είναι ενεργό, το τραγούδι αποθηκεύεται ως οργανικό και οι στίχοι απενεργοποιούνται."
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 999,
+                    background: isInstrumental ? "#00d4e6" : "#666",
+                    boxShadow: isInstrumental ? "0 0 0 3px rgba(0,212,230,0.18)" : "none",
+                  }}
+                />
+                {isInstrumental ? "Οργανικό ενεργό" : "Οργανικό τραγούδι"}
+              </button>
+              {isInstrumental && (
+                <div style={{ margin: "0 0 8px", opacity: 0.8, fontSize: 13 }}>
+                  Οι στίχοι είναι απενεργοποιημένοι και θα αποθηκευτούν κενοί.
+                </div>
+              )}
               <textarea
                 id="lyrics"
                 name="lyrics"
                 rows={10}
                 value={lyricsLive}
                 onChange={(e) => setLyricsLive(e.currentTarget.value)}
+                disabled={isInstrumental}
                 className="song-edit-input-light"
+                style={isInstrumental ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
               />
             </div>
 

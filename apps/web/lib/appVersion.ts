@@ -6,9 +6,40 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.52";
+export const APP_VERSION = "3.0.55";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.55",
+    date: "2026-06-20",
+    level: "patch",
+    title: "\u039a\u03b1\u03b8\u03b1\u03c1\u03cc\u03c2 \u03c7\u03b5\u03b9\u03c1\u03b9\u03c3\u03bc\u03cc\u03c2 \u03bf\u03c1\u03b3\u03b1\u03bd\u03b9\u03ba\u03ce\u03bd \u03c4\u03c1\u03b1\u03b3\u03bf\u03c5\u03b4\u03b9\u03ce\u03bd",
+    items: [
+      "\u03a4\u03bf \u03bf\u03c1\u03b3\u03b1\u03bd\u03b9\u03ba\u03cc \u03c4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9 \u03c0\u03bb\u03ad\u03bf\u03bd \u03b1\u03c0\u03bf\u03b8\u03b7\u03ba\u03b5\u03cd\u03b5\u03c4\u03b1\u03b9 \u03c9\u03c2 \u03ba\u03b1\u03b8\u03b1\u03c1\u03cc \u03c0\u03b5\u03b4\u03af\u03bf \u03c3\u03c4\u03bf \u03c4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9 \u03ba\u03b1\u03b9 \u03cc\u03c7\u03b9 \u03c9\u03c2 tag.",
+      "\u03a3\u03c4\u03b7\u03bd \u03b5\u03c0\u03b5\u03be\u03b5\u03c1\u03b3\u03b1\u03c3\u03af\u03b1 \u03c4\u03c1\u03b1\u03b3\u03bf\u03c5\u03b4\u03b9\u03bf\u03cd \u03c0\u03c1\u03bf\u03c3\u03c4\u03ad\u03b8\u03b7\u03ba\u03b5 \u03ba\u03bf\u03c5\u03bc\u03c0\u03af \u03c0\u03ac\u03bd\u03c9 \u03b1\u03c0\u03cc \u03c4\u03bf\u03c5\u03c2 \u03c3\u03c4\u03af\u03c7\u03bf\u03c5\u03c2 \u03c0\u03bf\u03c5 \u03c4\u03bf\u03c5\u03c2 \u03b1\u03c0\u03b5\u03bd\u03b5\u03c1\u03b3\u03bf\u03c0\u03bf\u03b9\u03b5\u03af \u03cc\u03c4\u03b1\u03bd \u03c4\u03bf \u03c4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9 \u03b5\u03af\u03bd\u03b1\u03b9 \u03bf\u03c1\u03b3\u03b1\u03bd\u03b9\u03ba\u03cc.",
+      "\u03a4\u03bf \u03c6\u03af\u03bb\u03c4\u03c1\u03bf \u00ab\u03a7\u03c9\u03c1\u03af\u03c2 \u03c3\u03c4\u03af\u03c7\u03bf\u03c5\u03c2\u00bb \u03b2\u03b1\u03c3\u03af\u03b6\u03b5\u03c4\u03b1\u03b9 \u03c0\u03bb\u03ad\u03bf\u03bd \u03c3\u03c4\u03bf \u03bd\u03ad\u03bf \u03c0\u03b5\u03b4\u03af\u03bf \u03ba\u03b1\u03b9 \u03c0\u03b1\u03c1\u03b1\u03bc\u03ad\u03bd\u03b5\u03b9 \u03af\u03b4\u03b9\u03bf online/offline.",
+    ],
+  },
+  {
+    version: "3.0.54",
+    date: "2026-06-20",
+    level: "patch",
+    title: "Στίχοι χωρίς οργανικά",
+    items: [
+      "Το φίλτρο «Χωρίς στίχους» δεν περιλαμβάνει πλέον τα τραγούδια με tag «Οργανικό», αφού αυτά φυσιολογικά δεν έχουν στίχους.",
+      "Η ίδια εξαίρεση εφαρμόζεται και στην offline αναζήτηση, ώστε τα αποτελέσματα και οι μετρήσεις να παραμένουν συνεπή.",
+    ],
+  },
+  {
+    version: "3.0.53",
+    date: "2026-06-20",
+    level: "patch",
+    title: "Φίλτρο τραγουδιών σε αναμονή",
+    items: [
+      "Στα φίλτρα αναζήτησης τραγουδιών προστέθηκε η κατάσταση «Σε αναμονή» για τραγούδια με status PENDING_APPROVAL.",
+      "Τα ενεργά φίλτρα εμφανίζουν πλέον καθαρή ελληνική ετικέτα για την κατάσταση αναμονής.",
+    ],
+  },
   {
     version: "3.0.52",
     date: "2026-06-20",

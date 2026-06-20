@@ -337,8 +337,6 @@ export class ElasticSongsController {
     // creator multi-select
     @Query('createdByUserId') createdByUserIdStr?: string,
 
-    // optional: tagId "Οργανικό"
-    @Query('organikoTagId') organikoTagIdStr?: string,
   ) {
     try {
       const take = this.parseNumber(takeStr, 20, 1, 200);
@@ -365,9 +363,6 @@ export class ElasticSongsController {
         nullMeansFalse: true,
       });
       const scoreWanted = this.parseBoolCsv(partitureStr);
-
-      const organikoTagId =
-        this.parseNumber(organikoTagIdStr, 0, 0, 10_000_000) || null;
 
       const tagsIds = this.parseIdsFromAliases(tagsStr, tagIdsStr);
       const listIds = this.parseIdList(listIdsStr);
@@ -439,10 +434,10 @@ export class ElasticSongsController {
         const wantLyrics = lyricsWanted.wantTrue;
         filters.push({ term: { hasLyrics: wantLyrics } });
 
-        // "Χωρίς στίχους" να μην περιλαμβάνει "Οργανικό"
-        if (!wantLyrics && organikoTagId) {
+        // "Χωρίς στίχους" σημαίνει ότι λείπουν στίχοι, όχι οργανικό κομμάτι.
+        if (!wantLyrics) {
           filters.push({
-            bool: { must_not: [{ term: { tagIds: organikoTagId } }] },
+            bool: { must_not: [{ term: { isInstrumental: true } }] },
           });
         }
       }
@@ -624,6 +619,7 @@ export class ElasticSongsController {
         _source: [
           'id',
           'legacySongId',
+          'isInstrumental',
           'title',
           'firstLyrics',
           'lyrics',
@@ -667,17 +663,12 @@ export class ElasticSongsController {
 
           hasChords: { terms: { field: 'hasChords', size: 2 } },
           hasLyrics: { terms: { field: 'hasLyrics', size: 2 } },
-
-          ...(organikoTagId
-            ? {
-                organikoHasLyrics: {
-                  filter: { term: { tagIds: organikoTagId } },
-                  aggs: {
-                    hasLyrics: { terms: { field: 'hasLyrics', size: 2 } },
-                  },
-                },
-              }
-            : {}),
+          instrumentalHasLyrics: {
+            filter: { term: { isInstrumental: true } },
+            aggs: {
+              hasLyrics: { terms: { field: 'hasLyrics', size: 2 } },
+            },
+          },
 
           hasScore: { terms: { field: 'hasScore', size: 2 } },
 

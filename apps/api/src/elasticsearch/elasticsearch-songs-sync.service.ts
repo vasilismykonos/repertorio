@@ -255,7 +255,9 @@ export class ElasticsearchSongsSyncService {
     const computedFirstLyrics = this.computeFirstLyrics(s);
 
     const hasChords = !!String((s as any).chords ?? '').trim();
-    const hasLyrics = !!String((s as any).lyrics ?? '').trim();
+    const isInstrumental = Boolean((s as any).isInstrumental);
+    const hasLyrics =
+      !isInstrumental && !!String((s as any).lyrics ?? '').trim();
     const hasScore =
       Boolean((s as any).hasScore) ||
       !!String((s as any).scoreFile ?? '').trim();
@@ -293,10 +295,11 @@ export class ElasticsearchSongsSyncService {
     return {
       id: s.id,
       legacySongId: (s as any).legacySongId ?? null,
+      isInstrumental,
 
       title: (s as any).title ?? null,
-      firstLyrics: computedFirstLyrics,
-      lyrics: lyrics ?? null,
+      firstLyrics: hasLyrics ? computedFirstLyrics : null,
+      lyrics: hasLyrics ? lyrics ?? null : null,
 
       characteristics: (s as any).characteristics ?? null,
 

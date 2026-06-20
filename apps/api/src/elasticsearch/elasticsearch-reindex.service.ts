@@ -24,6 +24,7 @@ type PreviewItem = {
   title?: string | null;
   firstLyrics?: string | null;
   lyrics?: string | null;
+  isInstrumental?: boolean | null;
 
   // legacy
   characteristics?: string | null;
@@ -176,6 +177,7 @@ export class ElasticsearchReindexService {
           title: { type: 'text', analyzer: 'el_text' },
           firstLyrics: { type: 'text', analyzer: 'el_text' },
           lyrics: { type: 'text', analyzer: 'el_text' },
+          isInstrumental: { type: 'boolean' },
 
           // legacy
           characteristics: this.textWithKeyword(),
@@ -453,7 +455,8 @@ export class ElasticsearchReindexService {
       const computedFirstLyrics = this.computeFirstLyrics(s);
 
       const hasChords = !!String(s?.chords ?? '').trim();
-      const hasLyrics = !!lyrics;
+      const isInstrumental = Boolean(s?.isInstrumental);
+      const hasLyrics = !isInstrumental && !!lyrics;
       const hasScore = !!String(s?.scoreFile ?? '').trim();
 
       const categoryTitle = String(s?.category?.title ?? '').trim() || null;
@@ -489,10 +492,11 @@ export class ElasticsearchReindexService {
         JSON.stringify({
           id: s.id,
           legacySongId: s.legacySongId ?? null,
+          isInstrumental,
 
           title: s.title ?? null,
-          firstLyrics: computedFirstLyrics,
-          lyrics: lyrics ?? null,
+          firstLyrics: hasLyrics ? computedFirstLyrics : null,
+          lyrics: hasLyrics ? lyrics ?? null : null,
 
           characteristics: s.characteristics ?? null,
 
@@ -628,6 +632,7 @@ export class ElasticsearchReindexService {
               title: true,
               firstLyrics: true,
               lyrics: true,
+              isInstrumental: true,
               chords: true,
               characteristics: true,
               categoryId: true,
@@ -735,6 +740,7 @@ export class ElasticsearchReindexService {
           'title',
           'firstLyrics',
           'lyrics',
+          'isInstrumental',
           'characteristics',
           'tagIds',
           'tagTitles',

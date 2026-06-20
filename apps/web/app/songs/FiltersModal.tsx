@@ -145,6 +145,12 @@ function normalizeYearDraft(raw: string): string {
   return String(raw ?? "").replace(/[^\d]/g, "").slice(0, 4);
 }
 
+const STATUS_OPTIONS = [
+  { key: "PUBLISHED", label: "Δημοσιευμένο" },
+  { key: "PENDING_APPROVAL", label: "Σε αναμονή" },
+  { key: "DRAFT", label: "Πρόχειρο" },
+];
+
 // ---------------- styles ----------------
 
 const sectionStyle: React.CSSProperties = {
@@ -415,10 +421,9 @@ export function FiltersPanel(props: FiltersPanelProps) {
 
   const summaryStatus = (() => {
     const s = statusSet;
-    const out: string[] = [];
-    if (s.has("PUBLISHED")) out.push("Δημοσιευμένο");
-    if (s.has("DRAFT")) out.push("Πρόχειρο");
-    return out.join(", ");
+    return STATUS_OPTIONS.filter((option) => s.has(option.key))
+      .map((option) => option.label)
+      .join(", ");
   })();
 
   const summaryCreatedBy = firstLabelByValue(createdByOptions, createdByUserId);
@@ -737,10 +742,7 @@ export function FiltersPanel(props: FiltersPanelProps) {
           title="Κατάσταση"
           summary={summaryStatus}
         >
-          {[
-            { key: "PUBLISHED", label: "Δημοσιευμένο" },
-            { key: "DRAFT", label: "Πρόχειρο" },
-          ].map((s) => (
+          {STATUS_OPTIONS.map((s) => (
             <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#ddd" }}>
               <input
                 type="checkbox"

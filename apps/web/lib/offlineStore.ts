@@ -709,8 +709,13 @@ function offlineSearchScore(song: any, tokens: string[]): number {
 }
 
 function songHasLyrics(song: any): boolean {
+  if (songIsInstrumental(song)) return false;
   if (typeof song?.hasLyrics !== "undefined") return boolish(song.hasLyrics);
   return String(song?.lyrics || "").trim().length > 0;
+}
+
+function songIsInstrumental(song: any): boolean {
+  return boolish(song?.isInstrumental);
 }
 
 function songYears(song: any): number[] {
@@ -745,6 +750,13 @@ function matchesOfflineFilters(song: any, filters: any, tokens: string[]): boole
   if (!matchesTri(filters?.chords, song?.hasChords ?? song?.chords)) return false;
   if (!matchesTri(filters?.partiture, song?.hasScore ?? song?.partiture)) return false;
   if (!matchesTri(filters?.lyrics, songHasLyrics(song))) return false;
+  if (
+    csvValues(filters?.lyrics).includes("0") &&
+    !csvValues(filters?.lyrics).includes("1") &&
+    songIsInstrumental(song)
+  ) {
+    return false;
+  }
   if (!oneIdMatch(filters?.category_id, song?.categoryId ?? song?.category_id)) return false;
   if (!oneIdMatch(filters?.rythm_id, song?.rythmId ?? song?.rythm_id ?? song?.rhythmId ?? song?.rhythm_id)) return false;
   if (!anyCsvMatch(filters?.tagIds, song?.tagIds)) return false;
@@ -808,6 +820,7 @@ function buildOfflineAggs(items: any[]) {
   const front = new Map<string, { count: number; label?: string }>();
   const back = new Map<string, { count: number; label?: string }>();
   let hasChords = 0, noChords = 0, hasScore = 0, noScore = 0, hasLyrics = 0, noLyrics = 0;
+  let instrumentalTotal = 0, instrumentalHasLyrics = 0, instrumentalNoLyrics = 0;
 
   for (const song of items) {
     addCount(category, song?.categoryId ?? song?.category_id, song?.categoryTitle ?? song?.category_title ?? song?.category);
@@ -832,10 +845,16 @@ function buildOfflineAggs(items: any[]) {
     }
     if (boolish(song?.hasChords ?? song?.chords)) hasChords += 1; else noChords += 1;
     if (boolish(song?.hasScore ?? song?.partiture)) hasScore += 1; else noScore += 1;
-    if (songHasLyrics(song)) hasLyrics += 1; else noLyrics += 1;
+    const hasSongLyrics = songHasLyrics(song);
+    if (hasSongLyrics) hasLyrics += 1; else noLyrics += 1;
+    if (songIsInstrumental(song)) {
+      instrumentalTotal += 1;
+      if (hasSongLyrics) instrumentalHasLyrics += 1;
+      else instrumentalNoLyrics += 1;
+    }
   }
 
-  return {
+  const aggs: any = {
     categoryId: { buckets: bucketsFromMap(category) },
     rythmId: { buckets: bucketsFromMap(rythm) },
     tagIds: { buckets: bucketsFromMap(tag) },
@@ -850,7 +869,18 @@ function buildOfflineAggs(items: any[]) {
     hasChords: { buckets: [{ key: "1", doc_count: hasChords }, { key: "0", doc_count: noChords }] },
     hasScore: { buckets: [{ key: "1", doc_count: hasScore }, { key: "0", doc_count: noScore }] },
     hasLyrics: { buckets: [{ key: "1", doc_count: hasLyrics }, { key: "0", doc_count: noLyrics }] },
+    instrumentalHasLyrics: {
+      doc_count: instrumentalTotal,
+      hasLyrics: {
+        buckets: [
+          { key: "1", doc_count: instrumentalHasLyrics },
+          { key: "0", doc_count: instrumentalNoLyrics },
+        ],
+      },
+    },
   };
+
+  return aggs;
 }
 
 function songIdValue(song: any): number | null {

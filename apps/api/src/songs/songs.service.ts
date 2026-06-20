@@ -64,6 +64,7 @@ type SongDetailDto = {
   id: number;
   legacySongId: number | null;
   hasScore: boolean;
+  isInstrumental: boolean;
 
   title: string;
   firstLyrics: string | null;
@@ -233,6 +234,7 @@ type UpdateSongBody = {
   title?: string;
   firstLyrics?: string | null;
   lyrics?: string | null;
+  isInstrumental?: boolean | null;
 
   // legacy/compat
   characteristics?: string | null;
@@ -344,6 +346,15 @@ function inferOriginalKeySignFromChords(chords: unknown): '+' | '-' | null {
   if (last[3] !== '+' && last[3] !== '-') return null;
 
   return last[3] === '-' ? '-' : '+';
+}
+
+function normalizeBooleanInput(value: unknown): boolean | null {
+  if (value === true || value === false) return value;
+  if (value === null || value === undefined) return null;
+  const s = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(s)) return true;
+  if (['0', 'false', 'no', 'off'].includes(s)) return false;
+  return null;
 }
 
 function normalizeAssetFileNameLike(
@@ -538,15 +549,19 @@ export class SongsService {
     );
     const versionMeta = this.computeSearchVersionMeta(song?.versions ?? []);
     const hasChords = !!String(song?.chords ?? '').trim();
-    const hasLyrics = !!String(song?.lyrics ?? '').trim();
+    const isInstrumental = Boolean(song?.isInstrumental);
+    const hasLyrics = !isInstrumental && !!String(song?.lyrics ?? '').trim();
     const hasScore =
       Boolean(song?.hasScore) || !!String(song?.scoreFile ?? '').trim();
 
     return {
       id: song.id,
       legacySongId: song.legacySongId ?? null,
+      isInstrumental,
       title: song.title ?? '',
-      firstLyrics: extractFirstLyricsFromLyrics(song.lyrics) ?? song.firstLyrics ?? null,
+      firstLyrics: hasLyrics
+        ? extractFirstLyricsFromLyrics(song.lyrics) ?? song.firstLyrics ?? null
+        : null,
       lyrics: hasLyrics ? song.lyrics ?? null : null,
       characteristics: song.characteristics ?? null,
       originalKey: song.originalKey ?? null,
@@ -881,10 +896,11 @@ export class SongsService {
       id: song.id,
       legacySongId: song.legacySongId,
       hasScore,
+      isInstrumental: Boolean((song as any).isInstrumental),
 
       title: song.title,
-      firstLyrics: song.firstLyrics ?? null,
-      lyrics: song.lyrics ?? null,
+      firstLyrics: (song as any).isInstrumental ? null : song.firstLyrics ?? null,
+      lyrics: (song as any).isInstrumental ? null : song.lyrics ?? null,
 
       characteristics: song.characteristics ?? null,
 
@@ -997,6 +1013,33 @@ export class SongsService {
     }
   }
 
+  private async removeInstrumentalTagIdsTx(
+    tx: any,
+    tagIds: number[],
+  ): Promise<number[]> {
+    const ids = tagIds
+      .map((x) => Math.trunc(Number(x)))
+      .filter((x) => Number.isFinite(x) && x > 0);
+    if (!ids.length) return [];
+
+    const instrumentalTags = await tx.tag.findMany({
+      where: {
+        id: { in: ids },
+        OR: [
+          { title: 'Οργανικό' },
+          { title: { equals: 'οργανικό', mode: 'insensitive' } },
+          { slug: { equals: 'οργανικό', mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true },
+    });
+
+    const blocked = new Set(
+      instrumentalTags.map((tag: any) => Math.trunc(Number(tag.id))),
+    );
+    return ids.filter((id) => !blocked.has(id));
+  }
+
   async updateSong(id: number, body: UpdateSongBody) {
     const existing = await this.prisma.song.findUnique({
       where: { id },
@@ -1008,12 +1051,26 @@ export class SongsService {
     }
 
     const data: any = {};
+    const hasIsInstrumental = Object.prototype.hasOwnProperty.call(
+      body,
+      'isInstrumental',
+    );
+    const isInstrumental = hasIsInstrumental
+      ? normalizeBooleanInput(body.isInstrumental) === true
+      : null;
 
     // --- core fields ---
     if (typeof body.title === 'string') data.title = body.title;
 
+    if (hasIsInstrumental) {
+      data.isInstrumental = isInstrumental === true;
+    }
+
     // ✅ lyrics -> firstLyrics (only if lyrics is provided)
-    if (Object.prototype.hasOwnProperty.call(body, 'lyrics')) {
+    if (isInstrumental === true) {
+      data.lyrics = null;
+      data.firstLyrics = null;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'lyrics')) {
       data.lyrics = body.lyrics;
       data.firstLyrics = extractFirstLyricsFromLyrics(body.lyrics);
     } else if (Object.prototype.hasOwnProperty.call(body, 'firstLyrics')) {
@@ -1110,12 +1167,13 @@ export class SongsService {
               (x) => typeof x === 'number' && Number.isFinite(x),
             )
           : [];
+        const cleanIds = await this.removeInstrumentalTagIdsTx(tx, ids);
 
         await tx.songTag.deleteMany({ where: { songId: id } });
 
-        if (ids.length > 0) {
+        if (cleanIds.length > 0) {
           await tx.songTag.createMany({
-            data: ids.map((tagId) => ({ songId: id, tagId })),
+            data: cleanIds.map((tagId) => ({ songId: id, tagId })),
             skipDuplicates: true,
           });
         }
@@ -1454,6 +1512,8 @@ export class SongsService {
    */
   async createSong(body: UpdateSongBody) {
     const data: any = {};
+    const isInstrumental =
+      normalizeBooleanInput((body as any).isInstrumental) === true;
 
     if (typeof body.title === 'string' && body.title.trim() !== '') {
       data.title = body.title.trim();
@@ -1461,7 +1521,12 @@ export class SongsService {
       throw new BadRequestException('title is required for new song');
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, 'lyrics')) {
+    data.isInstrumental = isInstrumental;
+
+    if (isInstrumental) {
+      data.lyrics = null;
+      data.firstLyrics = null;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'lyrics')) {
       data.lyrics = body.lyrics ?? null;
       data.firstLyrics = extractFirstLyricsFromLyrics(body.lyrics);
     } else if (Object.prototype.hasOwnProperty.call(body, 'firstLyrics')) {
@@ -1548,10 +1613,11 @@ export class SongsService {
               (x) => typeof x === 'number' && Number.isFinite(x),
             )
           : [];
+        const cleanIds = await this.removeInstrumentalTagIdsTx(tx, ids);
 
-        if (ids.length > 0) {
+        if (cleanIds.length > 0) {
           await tx.songTag.createMany({
-            data: ids.map((tagId) => ({ songId, tagId })),
+            data: cleanIds.map((tagId) => ({ songId, tagId })),
             skipDuplicates: true,
           });
         }

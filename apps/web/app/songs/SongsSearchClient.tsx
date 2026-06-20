@@ -31,6 +31,7 @@ type SongSearchItem = {
   title: string;
   firstLyrics: string;
   lyrics: string;
+  isInstrumental?: boolean | null;
 
   characteristics: string;
 
@@ -106,7 +107,7 @@ type EsAggs = {
   hasChords?: EsTermsAgg;
   hasLyrics?: EsTermsAgg;
   hasScore?: EsTermsAgg;
-  organikoHasLyrics?: any;
+  instrumentalHasLyrics?: any;
 
   createdById?: EsTermsAgg;
   status?: EsTermsAgg;
@@ -244,22 +245,6 @@ type Chip = {
   onRemove: () => void;
 };
 
-function findOrganikoTagId(tags: TagDto[]): string | null {
-  for (const t of tags || []) {
-    const title = String(t?.title ?? "").trim();
-    const slug = String(t?.slug ?? "").trim();
-
-    if (title === "Οργανικό") return String(t.id);
-
-    const titleLc = title ? title.toLocaleLowerCase("el-GR") : "";
-    const slugLc = slug ? slug.toLocaleLowerCase("el-GR") : "";
-
-    if (titleLc === "οργανικό") return String(t.id);
-    if (slugLc === "οργανικό") return String(t.id);
-  }
-  return null;
-}
-
 function normalizeParam(p: string | string[] | undefined): string {
   if (!p) return "";
   if (Array.isArray(p)) {
@@ -317,7 +302,7 @@ function filtersFromSearchParams(
   };
 }
 
-function buildEsQueryFromFilters(filters: FiltersState, organikoTagId: string | null): URLSearchParams {
+function buildEsQueryFromFilters(filters: FiltersState): URLSearchParams {
   const params = new URLSearchParams();
 
   params.set("take", String(filters.take));
@@ -349,8 +334,6 @@ function buildEsQueryFromFilters(filters: FiltersState, organikoTagId: string | 
 
   if (filters.popular === "1") params.set("popular", "1");
   if (filters.createdByUserId) params.set("createdByUserId", filters.createdByUserId);
-
-  void organikoTagId;
 
   return params;
 }
@@ -395,6 +378,14 @@ function buildUrlQueryFromFilters(filters: FiltersState, base?: URLSearchParams)
   setOrDelete("createdByUserId", filters.createdByUserId);
 
   return params.toString();
+}
+
+function statusLabel(status: string): string {
+  if (status === "PUBLISHED") return "Δημοσιευμένο";
+  if (status === "PENDING_APPROVAL") return "Σε αναμονή";
+  if (status === "DRAFT") return "Πρόχειρο";
+  if (status === "ARCHIVED") return "Αρχειοθετημένο";
+  return status;
 }
 
 async function parseJsonSafe<T>(res: Response): Promise<T> {
@@ -494,16 +485,7 @@ function toggleExactCsvPreset(csv: string, ids: string[]): string {
 }
 
 function buildLyricsPreview(song: SongSearchItem): string {
-  const tagTitles = Array.isArray(song.tagTitles) ? song.tagTitles : [];
-  const tagSlugs = Array.isArray(song.tagSlugs) ? song.tagSlugs : [];
-  const isOrganikoByTags =
-    tagTitles.some((t) => String(t || "").trim() === "Οργανικό") ||
-    tagSlugs.some((s) => String(s || "").trim() === "οργανικό");
-
-  const legacyCharacteristics = song.characteristics || "";
-  const isOrganikoLegacy = legacyCharacteristics.includes("Οργανικό");
-
-  if (isOrganikoByTags || isOrganikoLegacy) return "(Οργανικό)";
+  if (song.isInstrumental) return "(Οργανικό)";
 
   const lyrics = (song.lyrics || "").trim();
   if (!lyrics) return "(Χωρίς διαθέσιμους στίχους)";
@@ -782,7 +764,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [organikoTagId, setOrganikoTagId] = useState<string | null>(null);
+  const [filtersReady, setFiltersReady] = useState(false);
 
   useEffect(() => {
     const onSubmit = () => blurActiveElementSoon();
@@ -804,6 +786,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    setFiltersReady(false);
 
     async function loadStaticFilters() {
       let catsJson: CategoryDto[] = [];
@@ -853,7 +836,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
       setTags(normalizedTags);
       setLists(normalizedLists);
-      setOrganikoTagId(findOrganikoTagId(normalizedTags));
+      setFiltersReady(true);
     }
 
     loadStaticFilters();
@@ -1043,18 +1026,21 @@ export default function SongsSearchClient({ searchParams }: Props) {
         const withLyrics = pickBucketCount(aggs.hasLyrics, "1") + pickBucketCount(aggs.hasLyrics, "true");
         let withoutLyrics = Math.max(0, totalAll - withLyrics);
 
-        if (organikoTagId && aggs.organikoHasLyrics) {
-          const organikoTotal =
-            typeof (aggs.organikoHasLyrics as any)?.doc_count === "number"
-              ? (aggs.organikoHasLyrics as any).doc_count
+        if (aggs.instrumentalHasLyrics) {
+          const instrumentalTotal =
+            typeof (aggs.instrumentalHasLyrics as any)?.doc_count === "number"
+              ? (aggs.instrumentalHasLyrics as any).doc_count
               : 0;
 
-          const organikoWithLyrics =
-            pickBucketCount((aggs.organikoHasLyrics as any)?.hasLyrics, "1") +
-            pickBucketCount((aggs.organikoHasLyrics as any)?.hasLyrics, "true");
+          const instrumentalWithLyrics =
+            pickBucketCount((aggs.instrumentalHasLyrics as any)?.hasLyrics, "1") +
+            pickBucketCount((aggs.instrumentalHasLyrics as any)?.hasLyrics, "true");
 
-          const organikoWithoutLyrics = Math.max(0, organikoTotal - organikoWithLyrics);
-          withoutLyrics = Math.max(0, withoutLyrics - organikoWithoutLyrics);
+          const instrumentalWithoutLyrics = Math.max(
+            0,
+            instrumentalTotal - instrumentalWithLyrics,
+          );
+          withoutLyrics = Math.max(0, withoutLyrics - instrumentalWithoutLyrics);
         }
 
         setLyricsCounts({ "1": withLyrics, "0": withoutLyrics } as any);
@@ -1157,18 +1143,21 @@ export default function SongsSearchClient({ searchParams }: Props) {
     }
 
     async function loadSongs() {
+      if (!filtersReady) return;
+
       setLoading(true);
       setError(null);
       let renderedCached = false;
 
       try {
-        const params = buildEsQueryFromFilters(filters, organikoTagId);
+        const searchFilters = filters;
+        const params = buildEsQueryFromFilters(filters);
         const esUrl = `${API_BASE_URL}/songs-es/search?${params.toString()}`;
 
         let data: SongsSearchResponse;
         let offlineMode = false;
 
-        const cachedData = await searchOfflineSongs(filters).catch(() => null);
+        const cachedData = await searchOfflineSongs(searchFilters).catch(() => null);
         if (cachedData && !cancelled) {
           applySongsResponse(cachedData as SongsSearchResponse, cachedData.items ?? []);
           renderedCached = true;
@@ -1187,7 +1176,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
           data = await parseJsonSafe<SongsSearchResponse>(resEs);
         } catch (onlineError) {
-          const offlineData = await searchOfflineSongs(filters);
+          const offlineData = await searchOfflineSongs(searchFilters);
           if (!offlineData) throw onlineError;
           data = offlineData as SongsSearchResponse;
           offlineMode = true;
@@ -1224,7 +1213,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
         }
 
         if (!offlineMode) {
-          void writeOfflineSongsSearch(filters, { ...data, items }).catch(() => null);
+          void writeOfflineSongsSearch(searchFilters, { ...data, items }).catch(() => null);
         }
 
         applySongsResponse(data, items);
@@ -1253,7 +1242,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [filters, categories, rythms, tags, lists, organikoTagId]);
+  }, [filters, categories, rythms, tags, lists, filtersReady]);
 
   const chipStyle: React.CSSProperties = {
     display: "flex",
@@ -1397,10 +1386,9 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
     if (filters.status) {
       for (const st of parseCsv(filters.status)) {
-        const label = st === "PUBLISHED" ? "Δημοσιευμένο" : st === "DRAFT" ? "Πρόχειρο" : st;
         chips.push({
           key: `status:${st}`,
-          label: `Κατάσταση: ${label}`,
+          label: `Κατάσταση: ${statusLabel(st)}`,
           onRemove: () => patchFilters({ status: removeIdFromCsv(filters.status, st) }),
         });
       }

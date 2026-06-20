@@ -56,6 +56,7 @@ export default async function NewSongPage() {
     title: "",
     firstLyrics: null,
     lyrics: null,
+    isInstrumental: false,
 
     composerName: null,
     lyricistName: null,

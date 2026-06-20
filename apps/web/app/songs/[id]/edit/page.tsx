@@ -55,6 +55,7 @@ async function fetchSongBundle(
     title: String(s.title ?? ""),
     firstLyrics: s.firstLyrics ?? null,
     lyrics: s.lyrics ?? null,
+    isInstrumental: Boolean(s.isInstrumental),
     characteristics: s.characteristics ?? null,
 
     composerName: s.composerName ?? null,
