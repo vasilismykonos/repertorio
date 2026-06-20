@@ -600,11 +600,20 @@ function anyCsvMatch(filterCsv: any, values: any): boolean {
 }
 
 function oneIdMatch(filterCsv: any, value: any): boolean {
-  const wanted = csvValues(filterCsv);
+  const wanted = csvValues(filterCsv).filter((x) => x !== "__none");
   if (wanted.length === 0) return true;
   const n = numberValue(value);
   if (n == null) return false;
   return wanted.includes(String(Math.floor(n)));
+}
+
+function rythmMatch(filterCsv: any, value: any): boolean {
+  const wanted = csvValues(filterCsv);
+  if (wanted.length === 0) return true;
+  const n = numberValue(value);
+  const hasRythm = n != null && n > 0;
+  if (wanted.includes("__none") && !hasRythm) return true;
+  return oneIdMatch(wanted.filter((x) => x !== "__none").join(","), value);
 }
 
 function boolish(value: any): boolean {
@@ -776,7 +785,7 @@ function matchesOfflineFilters(song: any, filters: any, tokens: string[]): boole
   if (!matchesTri(filters?.partiture, song?.hasScore ?? song?.partiture)) return false;
   if (!matchesLyricsFilter(filters?.lyrics, song)) return false;
   if (!oneIdMatch(filters?.category_id, song?.categoryId ?? song?.category_id)) return false;
-  if (!oneIdMatch(filters?.rythm_id, song?.rythmId ?? song?.rythm_id ?? song?.rhythmId ?? song?.rhythm_id)) return false;
+  if (!rythmMatch(filters?.rythm_id, song?.rythmId ?? song?.rythm_id ?? song?.rhythmId ?? song?.rhythm_id)) return false;
   if (!anyCsvMatch(filters?.tagIds, song?.tagIds)) return false;
   if (!anyCsvMatch(filters?.listIds, song?.listIds)) return false;
   if (!oneIdMatch(filters?.composerIds, song?.composerId)) return false;
@@ -887,6 +896,7 @@ function buildOfflineAggs(items: any[]) {
     hasChords: { buckets: [{ key: "1", doc_count: hasChords }, { key: "0", doc_count: noChords }] },
     hasScore: { buckets: [{ key: "1", doc_count: hasScore }, { key: "0", doc_count: noScore }] },
     hasLyrics: { buckets: [{ key: "1", doc_count: hasLyrics }, { key: "0", doc_count: noLyrics }] },
+    missingRythm: { doc_count: items.filter((song) => !numberValue(song?.rythmId ?? song?.rythm_id ?? song?.rhythmId ?? song?.rhythm_id)).length },
     instrumentalHasLyrics: {
       doc_count: instrumentalTotal,
       hasLyrics: {

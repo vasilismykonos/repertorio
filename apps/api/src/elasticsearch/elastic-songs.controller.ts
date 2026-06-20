@@ -398,11 +398,18 @@ export class ElasticSongsController {
         categoryIdLegacy,
         categoryIdAlt,
       );
+      const rythmRawValues = [rythmIdsStr, rythmIdLegacy, rythmIdAlt]
+        .flatMap((value) => String(value ?? "").split(","))
+        .map((value) => value.trim().toLocaleLowerCase("el-GR"))
+        .filter(Boolean);
+      const wantsMissingRythm = rythmRawValues.some(
+        (value) => value === "__none" || value === "none" || value === "null" || value === "0",
+      );
       const rythmIds = this.parseIdsFromAliases(
         rythmIdsStr,
         rythmIdLegacy,
         rythmIdAlt,
-      );
+      )?.filter((id) => id > 0);
 
       const chordsWanted = this.parseBoolCsv(chordsStr);
       const lyricsWanted = this.parseLyricsCsv(lyricsStr);
@@ -454,7 +461,14 @@ export class ElasticSongsController {
 
       if (categoryIds?.length)
         filters.push({ terms: { categoryId: categoryIds } });
-      if (rythmIds?.length) filters.push({ terms: { rythmId: rythmIds } });
+      if (rythmIds?.length || wantsMissingRythm) {
+        const rythmClauses: any[] = [];
+        if (rythmIds?.length) rythmClauses.push({ terms: { rythmId: rythmIds } });
+        if (wantsMissingRythm) {
+          rythmClauses.push({ bool: { must_not: [{ exists: { field: "rythmId" } }] } });
+        }
+        filters.push({ bool: { should: rythmClauses, minimum_should_match: 1 } });
+      }
 
       if (createdByIds?.length)
         filters.push({ terms: { createdById: createdByIds } });
@@ -710,6 +724,7 @@ export class ElasticSongsController {
         aggs: {
           categoryId: { terms: { field: 'categoryId', size: 200 } },
           rythmId: { terms: { field: 'rythmId', size: 200 } },
+          missingRythm: { missing: { field: 'rythmId' } },
           tagIds: { terms: { field: 'tagIds', size: 500 } },
           listIds: { terms: { field: 'listIds', size: 1000 } },
 

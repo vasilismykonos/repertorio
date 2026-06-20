@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.56";
+export const APP_VERSION = "3.0.57";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.57",
+    date: "2026-06-20",
+    level: "patch",
+    title: "Φίλτρο χωρίς ρυθμό",
+    items: [
+      "Στο φίλτρο Ρυθμός προστέθηκε επιλογή «Χωρίς ρυθμό» για τραγούδια που δεν έχουν καθορισμένο ρυθμό.",
+      "Η επιλογή λειτουργεί με την ίδια λογική online και offline και μπορεί να συνδυαστεί με συγκεκριμένους ρυθμούς.",
+    ],
+  },
   {
     version: "3.0.56",
     date: "2026-06-20",

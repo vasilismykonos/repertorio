@@ -112,6 +112,7 @@ function toggleInSet(set: Set<string>, value: string) {
 function firstLabelByValue(opts: Option[], value: string): string {
   const v = String(value ?? "").trim();
   if (!v) return "";
+  if (v === "__none") return "Χωρίς ρυθμό";
   const o = (Array.isArray(opts) ? opts : []).find((x) => String(x.value) === v);
   return String(o?.label ?? v).trim();
 }
@@ -496,7 +497,7 @@ export function FiltersPanel(props: FiltersPanelProps) {
         >
           <FilterSelectWithSearch
             name="rythm_id"
-            options={rythmOptions}
+            options={rythmOptions.some((o) => o.value === "__none") ? rythmOptions : [{ value: "__none", label: "Χωρίς ρυθμό" }, ...rythmOptions]}
             selectedValue={rythm_id}
             onChangeCsv={(v) => onChangeFilters({ rythm_id: v })}
           />

@@ -93,6 +93,7 @@ type EsTermsAgg = { buckets?: EsTermsAggBucket[] };
 type EsAggs = {
   categoryId?: EsTermsAgg;
   rythmId?: EsTermsAgg;
+  missingRythm?: { doc_count?: number };
   tagIds?: EsTermsAgg;
   listIds?: EsTermsAgg;
 
@@ -606,6 +607,7 @@ function appendPickedSongId(returnTo: string, pickedSongId: number, pickedSongTi
 function firstLabelByValue(opts: Option[], value: string): string {
   const v = String(value ?? "").trim();
   if (!v) return "";
+  if (v === "__none") return "Χωρίς ρυθμό";
   const o = (Array.isArray(opts) ? opts : []).find((x) => String(x.value) === v);
   return String(o?.label ?? v).trim();
 }
@@ -1028,6 +1030,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
       const listCountById = buildCountByIdFromAgg(aggs.listIds);
       const categoryCountById = buildCountByIdFromAgg(aggs.categoryId);
       const rythmCountById = buildCountByIdFromAgg(aggs.rythmId);
+      const missingRythmCount = typeof aggs.missingRythm?.doc_count === "number" ? aggs.missingRythm.doc_count : 0;
 
       setChordsCounts(boolAggToTriCounts(aggs.hasChords, totalAll));
       setPartitureCounts(boolAggToTriCounts(aggs.hasScore, totalAll));
@@ -1093,21 +1096,24 @@ export default function SongsSearchClient({ searchParams }: Props) {
         );
       }
 
+      const noRythmOption = { value: "__none", label: "Χωρίς ρυθμό", count: missingRythmCount };
       if (rythms.length > 0) {
-        setRythmOptions(
-          rythms.map((r) => {
+        setRythmOptions([
+          noRythmOption,
+          ...rythms.map((r) => {
             const idKey = String(r.id);
             return { value: idKey, label: String(r.title), count: rythmCountById[idKey] ?? 0 };
           }),
-        );
+        ]);
       } else {
-        setRythmOptions(
-          Object.keys(rythmCountById).map((idKey) => ({
+        setRythmOptions([
+          noRythmOption,
+          ...Object.keys(rythmCountById).map((idKey) => ({
             value: idKey,
             label: idKey,
             count: rythmCountById[idKey] ?? 0,
           })),
-        );
+        ]);
       }
 
       setTagOptions(
