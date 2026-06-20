@@ -108,7 +108,14 @@ function maybeSendLastSync(roomManager, ws, room, msg) {
   const lastSeenSyncId = toPositiveInteger(msg.lastSeenSyncId) || 0;
   const lastSeenRequestId = cleanString(msg.lastSeenRequestId, 260);
 
+  if (lastSeenRequestId || lastSeenSyncId > 0) {
+    roomManager.markSyncReceived(room, identity, lastSeenRequestId, lastSeenSyncId);
+  }
+
   if (lastSync.senderClientId && identity.clientId && lastSync.senderClientId === identity.clientId) {
+    return;
+  }
+  if (roomManager.hasReceivedSync(room, identity, lastSync.requestId, lastSync.syncId)) {
     return;
   }
   if (lastSync.requestId && lastSeenRequestId && lastSync.requestId === lastSeenRequestId) {
@@ -193,6 +200,25 @@ function createWsHandler(roomManager, ws) {
         send(ws, { type: "leave_accepted", room: left.room });
         broadcastRoomCounts(roomManager, left.room);
       }
+      return;
+    }
+
+    if (type === "song_sync_received") {
+      const info = roomManager.getClientInfo(ws);
+      const room = String(msg.room || info.room || "").trim();
+      if (!room) return;
+      roomManager.markSyncReceived(
+        room,
+        info,
+        cleanString(msg.requestId, 300),
+        toPositiveInteger(msg.syncId) || 0,
+      );
+      send(ws, {
+        type: "song_sync_received_ack",
+        room,
+        syncId: toPositiveInteger(msg.syncId) || 0,
+        requestId: cleanString(msg.requestId, 300),
+      });
       return;
     }
 

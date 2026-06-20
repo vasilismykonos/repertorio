@@ -466,6 +466,9 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
           window.dispatchEvent(new CustomEvent("rep_rooms_update_count", { detail }));
           return;
         }
+        if (type === "song_sync_received_ack") {
+          return;
+        }
 
         if (type === "song_sync_ack") {
           window.dispatchEvent(new CustomEvent("rep_song_sync_ack", { detail: data }));
@@ -526,6 +529,45 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
       console.error("[RoomsProvider] WebSocket error:", event);
     };
   }, [currentRoom, scheduleReconnect, sendHello, sendJoin, startHeartbeat, stopHeartbeat]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onReceived = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      const room = String(detail.room || joinedRoomRef.current || currentRoom || "").trim();
+      if (!room) return;
+
+      const syncId = Number(detail.syncId || 0);
+      const requestId = detail.requestId ? String(detail.requestId) : null;
+      markHandledSync(room, syncId, requestId);
+
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      const ids = getClientIds();
+      const meta = getUserMeta();
+      try {
+        ws.send(JSON.stringify({
+          type: "song_sync_received",
+          room,
+          syncId,
+          requestId,
+          clientId: ids.clientId,
+          deviceId: ids.deviceId,
+          tabId: ids.tabId,
+          userId: meta.userId,
+          username: meta.username,
+        }));
+      } catch {
+        // best effort
+      }
+    };
+
+    window.addEventListener("rep_song_sync_received", onReceived as EventListener);
+    return () => window.removeEventListener("rep_song_sync_received", onReceived as EventListener);
+  }, [currentRoom, getUserMeta]);
+
+
 
   useEffect(() => {
     mountedRef.current = true;

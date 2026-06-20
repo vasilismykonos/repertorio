@@ -28,6 +28,7 @@ class RoomManager {
     this.clients = new Map(); // room -> Set<WebSocket>
     this.clientInfo = new Map(); // ws -> { room, deviceId, userId, username }
     this.lastSync = new Map(); // room -> { syncId, payload, userId, username }
+    this.syncReceipts = new Map(); // room -> identityKey -> { lastSyncId, requestIds[] }
 
     this.loadMeta();
   }
@@ -163,6 +164,7 @@ class RoomManager {
 
     this.metaData.delete(clean);
     this.lastSync.delete(clean);
+    this.syncReceipts.delete(clean);
     this.saveMeta();
   }
 
@@ -425,10 +427,63 @@ class RoomManager {
   // song_sync state
   // ---------------------------------------------------------------------------
 
+  receiptIdentityKey(info = {}) {
+    if (typeof info.userId === "number" && Number.isFinite(info.userId) && info.userId > 0) {
+      return "u:" + Math.trunc(info.userId);
+    }
+    if (info.deviceId) return "d:" + info.deviceId;
+    if (info.clientId) return "c:" + info.clientId;
+    return null;
+  }
+
+  markSyncReceived(room, info = {}, requestId, syncId) {
+    const clean = String(room || "").trim();
+    const key = this.receiptIdentityKey(info);
+    if (!clean || !key) return false;
+
+    const req = String(requestId || "").trim();
+    const sid = Number(syncId || 0);
+    if (!req && (!Number.isFinite(sid) || sid <= 0)) return false;
+
+    let roomMap = this.syncReceipts.get(clean);
+    if (!roomMap) {
+      roomMap = new Map();
+      this.syncReceipts.set(clean, roomMap);
+    }
+
+    const current = roomMap.get(key) || { lastSyncId: 0, requestIds: [] };
+    if (Number.isFinite(sid) && sid > current.lastSyncId) current.lastSyncId = Math.trunc(sid);
+    if (req && !current.requestIds.includes(req)) {
+      current.requestIds.push(req);
+      if (current.requestIds.length > 80) current.requestIds = current.requestIds.slice(-80);
+    }
+    current.lastReceiptAt = Date.now();
+    roomMap.set(key, current);
+    return true;
+  }
+
+  hasReceivedSync(room, info = {}, requestId, syncId) {
+    const clean = String(room || "").trim();
+    const key = this.receiptIdentityKey(info);
+    if (!clean || !key) return false;
+
+    const roomMap = this.syncReceipts.get(clean);
+    if (!roomMap) return false;
+    const receipt = roomMap.get(key);
+    if (!receipt) return false;
+
+    const req = String(requestId || "").trim();
+    if (req && Array.isArray(receipt.requestIds) && receipt.requestIds.includes(req)) return true;
+
+    const sid = Number(syncId || 0);
+    return Number.isFinite(sid) && sid > 0 && Number(receipt.lastSyncId || 0) >= sid;
+  }
+
   setLastSync(room, payload) {
     const clean = String(room || "").trim();
     if (!clean) return;
     this.lastSync.set(clean, payload);
+    this.markSyncReceived(clean, payload, payload?.requestId, payload?.syncId);
   }
 
   getLastSync(room) {

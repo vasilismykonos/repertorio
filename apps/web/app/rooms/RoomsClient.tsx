@@ -233,7 +233,7 @@ export default function RoomsClient({
       setInitialized(true);
     }
   }, []);
-  
+
 
   useEffect(() => {
     loadRooms();
@@ -388,6 +388,8 @@ export default function RoomsClient({
     initialized && !loading && sortedAndFilteredRooms.length === 0;
 
   const hasTypedQuery = !!normalizeQuery(searchInput);
+  const currentRoomInfo = currentRoom ? rooms.find((r) => r.room === currentRoom) || null : null;
+  const totalSessions = rooms.reduce((sum, room) => sum + safeUsersCount(room), 0);
 
   return (
     <>
@@ -411,7 +413,77 @@ export default function RoomsClient({
           <div style={{ fontSize: 12, color: "#aaa" }}>
             {loading ? "🔄 ενημέρωση..." : ""}
           </div>
+        </div>        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+            gap: 8,
+          }}
+        >
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.10)",
+              background: currentRoom ? "rgba(33, 150, 243, 0.14)" : "rgba(255,255,255,0.04)",
+              borderRadius: 12,
+              padding: "10px 12px",
+              minWidth: 0,
+            }}
+          >
+            <div style={{ color: "#aaa", fontSize: 12, fontWeight: 800 }}>Σύνδεση</div>
+            <div style={{ color: "#fff", fontSize: 15, fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {currentRoom || "Εκτός room"}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.10)",
+              background: "rgba(255,255,255,0.04)",
+              borderRadius: 12,
+              padding: "10px 12px",
+            }}
+          >
+            <div style={{ color: "#aaa", fontSize: 12, fontWeight: 800 }}>Δωμάτια</div>
+            <div style={{ color: "#fff", fontSize: 15, fontWeight: 900 }}>{rooms.length}</div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.10)",
+              background: "rgba(255,255,255,0.04)",
+              borderRadius: 12,
+              padding: "10px 12px",
+            }}
+          >
+            <div style={{ color: "#aaa", fontSize: 12, fontWeight: 800 }}>Συνδέσεις</div>
+            <div style={{ color: "#fff", fontSize: 15, fontWeight: 900 }}>{totalSessions}</div>
+          </div>
         </div>
+
+        {currentRoomInfo?.last_sync_title && (
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.10)",
+              background: "rgba(255,255,255,0.04)",
+              borderRadius: 12,
+              padding: "10px 12px",
+              color: "#ddd",
+              fontSize: 13,
+              lineHeight: 1.35,
+            }}
+          >
+            <span style={{ color: "#aaa", fontWeight: 800 }}>Τελευταίο στο ενεργό room:</span>{" "}
+            {currentRoomInfo.last_sync_url ? (
+              <a href={currentRoomInfo.last_sync_url} style={{ color: "#7db7ff", fontWeight: 800 }}>
+                {currentRoomInfo.last_sync_title}
+              </a>
+            ) : (
+              <strong>{currentRoomInfo.last_sync_title}</strong>
+            )}
+          </div>
+        )}
+
+
 
         {/* Search */}
         <div
@@ -475,7 +547,7 @@ export default function RoomsClient({
           </div>
         )}
 
-        
+
 
         {!initialized && loading && <p style={{ margin: 0 }}>🔄 Φόρτωση...</p>}
 
@@ -622,7 +694,7 @@ export default function RoomsClient({
                           <span style={{ color: "#aaa" }}>Τελευταίο:</span>{" "}
                           <a
                             href={lastUrl}
-                            
+
                             rel="noopener noreferrer"
                             style={{ color: "#7db7ff" }}
                             title={lastUrl}
@@ -735,7 +807,7 @@ export default function RoomsClient({
                   <br />
                   <a
                     href={usersModalLastSyncUrl}
-                    
+
                     rel="noopener noreferrer"
                     style={{ color: "#4af" }}
                   >

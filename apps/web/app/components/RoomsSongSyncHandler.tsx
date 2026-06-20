@@ -90,6 +90,13 @@ function markHandledSync(room: string, syncId: number, requestId: string | null)
   }
 }
 
+function notifySyncReceived(room: string, syncId: number, requestId: string | null) {
+  if (!room) return;
+  window.dispatchEvent(new CustomEvent("rep_song_sync_received", {
+    detail: { room, syncId, requestId },
+  }));
+}
+
 function rememberPendingTonicity(payload: SongPayload, syncId: number, room: string, requestId: string | null) {
   const tonicity = typeof payload.selectedTonicity === "string" ? payload.selectedTonicity.trim() : "";
   if (!tonicity) return;
@@ -149,6 +156,7 @@ export default function RoomsSongSyncHandler() {
 
       rememberPendingTonicity(payload, syncId, room, requestId);
       markHandledSync(room, syncId, requestId);
+      notifySyncReceived(room, syncId, requestId);
 
       if (targetSongId && activeSongId && targetSongId === activeSongId) {
         applyTonicityNow(payload.selectedTonicity);

@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.57";
+export const APP_VERSION = "3.0.58";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.58",
+    date: "2026-06-21",
+    level: "patch",
+    title: "Σταθερότερη λειτουργία Rooms",
+    items: [
+      "Τα Rooms θυμούνται πλέον ανά χρήστη/συσκευή ποιο αίτημα τραγουδιού έχει παραληφθεί, ώστε στο reconnect να μη φορτώνεται ξανά το τελευταίο ήδη ληφθέν τραγούδι.",
+      "Προστέθηκε καθαρό ACK παραλαβής τραγουδιού από τον browser προς τον Rooms server και βελτιώθηκε η σύνοψη της οθόνης Rooms.",
+    ],
+  },
   {
     version: "3.0.57",
     date: "2026-06-20",
