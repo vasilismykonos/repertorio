@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { ElasticsearchSongsSyncService } from '../elasticsearch/elasticsearch-songs-sync.service';
+import { NotificationsService } from "../notifications/notifications.service";
 
 /* =========================
    DTOs
@@ -192,6 +193,7 @@ export class ListsService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly esSync?: ElasticsearchSongsSyncService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   /* =========================
@@ -1240,7 +1242,11 @@ async getListsIndex(params: {
       email: params.email,
     });
 
-    await this.ensureListExistsOrThrow(listId);
+    const list = await this.prisma.list.findUnique({
+      where: { id: listId },
+      select: { title: true },
+    });
+    if (!list) throw new NotFoundException("Η λίστα δεν βρέθηκε.");
 
     // Remove restrictions: allow LIST_EDITOR to assign OWNER and modify any member (including the owner)
     // Note: previously, LIST_EDITOR could not assign the OWNER role or modify the existing owner.
@@ -1258,6 +1264,20 @@ async getListsIndex(params: {
       update: { role },
       create: { listId, userId: targetUserId, role },
     });
+
+    if (!existingMembership && this.notifications) {
+      try {
+        await this.notifications.notifyListMemberAdded({
+          recipientUserId: targetUserId,
+          actorUserId: userId,
+          listId,
+          listTitle: list.title,
+          role,
+        });
+      } catch (err) {
+        console.error("[ListsService] notifyListMemberAdded failed", err);
+      }
+    }
 
     return this.getListMembers({ userId, listId });
   }

@@ -19,6 +19,7 @@ import { ElasticsearchAdminModule } from "./elasticsearch/elasticsearch-admin.mo
 
 // ✅ Presence module (online users)
 import { PresenceModule } from "./presence/presence.module";
+import { NotificationsModule } from "./notifications/notifications.module";
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { PresenceModule } from "./presence/presence.module";
     ListsModule,
     ElasticsearchAdminModule,
     PresenceModule, // ✅ πρόσθεσέ το εδώ
+    NotificationsModule,
     AssetsModule,
   ],
   controllers: [AppController],

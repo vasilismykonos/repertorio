@@ -21,6 +21,8 @@ import {
   Trash2,
   Info,
   ExternalLink,
+  Bell,
+  CheckCheck,
 } from "lucide-react";
 import type { OfflineRuntimeStatus } from "@/lib/offlineSync";
 import { APP_CHANGELOG, APP_VERSION } from "@/lib/appVersion";
@@ -128,12 +130,53 @@ type OnlinePresenceResponse = {
   error?: string;
 };
 
+type NotificationItem = {
+  id: number;
+  type: string;
+  title: string;
+  body: string | null;
+  data: any;
+  readAt: string | null;
+  createdAt: string;
+  actor?: {
+    id: number;
+    displayName: string | null;
+    username: string | null;
+    email: string | null;
+    avatarUrl: string | null;
+  } | null;
+};
+
+type NotificationsResponse = {
+  ok: boolean;
+  authenticated?: boolean;
+  unreadCount?: number;
+  items?: NotificationItem[];
+  error?: string;
+};
+
 function formatOnlineAgo(secondsAgo: number): string {
   const seconds = Number(secondsAgo);
   if (!Number.isFinite(seconds) || seconds < 15) return "τώρα";
   if (seconds < 60) return `${Math.round(seconds)}δ`;
   const minutes = Math.round(seconds / 60);
   return `${minutes}λ`;
+}
+
+function formatNotificationDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("el-GR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function notificationHref(item: NotificationItem): string | null {
+  const href = item?.data?.href;
+  return typeof href === "string" && href.startsWith("/") ? href : null;
 }
 
 export default function SideMenu(props: Props) {
@@ -189,9 +232,18 @@ export default function SideMenu(props: Props) {
   const [onlineError, setOnlineError] = useState<string | null>(null);
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsErr, setNotificationsErr] = useState<string | null>(null);
+  const [notificationsUnread, setNotificationsUnread] = useState(0);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
     if (!isOpen) setSourcesOpen(false);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) setNotificationsOpen(false);
   }, [isOpen]);
 
   useEffect(() => {
@@ -346,6 +398,89 @@ export default function SideMenu(props: Props) {
     };
   }, [isOpen, isLoggedIn, offlineStatus?.online]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isOpen) return;
+
+    if (!isLoggedIn || offlineStatus?.online === false) {
+      setNotifications([]);
+      setNotificationsUnread(0);
+      setNotificationsLoading(false);
+      setNotificationsErr(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadNotifications = async () => {
+      if (document.visibilityState !== "visible") return;
+
+      try {
+        setNotificationsLoading(true);
+        setNotificationsErr(null);
+
+        const res = await fetch("/api/notifications?take=8", {
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+        });
+        const data = (await res.json().catch(() => null)) as NotificationsResponse | null;
+
+        if (cancelled) return;
+
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error || `notifications ${res.status}`);
+        }
+
+        setNotificationsUnread(Math.max(0, Number(data.unreadCount || 0)));
+        setNotifications(Array.isArray(data.items) ? data.items : []);
+      } catch {
+        if (!cancelled) {
+          setNotifications([]);
+          setNotificationsUnread(0);
+          setNotificationsErr("Δεν φορτώθηκαν οι ενημερώσεις.");
+        }
+      } finally {
+        if (!cancelled) setNotificationsLoading(false);
+      }
+    };
+
+    void loadNotifications();
+    const id = window.setInterval(loadNotifications, 45_000);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadNotifications();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [isOpen, isLoggedIn, offlineStatus?.online]);
+
+  const markNotificationsRead = async () => {
+    if (!isLoggedIn || notificationsUnread <= 0) return;
+
+    try {
+      setNotificationsLoading(true);
+      const res = await fetch("/api/notifications", {
+        method: "POST",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      const data = (await res.json().catch(() => null)) as NotificationsResponse | null;
+      if (!res.ok || !data?.ok) throw new Error(data?.error || `notifications ${res.status}`);
+      setNotificationsUnread(Math.max(0, Number(data.unreadCount || 0)));
+      setNotifications(Array.isArray(data.items) ? data.items : []);
+      setNotificationsErr(null);
+    } catch {
+      setNotificationsErr("Δεν έγινε σήμανση ως διαβασμένα.");
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
   // Canonical admin detection μέσω /users/me (+ self-heal)
   const [isAdminResolved, setIsAdminResolved] = useState<boolean>(false);
   const [adminResolved, setAdminResolved] = useState<boolean>(false);
@@ -469,6 +604,14 @@ export default function SideMenu(props: Props) {
       },
       { key: "songs", href: "/songs", label: "Τραγούδια", Icon: Music2, as: "link" },
       { key: "lists", href: "/lists", label: "Λίστες", Icon: ListMusic, as: "link" },
+      {
+        key: "notifications",
+        label: "Ενημερώσεις",
+        Icon: Bell,
+        as: "button",
+        badge: notificationsUnread > 0 ? notificationsUnread : null,
+        onClick: () => setNotificationsOpen((value) => !value),
+      },
       { key: "artists", href: "/artists", label: "Καλλιτέχνες", Icon: Mic2, as: "link" },
       { key: "rooms", href: "/rooms", label: "Rooms", Icon: Recycle, as: "link", badge: roomBadge },
       { key: "me", href: "/me", label: "Λογαριασμός", Icon: User, as: "link" },
@@ -503,6 +646,7 @@ export default function SideMenu(props: Props) {
     onClose,
     onNewSong,
     effectiveIsAdmin,
+    notificationsUnread,
   ]);
 
   return (
@@ -742,6 +886,65 @@ export default function SideMenu(props: Props) {
             );
           })}
         </nav>
+
+        {notificationsOpen ? (
+          <div className="smh-notifications" aria-label="Ενημερώσεις">
+            <div className="smh-notifications-head">
+              <strong>Ενημερώσεις</strong>
+              {notificationsUnread > 0 ? (
+                <button
+                  type="button"
+                  className="smh-notifications-read"
+                  onClick={markNotificationsRead}
+                  disabled={notificationsLoading}
+                  title="Σήμανση όλων ως διαβασμένες"
+                >
+                  <CheckCheck size={15} />
+                  <span>Διαβασμένες</span>
+                </button>
+              ) : null}
+            </div>
+
+            {notificationsErr ? (
+              <div className="smh-notification-note">{notificationsErr}</div>
+            ) : notificationsLoading && notifications.length === 0 ? (
+              <div className="smh-notification-note">Φόρτωση ενημερώσεων…</div>
+            ) : notifications.length === 0 ? (
+              <div className="smh-notification-note">Δεν υπάρχουν ενημερώσεις.</div>
+            ) : (
+              <div className="smh-notification-list">
+                {notifications.map((item) => {
+                  const href = notificationHref(item);
+                  const content = (
+                    <>
+                      <span className="smh-notification-title">
+                        {!item.readAt ? <span className="smh-notification-dot" /> : null}
+                        <span>{item.title}</span>
+                      </span>
+                      {item.body ? <span className="smh-notification-body">{item.body}</span> : null}
+                      <span className="smh-notification-time">{formatNotificationDate(item.createdAt)}</span>
+                    </>
+                  );
+
+                  return href ? (
+                    <Link
+                      key={item.id}
+                      href={href}
+                      className={cx("smh-notification", !item.readAt && "unread")}
+                      onClick={onClose}
+                    >
+                      {content}
+                    </Link>
+                  ) : (
+                    <div key={item.id} className={cx("smh-notification", !item.readAt && "unread")}>
+                      {content}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : null}
 
         <div className="smh-footer">
           <div className="smh-footer-links">
@@ -1311,6 +1514,127 @@ export default function SideMenu(props: Props) {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+          }
+
+          .smh-notifications {
+            margin-top: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            padding: 10px;
+            color: rgba(255, 255, 255, 0.88);
+            display: grid;
+            gap: 9px;
+          }
+
+          .smh-notifications-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            min-width: 0;
+          }
+
+          .smh-notifications-head strong {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 13px;
+          }
+
+          .smh-notifications-read {
+            min-height: 30px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 5px 9px;
+            font-size: 11px;
+            line-height: 14px;
+            font-weight: 900;
+            cursor: pointer;
+            flex: 0 0 auto;
+          }
+
+          .smh-notifications-read:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+          }
+
+          .smh-notification-note {
+            color: rgba(255, 255, 255, 0.65);
+            font-size: 12px;
+            line-height: 1.35;
+          }
+
+          .smh-notification-list {
+            display: grid;
+            gap: 7px;
+            max-height: 260px;
+            overflow: auto;
+            padding-right: 2px;
+          }
+
+          .smh-notification {
+            text-decoration: none;
+            color: rgba(255, 255, 255, 0.78);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.16);
+            border-radius: 12px;
+            padding: 9px 10px;
+            display: grid;
+            gap: 4px;
+            min-width: 0;
+          }
+
+          .smh-notification.unread {
+            color: #fff;
+            border-color: rgba(34, 197, 94, 0.28);
+            background: rgba(34, 197, 94, 0.1);
+          }
+
+          a.smh-notification:hover {
+            background: rgba(255, 255, 255, 0.1);
+          }
+
+          .smh-notification-title {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            min-width: 0;
+            font-size: 12px;
+            font-weight: 900;
+          }
+
+          .smh-notification-title span:last-child {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .smh-notification-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 999px;
+            background: #22c55e;
+            flex: 0 0 auto;
+          }
+
+          .smh-notification-body,
+          .smh-notification-time {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: rgba(255, 255, 255, 0.62);
+            font-size: 11px;
+            line-height: 1.3;
           }
 
           .smh-footer {
