@@ -4,7 +4,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { A } from "@/app/components/buttons";
-import Button from "@/app/components/buttons/Button";
 
 import { searchUsers } from "@/lib/users/searchUsers";
 import type { UserPick } from "@/lib/users/types";
@@ -814,9 +813,9 @@ export default function ListEditMembersPanel({ listId, viewerUserId, canManageMe
 
         .lem-add-grid {
           display: grid;
-          grid-template-columns: 1fr 320px auto;
-          gap: 12px;
-          align-items: end;
+          grid-template-columns: minmax(320px, 1.35fr) minmax(260px, 0.85fr) auto;
+          gap: 14px;
+          align-items: start;
           min-width: 0;
         }
         @media (max-width: 900px) {
@@ -837,6 +836,9 @@ export default function ListEditMembersPanel({ listId, viewerUserId, canManageMe
         }
         .lem-sug svg {
           stroke: #fff !important;
+        }
+        .lem-sug-row:hover:not(:disabled) {
+          background: rgba(255,255,255,0.08) !important;
         }
       `}</style>
 
@@ -903,7 +905,7 @@ export default function ListEditMembersPanel({ listId, viewerUserId, canManageMe
           {addOpen ? (
             <div ref={addBoxRef} style={subCardStyle}>
               <div className="lem-add-grid">
-                <div style={{ position: "relative", display: "grid", gap: 6, minWidth: 0 }}>
+                <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
                   <Label>Χρήστης</Label>
 
                   <input
@@ -960,16 +962,15 @@ export default function ListEditMembersPanel({ listId, viewerUserId, canManageMe
                     <div
                       className="lem-sug"
                       style={{
-                        position: "absolute",
-                        top: selectedUser ? 106 : 74,
-                        left: 0,
-                        right: 0,
-                        zIndex: 1000,
-                        borderRadius: 12,
-                        border: "1px solid rgba(255,255,255,0.14)",
-                        background: "rgba(20,20,20,0.98)",
-                        boxShadow: "0 12px 30px rgba(0,0,0,0.45)",
+                        position: "relative",
+                        zIndex: 1,
+                        width: "100%",
+                        borderRadius: 14,
+                        border: "1px solid rgba(255,255,255,0.16)",
+                        background: "rgba(16,16,16,0.98)",
+                        boxShadow: "0 14px 34px rgba(0,0,0,0.45)",
                         overflow: "hidden",
+                        marginTop: 2,
                       }}
                     >
                       <div
@@ -1006,7 +1007,7 @@ export default function ListEditMembersPanel({ listId, viewerUserId, canManageMe
                         </button>
                       </div>
 
-                      <div style={{ maxHeight: 260, overflowY: "auto", overflowX: "hidden" }}>
+                      <div style={{ maxHeight: 320, overflowY: "auto", overflowX: "hidden", overscrollBehavior: "contain" }}>
                         {!userSugLoading && !userSugErr && userSug.length === 0 ? (
                           <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>
                             Δεν βρέθηκαν χρήστες.
@@ -1019,13 +1020,10 @@ export default function ListEditMembersPanel({ listId, viewerUserId, canManageMe
                           const disabledPick = !!existingRole || membersLoading;
 
                           return (
-                            <Button
+                            <button
                               key={u.id}
                               type="button"
-                              variant="ghost"
-                              size="md"
-                              action="none"
-                              showLabel
+                              className="lem-sug-row"
                               onClick={() => {
                                 if (disabledPick) return;
                                 onPickUser(u);
@@ -1034,13 +1032,14 @@ export default function ListEditMembersPanel({ listId, viewerUserId, canManageMe
                               style={{
                                 width: "100%",
                                 textAlign: "left",
-                                padding: "10px 12px",
+                                padding: "11px 12px",
                                 border: "none",
                                 borderBottom: idx === userSug.length - 1 ? "none" : "1px solid rgba(255,255,255,0.08)",
                                 background: "transparent",
                                 cursor: disabledPick ? "not-allowed" : "pointer",
                                 borderRadius: 0,
                                 opacity: disabledPick ? 0.55 : 1,
+                                display: "block",
                               }}
                               title={existingRole ? `${label} (Ήδη μέλος: ${roleLabel(existingRole)})` : label}
                             >
@@ -1073,7 +1072,7 @@ export default function ListEditMembersPanel({ listId, viewerUserId, canManageMe
                                 {!u.username ? "—" : ""}
                                 {existingRole ? " • Ήδη μέλος" : ""}
                               </div>
-                            </Button>
+                            </button>
                           );
                         })}
                       </div>
