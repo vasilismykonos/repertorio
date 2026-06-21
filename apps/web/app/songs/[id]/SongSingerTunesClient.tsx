@@ -61,10 +61,20 @@ export default function SongSingerTunesClient(props: {
   songId: number;
   originalKeySign: "+" | "-" | null;
   selectedSingerTuneId?: number | null;
+  selectedTonicity?: string | null;
+  selectedTonicitySign?: "+" | "-" | null;
 }) {
-  const { open, songId, originalKeySign, selectedSingerTuneId = null } = props;
+  const {
+    open,
+    songId,
+    originalKeySign,
+    selectedSingerTuneId = null,
+    selectedTonicity = null,
+    selectedTonicitySign = null,
+  } = props;
   const { status } = useSession();
   const selectedSingerTuneIdNumber = Number(selectedSingerTuneId || 0);
+  const selectedTonicityFromList = parseTonicity(selectedTonicity);
 
   const [rows, setRows] = useState<SingerTuneRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -177,7 +187,39 @@ export default function SongSingerTunesClient(props: {
   if (!open) return null;
 
   const signLabel = originalKeySign ?? "";
+  const selectedSignLabel = selectedTonicitySign ?? originalKeySign ?? "";
   const hasAny = (rows?.length ?? 0) > 0;
+  const hasSelectedRow =
+    hasAny &&
+    (rows ?? []).some((r) => {
+      const ton = parseTonicity(r.tune) ?? r.tune?.trim() ?? "";
+      if (
+        selectedSingerTuneIdNumber > 0 &&
+        Number(r.id) === selectedSingerTuneIdNumber
+      ) {
+        return true;
+      }
+      return Boolean(
+        selectedSingerTuneIdNumber <= 0 &&
+          selectedTonicityFromList &&
+          ton &&
+          ton === selectedTonicityFromList,
+      );
+    });
+  const showListSelectedFallback = Boolean(selectedTonicityFromList && !hasSelectedRow);
+
+  function applyListSelectedTune() {
+    const ton = selectedTonicityFromList;
+    if (!ton) return;
+    if (typeof window === "undefined") return;
+    const w = window as any;
+    if (typeof w.__repSetSelectedTonicity === "function") {
+      w.__repSetSelectedTonicity(ton);
+      return;
+    }
+    w.__repSelectedTonicity = ton;
+    dispatchTonicityChanged(ton);
+  }
 
   return (
     <section style={{ marginBottom: 14 }}>
@@ -208,22 +250,37 @@ export default function SongSingerTunesClient(props: {
             : null}
         </div>
 
-        {authRequired ? (
+        {authRequired && !showListSelectedFallback ? (
           <div style={{ opacity: 0.9 }}>
             Απαιτείται σύνδεση για προβολή/εφαρμογή τονικοτήτων.
           </div>
-        ) : err ? (
+        ) : err && !showListSelectedFallback ? (
           <div style={{ opacity: 0.85, marginBottom: 8 }}>
             Σφάλμα: <span style={{ fontWeight: 600 }}>{err}</span>
           </div>
         ) : null}
 
-        {authRequired ? null : rows === null ? (
+        {rows === null && !showListSelectedFallback ? (
           <div style={{ opacity: 0.85 }}>Φόρτωση…</div>
-        ) : !hasAny ? (
+        ) : !hasAny && !showListSelectedFallback ? (
           <div style={{ opacity: 0.85 }}>Δεν υπάρχουν καταχωρήσεις.</div>
         ) : (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {showListSelectedFallback ? (
+              <button
+                type="button"
+                className="singer-tune-btn selected"
+                onClick={applyListSelectedTune}
+                title={`Επιλεγμένη τονικότητα λίστας ${selectedTonicityFromList}${selectedSignLabel}`}
+              >
+                <span className="name">Επιλογή λίστας</span>
+                <span className="sep"> </span>
+                <span className="tune">
+                  {selectedTonicityFromList}
+                  {selectedSignLabel}
+                </span>
+              </button>
+            ) : null}
             {(rows ?? []).map((r) => {
               const ton = parseTonicity(r.tune) ?? r.tune?.trim() ?? "";
               const selectedBySingerTune =

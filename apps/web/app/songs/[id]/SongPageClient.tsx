@@ -2370,6 +2370,8 @@ export default function SongPageClient(props: Props) {
           songId={viewSong.id}
           originalKeySign={viewSong.originalKeySign}
           selectedSingerTuneId={viewSelectedSingerTuneId}
+          selectedTonicity={viewSelectedTonicity}
+          selectedTonicitySign={viewSelectedTonicitySign}
         />
 
         {viewHasChords && panels.chords ? (
@@ -2449,7 +2451,8 @@ export default function SongPageClient(props: Props) {
         margin: "0 auto",
         touchAction: "pan-y",
         position: "relative",
-        overflowX: "hidden",
+        overflowX: "clip",
+        overflowY: "visible",
         isolation: "isolate",
       }}
       onTouchStart={onTouchStart}
@@ -2781,6 +2784,8 @@ export default function SongPageClient(props: Props) {
         songId={song.id}
         originalKeySign={song.originalKeySign}
         selectedSingerTuneId={effectiveSelectedSingerTuneId}
+        selectedTonicity={effectiveUrlTonicity}
+        selectedTonicitySign={effectiveUrlTonicitySign}
       />
 
       {hasChords && panels.chords ? (

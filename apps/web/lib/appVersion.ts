@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.63";
+export const APP_VERSION = "3.0.64";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.64",
+    date: "2026-06-21",
+    level: "patch",
+    title: "Διόρθωση προβολής τραγουδιού από λίστα",
+    items: [
+      "Αφαιρέθηκε ο δεύτερος κάθετος scrollbar στη σελίδα τραγουδιού όταν ανοίγει μέσα από λίστα.",
+      "Η επιλεγμένη τονικότητα της λίστας εμφανίζεται πλέον και στο πλαίσιο «Τονικότητες», ακόμη κι αν δεν υπάρχει αντίστοιχη καταχώρηση singer tune διαθέσιμη στον χρήστη.",
+    ],
+  },
   {
     version: "3.0.63",
     date: "2026-06-21",
