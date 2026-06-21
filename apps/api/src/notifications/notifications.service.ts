@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { PushNotificationsService } from "./push-notifications.service";
 
 const DEFAULT_TAKE = 10;
 const MAX_TAKE = 30;
@@ -31,7 +32,10 @@ function normalizeTake(value?: number): number {
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly push: PushNotificationsService,
+  ) {}
 
   private toDto(row: any): NotificationDto {
     return {
@@ -106,7 +110,7 @@ export class NotificationsService {
 
     if (recipientUserId === actorUserId) return null;
 
-    return this.prisma.notification.create({
+    const notification = await this.prisma.notification.create({
       data: {
         recipientUserId,
         actorUserId,
@@ -121,5 +125,14 @@ export class NotificationsService {
         },
       },
     });
+
+    void this.push.sendToUser(recipientUserId, {
+      notificationId: notification.id,
+      title: notification.title,
+      body: notification.body,
+      href: `/lists/${listId}`,
+    }).catch(() => null);
+
+    return notification;
   }
 }

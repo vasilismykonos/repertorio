@@ -32,6 +32,7 @@ model User {
   presence                  UserPresence?
   notifications             Notification[]         @relation("NotificationRecipient")
   notificationsCreated      Notification[]         @relation("NotificationActor")
+  pushSubscriptions         PushSubscription[]
 }
 
 model Song {
@@ -309,6 +310,23 @@ model Notification {
   @@index([recipientUserId, readAt, createdAt])
   @@index([recipientUserId, createdAt])
   @@index([type])
+}
+
+model PushSubscription {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  endpoint    String   @unique @db.Text
+  p256dh      String   @db.Text
+  auth        String   @db.Text
+  userAgent   String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastSeenAt  DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([lastSeenAt])
 }
 
 model SongCategory {

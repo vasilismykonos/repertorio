@@ -2,15 +2,21 @@
 import React from "react";
 import ListNewClient from "./ListNewClient";
 import { fetchJson } from "@/lib/api"; // ή "@/lib/apiClient" ανάλογα τι έχεις
+import { getCurrentUserFromApi } from "@/lib/currentUser";
 
 export default async function Page() {
-  // ⚠️ εδώ χρησιμοποίησε το ίδιο pattern που ήδη έχεις σε άλλα pages
-  // π.χ. από session / me endpoint. Αν ήδη στο lists edit page.tsx το έχεις,
-  // κάνε copy-paste την ίδια λογική.
+  const currentUser = await getCurrentUserFromApi();
 
-  const viewerUserId = 1; // TODO: βάλε το πραγματικό από session όπως στα άλλα pages
+  if (!currentUser) {
+    return (
+      <section style={{ padding: "1rem" }}>
+        <h1>Νέα λίστα</h1>
+        <p>Πρέπει να είστε συνδεδεμένος.</p>
+      </section>
+    );
+  }
 
-  const groups = await fetchJson(`/lists/groups?userId=${viewerUserId}`, { method: "GET" }).catch(() => []);
+  const groups = await fetchJson(`/lists/groups?userId=${currentUser.id}`, { method: "GET" }).catch(() => []);
 
-  return <ListNewClient viewerUserId={viewerUserId} groups={groups} />;
+  return <ListNewClient viewerUserId={currentUser.id} groups={groups} />;
 }

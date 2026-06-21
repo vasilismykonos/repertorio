@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CloudOff, Mic, Recycle, RefreshCw, Search } from "lucide-react";
+import { Bell, CloudOff, Mic, Recycle, RefreshCw, Search } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { signIn, signOut } from "next-auth/react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
@@ -13,6 +13,7 @@ import {
   useOfflineRuntime,
 } from "@/lib/offlineSync";
 import { useOfflineIdentity } from "@/lib/useOfflineIdentity";
+import { OPEN_NOTIFICATIONS_EVENT, useNotifications } from "@/app/hooks/useNotifications";
 
 type HeaderProps = {
   appVersion?: string;
@@ -60,6 +61,12 @@ function HeaderInner({ appVersion }: HeaderProps) {
   const userEmail = identity.userEmail;
   const offlineStatus = useOfflineRuntime(isLoggedIn, userEmail);
   const [offlineActionBusy, setOfflineActionBusy] = useState(false);
+  const notifications = useNotifications({
+    enabled: isLoggedIn && !identity.isOfflineAuthenticated && offlineStatus.online !== false,
+    take: 8,
+    pollMs: 45_000,
+    notifyOnNew: true,
+  });
 
   const avatarUrl = identity.userImage || undefined;
 
@@ -314,6 +321,13 @@ function HeaderInner({ appVersion }: HeaderProps) {
 
   const closeSidebar = () => setIsSidebarOpen(false);
   const overlayClass = isSidebarOpen ? "visible" : "";
+  const openNotifications = () => {
+    setIsSidebarOpen(true);
+    void notifications.refresh();
+    window.setTimeout(() => {
+      window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT));
+    }, 0);
+  };
 
   const avatarNode = avatarUrl ? (
     <img
@@ -530,6 +544,36 @@ function HeaderInner({ appVersion }: HeaderProps) {
               </span>
             </Link>
 
+            {notifications.unreadCount > 0 ? (
+              <button
+                type="button"
+                className="header-notifications-button"
+                onClick={openNotifications}
+                title="Ενημερώσεις"
+                aria-label={`Ενημερώσεις: ${notifications.unreadCount} αδιάβαστες`}
+                style={{
+                  marginLeft: 8,
+                  minWidth: 42,
+                  height: 34,
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,255,255,0.34)",
+                  background: "rgba(220,38,38,0.92)",
+                  color: "#fff",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 5,
+                  padding: "0 9px",
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  lineHeight: 1,
+                }}
+              >
+                <Bell size={17} strokeWidth={2.6} aria-hidden="true" />
+                <span style={{ fontSize: 14 }}>{notifications.unreadCount}</span>
+              </button>
+            ) : null}
+
             {isLoggedIn ? (
               <Link
                 href="/me"
@@ -621,6 +665,23 @@ function HeaderInner({ appVersion }: HeaderProps) {
         roomUserCount={roomUserCount}
         roomLoading={roomLoading}
         appVersion={appVersion}
+        notificationsUnread={notifications.unreadCount}
+        notifications={notifications.items}
+        notificationsLoading={notifications.loading}
+        notificationsError={notifications.error}
+        pushSupported={notifications.pushSupported}
+        pushPermission={notifications.pushPermission}
+        pushSubscribed={notifications.pushSubscribed}
+        pushBusy={notifications.pushBusy}
+        pushError={notifications.pushError}
+        onRefreshNotifications={notifications.refresh}
+        onMarkNotificationsRead={notifications.markAllRead}
+        onEnablePushNotifications={() => {
+          void notifications.enablePushNotifications();
+        }}
+        onDisablePushNotifications={() => {
+          void notifications.disablePushNotifications();
+        }}
         onNewSong={() => {
           window.location.href = "/songs/new";
         }}

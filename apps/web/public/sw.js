@@ -1,4 +1,4 @@
-const APP_VERSION = "3.0.54";
+const APP_VERSION = "3.0.66";
 const VERSION = `repertorio-${APP_VERSION}`;
 const STATIC_CACHE = `repertorio-static-${VERSION}`;
 const PAGE_CACHE = `repertorio-pages-${VERSION}`;
@@ -54,6 +54,46 @@ self.addEventListener("message", (event) => {
   event.waitUntil(cachePages(urls));
 });
 
+self.addEventListener("push", (event) => {
+  const payload = readPushPayload(event);
+  const title = payload.title || "Repertorio.net";
+  const href = typeof payload.href === "string" && payload.href.startsWith("/") ? payload.href : "/";
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: payload.body || "",
+      icon: "/icons/icon-192x192.png",
+      badge: "/icons/icon-192x192.png",
+      tag: payload.notificationId ? `repertorio-notification-${payload.notificationId}` : "repertorio-notification",
+      data: { href },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const href = event.notification?.data?.href || "/";
+  const targetUrl = new URL(href, self.location.origin).toString();
+
+  event.waitUntil(
+    (async () => {
+      const clientsList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of clientsList) {
+        try {
+          const url = new URL(client.url);
+          if (url.origin === self.location.origin) {
+            await client.navigate(targetUrl);
+            return client.focus();
+          }
+        } catch {
+          // Keep looking for another client.
+        }
+      }
+      return self.clients.openWindow(targetUrl);
+    })(),
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -72,6 +112,14 @@ self.addEventListener("fetch", (event) => {
     event.waitUntil(scheduleAutomaticPageShellWarmup());
   }
 });
+
+function readPushPayload(event) {
+  try {
+    return event.data ? event.data.json() : {};
+  } catch {
+    return {};
+  }
+}
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

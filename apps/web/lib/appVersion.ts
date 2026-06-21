@@ -6,9 +6,31 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.64";
+export const APP_VERSION = "3.0.66";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.66",
+    date: "2026-06-22",
+    level: "minor",
+    title: "Web Push ειδοποιήσεις",
+    items: [
+      "Προστέθηκε υποδομή Push API ώστε οι ενημερώσεις να μπορούν να εμφανίζονται ως ειδοποιήσεις συσκευής.",
+      "Στο popup «Ενημερώσεις» προστέθηκε επιλογή ενεργοποίησης και απενεργοποίησης push ειδοποιήσεων ανά συσκευή.",
+      "Ο service worker ανοίγει το σωστό link όταν ο χρήστης πατάει μια push ειδοποίηση.",
+    ],
+  },
+  {
+    version: "3.0.65",
+    date: "2026-06-22",
+    level: "patch",
+    title: "Ενημερώσεις σε popup και header badge",
+    items: [
+      "Το κουμπί «Ενημερώσεις» στο μενού ανοίγει πλέον καθαρό popup παράθυρο αντί να μεγαλώνει το sidebar.",
+      "Όταν υπάρχουν αδιάβαστες ενημερώσεις, εμφανίζεται συντόμευση με αριθμό δίπλα από το Room στο header.",
+      "Αν ο browser έχει άδεια ειδοποιήσεων, οι νέες ενημερώσεις εμφανίζονται και ως native notification όσο η εφαρμογή είναι ανοιχτή.",
+    ],
+  },
   {
     version: "3.0.64",
     date: "2026-06-21",

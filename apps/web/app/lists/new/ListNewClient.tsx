@@ -137,9 +137,7 @@ export default function ListNewClient({ viewerUserId, groups }: Props) {
     setErr(null);
 
     try {
-      const url = `/api/v1/lists?userId=${encodeURIComponent(String(viewerUserId))}`;
-
-      const res = await fetch(url, {
+      const res = await fetch("/api/lists", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         cache: "no-store",
