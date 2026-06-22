@@ -20,7 +20,6 @@ const OFFLINE_SYNC_ENABLED_KEY = "repertorio_offline_sync_enabled";
 const CACHE_PREFIXES = ["repertorio-static-", "repertorio-pages-"];
 
 const SONGS_DELTA_SYNC_AGE_MS = 20 * 60 * 1000;
-const SONGS_FULL_SYNC_AGE_MS = 24 * 60 * 60 * 1000;
 const LISTS_SYNC_AGE_MS = 10 * 60 * 1000;
 const BACKGROUND_SYNC_DELAY_MS = 90 * 1000;
 const BACKGROUND_IDLE_TIMEOUT_MS = 15 * 1000;
@@ -715,6 +714,25 @@ function countListDetails(detailsById: Record<string, any> | undefined): number 
   return Object.keys(detailsById || {}).length;
 }
 
+function updatedAtMs(value: unknown): number | null {
+  const ts = Date.parse(String(value || ""));
+  return Number.isFinite(ts) ? ts : null;
+}
+
+function listNeedsFreshDetail(list: any, previous: Record<string, any>) {
+  const id = listIdFromSummary(list);
+  if (!id) return false;
+
+  const previousDetail = previous[String(id)];
+  if (!previousDetail) return true;
+
+  const summaryUpdatedAt = updatedAtMs(list?.updatedAt);
+  const detailUpdatedAt = updatedAtMs(previousDetail?.updatedAt);
+  if (summaryUpdatedAt == null) return false;
+  if (detailUpdatedAt == null) return true;
+  return summaryUpdatedAt > detailUpdatedAt;
+}
+
 async function syncLists(userEmail?: string | null, detailBudget = LIST_DETAIL_BATCH_SIZE, force = false) {
   await updateSyncProgress({
     phase: "lists",
@@ -743,17 +761,21 @@ async function syncLists(userEmail?: string | null, detailBudget = LIST_DETAIL_B
   }, true);
 
   const previous = await readOfflineListsForEmail(email).catch(() => null);
-  const previousDetailCount = countListDetails(previous?.detailsById);
+  const previousDetails = previous?.detailsById || {};
+  const detailsToRefresh = force
+    ? lists
+    : lists.filter((list: any) => listNeedsFreshDetail(list, previousDetails));
+  const detailsAlreadyFresh = Math.max(0, lists.length - detailsToRefresh.length);
   const freshDetailsById = await fetchListDetailsForOffline(
     userId,
-    lists,
-    previous?.detailsById || {},
+    detailsToRefresh,
+    previousDetails,
     force ? Number.POSITIVE_INFINITY : detailBudget,
-    force,
-    previousDetailCount,
+    true,
+    detailsAlreadyFresh,
     lists.length,
   );
-  const detailsById = mergeListDetails(lists, previous?.detailsById || {}, freshDetailsById);
+  const detailsById = mergeListDetails(lists, previousDetails, freshDetailsById);
 
   await writeOfflineListsForUser({ userId, userEmail: email, data, facets, groupsIndex, detailsById });
 }
@@ -770,8 +792,11 @@ async function syncListDetailsChunk(userEmail?: string | null, limit = LIST_DETA
   if (lists.length === 0) return;
 
   const previous = snapshot?.detailsById || {};
-  const previousDetailCount = countListDetails(previous);
-  const freshDetailsById = await fetchListDetailsForOffline(userId, lists, previous, limit, false, previousDetailCount, lists.length);
+  const detailsToRefresh = lists.filter((list: any) => listNeedsFreshDetail(list, previous));
+  if (detailsToRefresh.length === 0) return;
+
+  const detailsAlreadyFresh = Math.max(0, lists.length - detailsToRefresh.length);
+  const freshDetailsById = await fetchListDetailsForOffline(userId, detailsToRefresh, previous, limit, true, detailsAlreadyFresh, lists.length);
   if (Object.keys(freshDetailsById).length === 0) return;
 
   await writeOfflineListsForUser(
@@ -826,8 +851,7 @@ async function doSync(options: SyncOptions): Promise<OfflineRuntimeStatus> {
     options.forceRefresh ||
     !cachedSongs ||
     cachedSongCount < 250 ||
-    !songsChangeCursor ||
-    ageMs(meta?.songsFullSyncedAt || meta?.songsSyncedAt) > SONGS_FULL_SYNC_AGE_MS;
+    !songsChangeCursor;
   const needsSongChanges =
     !needsFullSongs &&
     Boolean(songsChangeCursor) &&

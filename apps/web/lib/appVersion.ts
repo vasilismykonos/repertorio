@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.66";
+export const APP_VERSION = "3.0.67";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.67",
+    date: "2026-06-22",
+    level: "patch",
+    title: "Οικονομικότερος αυτόματος offline συγχρονισμός",
+    items: [
+      "Ο αυτόματος συγχρονισμός τραγουδιών χρησιμοποιεί μόνο τις αλλαγές μετά τον τελευταίο cursor αντί για περιοδικό πλήρες κατέβασμα.",
+      "Οι λίστες συγχρονίζουν πλήρη στοιχεία μόνο όταν η ίδια η λίστα έχει νεότερη αλλαγή.",
+      "Οι αλλαγές σε τραγούδια λίστας, σειρά και μέλη ενημερώνουν το updatedAt της λίστας ώστε το offline cache να ανανεώνεται στοχευμένα.",
+    ],
+  },
   {
     version: "3.0.66",
     date: "2026-06-22",

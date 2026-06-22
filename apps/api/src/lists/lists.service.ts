@@ -18,6 +18,7 @@ export type ListSummaryDto = {
   title: string;
   groupId: number | null;
   marked: boolean;
+  updatedAt: string | null;
   role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
 
   // ✅ lightweight count από DB (COUNT ListItem)
@@ -102,6 +103,7 @@ export type ListDetailDto = {
   groupFullTitle: string | null;
 
   marked: boolean;
+  updatedAt: string | null;
   /**
    * Ο ρόλος του τρέχοντος χρήστη στη λίστα. Βλέπε ListSummaryDto.role
    * για τη λίστα των πιθανών τιμών.
@@ -195,6 +197,22 @@ export class ListsService {
     @Optional() private readonly esSync?: ElasticsearchSongsSyncService,
     @Optional() private readonly notifications?: NotificationsService,
   ) {}
+
+  private isoDateOrNull(value: unknown): string | null {
+    if (value instanceof Date) return value.toISOString();
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+    const ts = Date.parse(raw);
+    return Number.isFinite(ts) ? new Date(ts).toISOString() : null;
+  }
+
+  private async touchListUpdatedAt(listId: number): Promise<void> {
+    await this.prisma.list.update({
+      where: { id: listId },
+      data: { updatedAt: new Date() },
+      select: { id: true },
+    });
+  }
 
   /* =========================
      Helpers
@@ -545,6 +563,7 @@ async getListsIndex(params: {
         title: true,
         groupId: true,
         marked: true,
+        updatedAt: true,
 
         // role για τον viewer
         members: { where: { userId }, select: { role: true } },
@@ -670,6 +689,7 @@ async getListsIndex(params: {
         title: t,
         groupId: r.groupId ?? null,
         marked: !!r.marked,
+        updatedAt: this.isoDateOrNull(r.updatedAt),
         role: this.computeHighestListRole(r.members),
         itemsCount: r._count?.items ?? 0,
 
@@ -737,6 +757,7 @@ async getListsIndex(params: {
       groupFullTitle: list.group?.fullTitle ?? null,
 
       marked: !!list.marked,
+      updatedAt: this.isoDateOrNull((list as any).updatedAt),
       role,
 
       items: (list.items ?? []).map((it: any) => this.listItemToDto(it)),
@@ -883,6 +904,8 @@ async getListsIndex(params: {
       include: { song: true, selectedSingerTune: true },
     });
 
+    await this.touchListUpdatedAt(listId);
+
     const itemsCount = await this.prisma.listItem.count({ where: { listId } });
 
     await this.esSync?.upsertSong(songId);
@@ -938,6 +961,8 @@ async getListsIndex(params: {
       include: { song: true, selectedSingerTune: true },
     });
 
+    await this.touchListUpdatedAt(listId);
+
     if (typeof existing.songId === 'number' && existing.songId > 0) {
       await this.esSync?.upsertSong(existing.songId);
     }
@@ -962,6 +987,7 @@ async getListsIndex(params: {
     if (!existing) throw new NotFoundException("List item not found");
 
     await this.prisma.listItem.delete({ where: { id: listItemId } });
+    await this.touchListUpdatedAt(listId);
 
     if (typeof existing.songId === 'number' && existing.songId > 0) {
       await this.esSync?.upsertSong(existing.songId);
@@ -1019,6 +1045,7 @@ async getListsIndex(params: {
         }),
       ),
     );
+    await this.touchListUpdatedAt(listId);
 
     return { ok: true };
   }
@@ -1264,6 +1291,7 @@ async getListsIndex(params: {
       update: { role },
       create: { listId, userId: targetUserId, role },
     });
+    await this.touchListUpdatedAt(listId);
 
     if (!existingMembership && this.notifications) {
       try {
@@ -1307,6 +1335,7 @@ async getListsIndex(params: {
     await this.prisma.listMember.deleteMany({
       where: { listId, userId: n },
     });
+    await this.touchListUpdatedAt(listId);
 
     return this.getListMembers({ userId, listId });
   }
