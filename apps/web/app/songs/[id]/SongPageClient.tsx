@@ -589,6 +589,28 @@ function youtubeUrlForSong(song: SongDetail): string {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${song.title} ${words}`.trim())}`;
 }
 
+function useIsCompactSongActions(maxWidth = 520) {
+  const [compact, setCompact] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mq = window.matchMedia(`(max-width: ${maxWidth}px)`);
+    const update = () => setCompact(Boolean(mq.matches));
+
+    update();
+    if (typeof mq.addEventListener === "function") {
+      mq.addEventListener("change", update);
+      return () => mq.removeEventListener("change", update);
+    }
+
+    mq.addListener(update);
+    return () => mq.removeListener(update);
+  }, [maxWidth]);
+
+  return compact;
+}
+
 function YouTubeActionButton({
   onClick,
   disabled = false,
@@ -596,6 +618,8 @@ function YouTubeActionButton({
   onClick: () => void;
   disabled?: boolean;
 }) {
+  const compact = useIsCompactSongActions();
+
   return (
     <button
       type="button"
@@ -607,9 +631,10 @@ function YouTubeActionButton({
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        gap: 7,
+        gap: compact ? 0 : 7,
         minHeight: 36,
-        padding: "0 13px",
+        minWidth: compact ? 40 : undefined,
+        padding: compact ? "0 8px" : "0 11px",
         border: "1px solid rgba(255,255,255,0.16)",
         borderRadius: 8,
         background: "#ff0000",
@@ -645,7 +670,7 @@ function YouTubeActionButton({
           />
         </svg>
       </span>
-      <span>YouTube</span>
+      {compact ? null : <span>YouTube</span>}
     </button>
   );
 }
