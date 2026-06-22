@@ -28,8 +28,13 @@ async function readAny(res: Response) {
 
 function getBaseUrlFromHeaders(): string {
   const h = headers();
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const firstHeaderValue = (value: string | null | undefined) =>
+    String(value || "")
+      .split(",")[0]
+      .trim();
+
+  const proto = firstHeaderValue(h.get("x-forwarded-proto")) || "http";
+  const host = firstHeaderValue(h.get("x-forwarded-host")) || firstHeaderValue(h.get("host"));
   if (!host) return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
   return `${proto}://${host}`;
 }
