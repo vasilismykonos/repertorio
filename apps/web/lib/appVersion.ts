@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.67";
+export const APP_VERSION = "3.0.71";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.71",
+    date: "2026-06-23",
+    level: "patch",
+    title: "Στατιστικά επισκεψιμότητας χρηστών",
+    items: [
+      "Στο admin tab «Επισκεψιμότητα» προστέθηκαν σύνοψη online/ενεργών χρηστών, πρόσφατοι συνδεδεμένοι και συχνοί χρήστες.",
+      "Η μέτρηση χρηστών βασίζεται στο ήδη υπάρχον heartbeat παρουσίας και αποθηκεύει μόνο αθροιστικά στοιχεία ανά χρήστη, χωρίς βαρύ ιστορικό ανά επίσκεψη.",
+      "Το endpoint στατιστικών χρηστών προστατεύεται με internal key και τα admin στατιστικά παραμένουν cached για χαμηλό κόστος.",
+    ],
+  },
   {
     version: "3.0.67",
     date: "2026-06-22",

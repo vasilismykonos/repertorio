@@ -470,12 +470,19 @@ model TuneShareGroup {
 }
 
 model UserPresence {
-  userId     Int      @id
-  lastSeenAt DateTime @default(now()) @updatedAt
+  userId        Int      @id
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now()) @updatedAt
+  lastSessionAt DateTime @default(now())
+  sessionCount  Int      @default(1)
+  activeMinutes Int      @default(0)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([lastSeenAt])
+  @@index([lastSessionAt])
+  @@index([sessionCount])
+  @@index([activeMinutes])
 }
 
 /* =========================

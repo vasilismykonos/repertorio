@@ -2,6 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+type UserActivityRow = {
+  id: number;
+  label: string;
+  username: string | null;
+  displayName: string | null;
+  email: string | null;
+  role: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastSessionAt: string;
+  sessionCount: number;
+  activeMinutes: number;
+  secondsAgo: number;
+};
+
 type TrafficStats = {
   ok: true;
   cached?: boolean;
@@ -27,6 +42,22 @@ type TrafficStats = {
   devices: Array<{ type: string; count: number }>;
   browsers: Array<{ name: string; count: number }>;
   referrers: Array<{ host: string; count: number }>;
+  userStats: null | {
+    generatedAt: string;
+    window: {
+      onlineMinutes: number;
+      activeTodayHours: number;
+      activeWeekDays: number;
+    };
+    totals: {
+      knownUsers: number;
+      onlineUsers: number;
+      activeToday: number;
+      activeWeek: number;
+    };
+    recentUsers: UserActivityRow[];
+    frequentUsers: UserActivityRow[];
+  };
 };
 
 function formatNumber(value: number) {
@@ -41,6 +72,18 @@ function formatDate(value: string | null | undefined) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
+}
+
+function userLabel(row: UserActivityRow) {
+  const secondary = row.email || row.username;
+  return secondary && secondary !== row.label ? `${row.label} · ${secondary}` : row.label;
+}
+
+function formatMinutes(value: number) {
+  const minutes = Number(value || 0);
+  if (minutes < 60) return `${formatNumber(minutes)} λ.`;
+  const hours = minutes / 60;
+  return `${new Intl.NumberFormat("el-GR", { maximumFractionDigits: 1 }).format(hours)} ώρες`;
 }
 
 function StatCard({ label, value, note }: { label: string; value: string; note?: string }) {
@@ -69,7 +112,7 @@ function MiniTable({
 }: {
   title: string;
   rows: any[];
-  columns: Array<{ key: string; label: string; align?: "left" | "right" }>;
+  columns: Array<{ key: string; label: string; align?: "left" | "right"; render?: (row: any) => string }>;
   empty?: string;
 }) {
   return (
@@ -78,44 +121,51 @@ function MiniTable({
         {title}
       </div>
       {rows.length ? (
-        <table style={{ width: "100%", borderCollapse: "collapse", color: "#111", fontSize: 13 }}>
-          <thead>
-            <tr>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  style={{
-                    textAlign: col.align || "left",
-                    padding: "9px 12px",
-                    borderBottom: "1px solid #eee",
-                    color: "#555",
-                  }}
-                >
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${title}-${index}`}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", color: "#111", fontSize: 13 }}>
+            <thead>
+              <tr>
                 {columns.map((col) => (
-                  <td
+                  <th
                     key={col.key}
                     style={{
                       textAlign: col.align || "left",
                       padding: "9px 12px",
-                      borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1",
-                      wordBreak: col.key === "path" ? "break-word" : "normal",
+                      borderBottom: "1px solid #eee",
+                      color: "#555",
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    {typeof row[col.key] === "number" ? formatNumber(row[col.key]) : row[col.key]}
-                  </td>
+                    {col.label}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={`${title}-${index}`}>
+                  {columns.map((col) => {
+                    const value = col.render ? col.render(row) : row[col.key];
+                    return (
+                      <td
+                        key={col.key}
+                        style={{
+                          textAlign: col.align || "left",
+                          padding: "9px 12px",
+                          borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1",
+                          wordBreak: col.key === "path" || col.key === "user" ? "break-word" : "normal",
+                          verticalAlign: "top",
+                        }}
+                      >
+                        {typeof value === "number" ? formatNumber(value) : value}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div style={{ padding: 14, color: "#666" }}>{empty || "Δεν υπάρχουν δεδομένα."}</div>
       )}
@@ -156,6 +206,8 @@ export default function TrafficTab() {
     return `${formatDate(stats.source.windowStart)} - ${formatDate(stats.source.windowEnd)}`;
   }, [stats]);
 
+  const userStats = stats?.userStats ?? null;
+
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div
@@ -174,7 +226,7 @@ export default function TrafficTab() {
         <div>
           <h2 style={{ margin: 0, color: "#111" }}>Επισκεψιμότητα</h2>
           <div style={{ marginTop: 6, color: "#555", fontSize: 13 }}>
-            Ελαφριά σύνοψη από nginx access logs με cache 5 λεπτών.
+            Ελαφριά σύνοψη από access logs και από το υπάρχον heartbeat συνδεδεμένων χρηστών.
           </div>
           {stats ? (
             <div style={{ marginTop: 6, color: "#666", fontSize: 12 }}>
@@ -216,6 +268,42 @@ export default function TrafficTab() {
             <StatCard label="Bots / scripts" value={formatNumber(stats.totals.botRequests)} />
             <StatCard label="Σφάλματα" value={formatNumber(stats.totals.errorRequests)} note={`${stats.totals.errorRate}%`} />
           </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+            <StatCard label="Online χρήστες" value={formatNumber(userStats?.totals.onlineUsers ?? 0)} note="τελευταία 5 λεπτά" />
+            <StatCard label="Συνδεδεμένοι σήμερα" value={formatNumber(userStats?.totals.activeToday ?? 0)} note="με heartbeat 24ώρου" />
+            <StatCard label="Συνδεδεμένοι 7 ημερών" value={formatNumber(userStats?.totals.activeWeek ?? 0)} />
+            <StatCard label="Χρήστες βάσης" value={formatNumber(userStats?.totals.knownUsers ?? 0)} />
+          </div>
+
+          {!userStats ? (
+            <div style={{ border: "1px solid #eee", background: "#fff", borderRadius: 12, padding: 12, color: "#666" }}>
+              Τα στατιστικά χρηστών δεν είναι διαθέσιμα αυτή τη στιγμή. Η επισκεψιμότητα σελίδων συνεχίζει κανονικά.
+            </div>
+          ) : null}
+
+          {userStats ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
+              <MiniTable
+                title="Πρόσφατοι συνδεδεμένοι χρήστες"
+                rows={userStats.recentUsers}
+                columns={[
+                  { key: "user", label: "Χρήστης", render: userLabel },
+                  { key: "lastSeenAt", label: "Τελευταία εμφάνιση", render: (row) => formatDate(row.lastSeenAt) },
+                  { key: "sessionCount", label: "Συνδέσεις", align: "right" },
+                ]}
+              />
+              <MiniTable
+                title="Συχνοί χρήστες"
+                rows={userStats.frequentUsers}
+                columns={[
+                  { key: "user", label: "Χρήστης", render: userLabel },
+                  { key: "activeMinutes", label: "Χρόνος", align: "right", render: (row) => formatMinutes(row.activeMinutes) },
+                  { key: "sessionCount", label: "Συνδέσεις", align: "right" },
+                ]}
+              />
+            </div>
+          ) : null}
 
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(260px, 1fr)", gap: 12 }}>
             <MiniTable

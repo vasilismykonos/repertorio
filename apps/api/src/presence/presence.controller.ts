@@ -1,5 +1,24 @@
-import { BadRequestException, Controller, Get, Post, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Headers,
+  InternalServerErrorException,
+  Post,
+  Query,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { PresenceService } from "./presence.service";
+
+function assertInternalKey(value?: string) {
+  const expected = String(process.env.INTERNAL_API_KEY ?? "").trim();
+  if (!expected) {
+    throw new InternalServerErrorException("Server misconfigured");
+  }
+  if (String(value ?? "").trim() !== expected) {
+    throw new UnauthorizedException("Unauthorized");
+  }
+}
 
 @Controller("presence")
 export class PresenceController {
@@ -20,6 +39,12 @@ export class PresenceController {
       windowSec: windowSec ? Number(windowSec) : undefined,
       take: take ? Number(take) : undefined,
     });
+  }
+
+  @Get("admin-stats")
+  async adminStats(@Headers("x-internal-key") internalKey?: string) {
+    assertInternalKey(internalKey);
+    return this.presence.adminStats();
   }
 
   @Post("ping")

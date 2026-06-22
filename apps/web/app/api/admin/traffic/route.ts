@@ -14,6 +14,8 @@ const LOG_PATHS = [
   process.env.TRAFFIC_ACCESS_LOG || "/usr/local/apache/domlogs/repertorio.net.log",
   "/usr/local/apache/domlogs/app.repertorio.net.log",
 ].filter(Boolean);
+const API_INTERNAL_BASE_URL = String(process.env.API_INTERNAL_BASE_URL || "").trim().replace(/\/$/, "");
+const INTERNAL_API_KEY = String(process.env.INTERNAL_API_KEY || "").trim();
 
 type TrafficCache = {
   expiresAt: number;
@@ -44,6 +46,41 @@ type TrafficStatsResponse = {
   devices: Array<{ type: string; count: number }>;
   browsers: Array<{ name: string; count: number }>;
   referrers: Array<{ host: string; count: number }>;
+  userStats: UserTrafficStats | null;
+};
+
+type UserTrafficStats = {
+  ok: true;
+  generatedAt: string;
+  window: {
+    onlineMinutes: number;
+    activeTodayHours: number;
+    activeWeekDays: number;
+  };
+  totals: {
+    knownUsers: number;
+    onlineUsers: number;
+    activeToday: number;
+    activeWeek: number;
+  };
+  recentUsers: UserActivityRow[];
+  frequentUsers: UserActivityRow[];
+};
+
+type UserActivityRow = {
+  id: number;
+  label: string;
+  username: string | null;
+  displayName: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+  role: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastSessionAt: string;
+  sessionCount: number;
+  activeMinutes: number;
+  secondsAgo: number;
 };
 
 declare global {
@@ -255,7 +292,28 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
     devices: top(deviceMap, 6, "type") as Array<{ type: string; count: number }>,
     browsers: top(browserMap, 8, "name") as Array<{ name: string; count: number }>,
     referrers: top(referrerMap, 8, "host") as Array<{ host: string; count: number }>,
+    userStats: null,
   };
+}
+
+async function readUserStats(): Promise<UserTrafficStats | null> {
+  if (!API_INTERNAL_BASE_URL || !INTERNAL_API_KEY) return null;
+
+  try {
+    const res = await fetch(`${API_INTERNAL_BASE_URL}/presence/admin-stats`, {
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+        "x-internal-key": INTERNAL_API_KEY,
+      },
+    });
+
+    if (!res.ok) return null;
+    const json = (await res.json()) as UserTrafficStats;
+    return json?.ok ? json : null;
+  } catch {
+    return null;
+  }
 }
 
 async function readTail(file: string, lineLimit: number): Promise<string> {
@@ -283,8 +341,12 @@ export async function GET(req: NextRequest) {
   }
 
   const lineLimit = clampLineLimit(req.nextUrl.searchParams.get("lines"));
-  const chunks = await Promise.all(LOG_PATHS.map((file) => readTail(file, lineLimit)));
+  const [chunks, userStats] = await Promise.all([
+    Promise.all(LOG_PATHS.map((file) => readTail(file, lineLimit))),
+    readUserStats(),
+  ]);
   const payload = parseAccessLogs(chunks.join("\n"), LOG_PATHS, lineLimit);
+  payload.userStats = userStats;
 
   globalThis.__repertorioTrafficCache = {
     expiresAt: Date.now() + CACHE_TTL_MS,
