@@ -6,8 +6,9 @@ import ElasticsearchTab from "./tabs/ElasticsearchTab";
 import TagsTab from "./tabs/TagsTab";
 import CategoriesTab from "./tabs/CategoriesTab";
 import RythmsTab from "./tabs/RythmsTab";
+import TrafficTab from "./tabs/TrafficTab";
 
-type TabKey = "general" | "elasticsearch" | "tags" | "categories" | "rythms";
+type TabKey = "general" | "elasticsearch" | "traffic" | "tags" | "categories" | "rythms";
 
 export default function SettingsClient() {
   const [active, setActive] = useState<TabKey>("elasticsearch");
@@ -16,6 +17,7 @@ export default function SettingsClient() {
     () => [
       { key: "general" as const, label: "Γενικά" },
       { key: "elasticsearch" as const, label: "Elasticsearch" },
+      { key: "traffic" as const, label: "Επισκεψιμότητα" },
       { key: "tags" as const, label: "Tags" },
       { key: "categories" as const, label: "Κατηγορίες" },
       { key: "rythms" as const, label: "Ρυθμοί" },
@@ -74,6 +76,7 @@ export default function SettingsClient() {
       )}
 
       {active === "elasticsearch" && <ElasticsearchTab />}
+      {active === "traffic" && <TrafficTab />}
       {active === "tags" && <TagsTab />}
       {active === "categories" && <CategoriesTab />}
       {active === "rythms" && <RythmsTab />}
