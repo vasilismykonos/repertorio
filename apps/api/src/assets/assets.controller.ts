@@ -159,6 +159,11 @@ export class AssetsController {
     });
   }
 
+  @Get("omr-jobs/:jobId")
+  async getOmrJob(@Param("jobId") jobId: string) {
+    return this.assetsService.getOmrJob(jobId);
+  }
+
   @Get(":id")
   async getOne(@Param("id") id: string) {
     const assetId = Number(id);
@@ -464,5 +469,16 @@ export class AssetsController {
     const assetId = Number(id);
     if (!Number.isFinite(assetId)) throw new BadRequestException("Invalid id");
     return this.assetsService.remove(assetId);
+  }
+
+  /**
+   * POST /api/v1/assets/:id/omr
+   * Runs OMR for a PDF/image score source and creates a linked SCORE asset.
+   */
+  @Post(":id/omr")
+  async recognizeScore(@Param("id") id: string) {
+    const assetId = Number(id);
+    if (!Number.isFinite(assetId)) throw new BadRequestException("Invalid id");
+    return this.assetsService.startOmrJob(assetId);
   }
 }

@@ -75,21 +75,29 @@ function extLower(name: string): string {
 }
 
 const ACCEPT_BY_MODE: Record<Mode, string | undefined> = {
-  SCORE: ".mxl,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml",
-  FILE: ".mp3,.jpg,.jpeg,.pdf,audio/mpeg,application/pdf,image/jpeg",
+  SCORE:
+    ".mxl,.musicxml,.pdf,.jpg,.jpeg,.png,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,application/pdf,image/jpeg,image/png",
+  FILE: ".mp3,.jpg,.jpeg,.png,.pdf,audio/mpeg,application/pdf,image/jpeg,image/png",
   LINK: undefined,
 };
 
 const ALLOWED_EXT_BY_MODE: Record<Mode, Set<string> | null> = {
-  SCORE: new Set(["mxl"]),
-  FILE: new Set(["mp3", "jpg", "jpeg", "pdf"]),
+  SCORE: new Set(["mxl", "musicxml", "pdf", "jpg", "jpeg", "png"]),
+  FILE: new Set(["mp3", "jpg", "jpeg", "png", "pdf"]),
   LINK: null,
 };
 
 function fileNotAllowedMessage(mode: Mode) {
-  if (mode === "SCORE") return "Η παρτιτούρα πρέπει να είναι αρχείο .mxl";
-  if (mode === "FILE") return "Το αρχείο πρέπει να είναι .mp3, .jpg, .jpeg ή .pdf";
+  if (mode === "SCORE") return "Η παρτιτούρα πρέπει να είναι .mxl, .musicxml, .pdf, .jpg, .jpeg ή .png";
+  if (mode === "FILE") return "Το αρχείο πρέπει να είναι .mp3, .jpg, .jpeg, .png ή .pdf";
   return "Μη επιτρεπτός τύπος αρχείου";
+}
+
+function scoreTypeForFileName(name: string): string {
+  const ext = extLower(name);
+  if (ext === "pdf") return "PDF";
+  if (ext === "jpg" || ext === "jpeg" || ext === "png") return "IMAGE";
+  return "SCORE";
 }
 
 function attachLabel(a: AssetAttachTarget): string {
@@ -227,7 +235,7 @@ export default function AssetForm({
 
     const fd = new FormData();
     fd.set("kind", derived.kind);
-    fd.set("type", derived.type);
+    fd.set("type", mode === "SCORE" && pickedFile ? scoreTypeForFileName(pickedFile.name) : derived.type);
     fd.set("title", String(title || "").trim());
 
     if (attachTo) {
@@ -414,13 +422,13 @@ export default function AssetForm({
                 value="SCORE"
                 icon={<FileText size={22} />}
                 label="Παρτιτούρα"
-                help="Μόνο .mxl"
+                help="PDF/εικόνα για εισαγωγή ή .mxl/.musicxml για διορθωμένη παρτιτούρα"
               />
               <ModeButton
                 value="FILE"
                 icon={<FileIcon size={22} />}
                 label="Αρχείο"
-                help="Μόνο .mp3, .jpg, .jpeg, .pdf"
+                help="Μόνο .mp3, .jpg, .jpeg, .png, .pdf"
               />
               <ModeButton
                 value="LINK"
@@ -485,6 +493,13 @@ export default function AssetForm({
               {pickedInfo ? (
                 <div style={{ opacity: 0.85 }}>
                   Επιλεγμένο: <b>{pickedInfo.name}</b> ({pickedInfo.size} bytes)
+                  {mode === "SCORE" ? (
+                    <div style={{ marginTop: 4, fontSize: 12, color: "#cfcfcf" }}>
+                      {scoreTypeForFileName(pickedInfo.name) === "SCORE"
+                        ? "Θα αποθηκευτεί ως επεξεργάσιμη παρτιτούρα για τον player."
+                        : "Θα αποθηκευτεί ως αρχείο εισαγωγής. Μετά μπορείς να τρέξεις αναγνώριση ή να ανεβάσεις διορθωμένο MusicXML/MXL."}
+                    </div>
+                  ) : null}
                 </div>
               ) : filePath ? (
                 <div style={{ opacity: 0.85 }}>

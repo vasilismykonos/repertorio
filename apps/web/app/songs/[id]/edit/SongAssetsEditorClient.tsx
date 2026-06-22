@@ -15,6 +15,8 @@ import {
   Music2,
   Image as ImageIcon,
   Film,
+  Pencil,
+  Wand2,
 } from "lucide-react";
 
 import Button from "@/app/components/buttons/Button";
@@ -52,6 +54,17 @@ export type SongAssetDto = {
   label: string | null;
   sort: number;
   isPrimary: boolean;
+};
+
+type OmrJobDto = {
+  id: string;
+  assetId: number;
+  state: "queued" | "running" | "succeeded" | "failed";
+  progress: number;
+  stage: string;
+  message: string;
+  scoreAsset?: SongAssetDto;
+  error?: string;
 };
 
 type Props = {
@@ -230,6 +243,25 @@ function isStep3Done(a: SongAssetDto) {
   return Boolean(cleanText(a.filePath ?? ""));
 }
 
+function fileExtLower(value: string | null | undefined): string {
+  const clean = String(value || "").split("?")[0].split("#")[0].trim();
+  const idx = clean.lastIndexOf(".");
+  return idx >= 0 ? clean.slice(idx + 1).toLowerCase() : "";
+}
+
+function isScoreSourceAsset(a: SongAssetDto): boolean {
+  if (a.kind !== "FILE") return false;
+  const type = String(a.type || "").toUpperCase();
+  const ext = fileExtLower(a.filePath || a.title || "");
+  return groupOf(a) === "SCORE" && (type === "PDF" || type === "IMAGE" || ["pdf", "jpg", "jpeg", "png"].includes(ext));
+}
+
+function isEditableScoreAsset(a: SongAssetDto): boolean {
+  if (a.kind !== "FILE") return false;
+  const ext = fileExtLower(a.filePath || a.title || "");
+  return String(a.type || "").toUpperCase() === "SCORE" || ["mxl", "musicxml", "xml"].includes(ext);
+}
+
 /* =========================
    Minimal styles
 ========================= */
@@ -300,6 +332,9 @@ export default function SongAssetsEditorClient({
     }
     return normalized;
   });
+  const [recognizingAssetId, setRecognizingAssetId] = useState<number | null>(null);
+  const [assetMessage, setAssetMessage] = useState<string>("");
+  const [omrJobs, setOmrJobs] = useState<Record<number, OmrJobDto>>({});
 
   const jsonValue = useMemo(() => JSON.stringify(assets), [assets]);
 
@@ -308,6 +343,62 @@ export default function SongAssetsEditorClient({
     if (!el) return;
     el.value = jsonValue;
   }, [hiddenInputId, jsonValue]);
+
+  useEffect(() => {
+    const activeJobs = Object.values(omrJobs).filter((job) => job.state === "queued" || job.state === "running");
+    if (activeJobs.length === 0) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      const updates = await Promise.all(
+        activeJobs.map(async (job) => {
+          try {
+            const res = await fetch(`/api/assets/omr-jobs/${encodeURIComponent(job.id)}`, { cache: "no-store" });
+            const text = await res.text();
+            const data = text ? JSON.parse(text) : null;
+            if (!res.ok) throw new Error(data?.message || data?.error || text || "OMR status failed.");
+            return data as OmrJobDto;
+          } catch (error: any) {
+            return {
+              ...job,
+              state: "failed" as const,
+              error: error?.message || "OMR status failed.",
+              message: "OMR status failed.",
+            };
+          }
+        }),
+      );
+
+      if (cancelled) return;
+
+      setOmrJobs((prev) => {
+        const next = { ...prev };
+        for (const job of updates) next[job.assetId] = job;
+        return next;
+      });
+
+      for (const job of updates) {
+        if (job.state === "succeeded" && job.scoreAsset?.id) {
+          setAssets((prev) => {
+            const exists = prev.some((item) => Number(item.id) === Number(job.scoreAsset?.id));
+            if (exists) return prev;
+            return normalize([...prev, coerceAsset({ ...job.scoreAsset, label: "Score: OMR" }, prev.length * 10)]);
+          });
+          setAssetMessage("OMR completed and added a new editable score.");
+          router.refresh();
+        } else if (job.state === "failed") {
+          setAssetMessage(job.error || job.message || "OMR failed.");
+        }
+      }
+    };
+
+    const timer = window.setInterval(poll, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [omrJobs, router]);
 
   const handleAddAsset = useCallback(() => {
     if (!songIdOk) return;
@@ -397,6 +488,56 @@ export default function SongAssetsEditorClient({
     });
   }
 
+  async function recognizeScoreAsset(index: number) {
+    const source = assets[index];
+    if (!source?.id || recognizingAssetId) return;
+    setAssetMessage("");
+    setRecognizingAssetId(source.id);
+    try {
+      const res = await fetch(`/api/assets/${source.id}/omr`, { method: "POST" });
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = null;
+      }
+      if (!res.ok) {
+        throw new Error(data?.message || data?.error || text || "Η αναγνώριση απέτυχε.");
+      }
+      const job = data?.job as OmrJobDto | undefined;
+      if (!job?.id) throw new Error("OMR job did not start.");
+      setOmrJobs((prev) => ({ ...prev, [source.id]: job }));
+      setAssetMessage("OMR started in the background.");
+      return;
+      const scoreAsset = data?.scoreAsset;
+      if (scoreAsset?.id) {
+        setAssets((prev) => {
+          const exists = prev.some((item) => Number(item.id) === Number(scoreAsset.id));
+          if (exists) return prev;
+          return normalize([...prev, coerceAsset({ ...scoreAsset, label: "Score: OMR" }, prev.length * 10)]);
+        });
+        setAssetMessage("Η αναγνώριση ολοκληρώθηκε και προστέθηκε νέα επεξεργάσιμη παρτιτούρα.");
+      } else {
+        setAssetMessage("Η αναγνώριση ολοκληρώθηκε.");
+      }
+      router.refresh();
+    } catch (err: any) {
+      setAssetMessage(err?.message || "Η αναγνώριση απέτυχε.");
+    } finally {
+      setRecognizingAssetId(null);
+    }
+  }
+
+  function editAsset(asset: SongAssetDto) {
+    if (!asset.id) return;
+    const returnTo =
+      typeof window !== "undefined"
+        ? `${window.location.pathname}${window.location.search}${window.location.hash}`
+        : `/songs/${songId}/edit`;
+    router.push(`/assets/${asset.id}/edit?returnTo=${encodeURIComponent(returnTo)}`);
+  }
+
   return (
     <section className="song-edit-section">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -424,6 +565,19 @@ export default function SongAssetsEditorClient({
         <div style={{ marginTop: 12, opacity: 0.75 }}>Δεν υπάρχουν assets.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+          {assetMessage ? (
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid #333",
+                background: "#121212",
+                color: "#eaeaea",
+              }}
+            >
+              {assetMessage}
+            </div>
+          ) : null}
           {assets.map((a, idx) => {
             const g = groupOf(a);
             const AssetIcon = iconForAsset(a);
@@ -433,6 +587,8 @@ export default function SongAssetsEditorClient({
 
             const step2ok = isStep2Done(a);
             const step3ok = isStep3Done(a);
+            const omrJob = a.id ? omrJobs[a.id] : null;
+            const omrActive = omrJob?.state === "queued" || omrJob?.state === "running";
 
             return (
               <div
@@ -487,11 +643,73 @@ export default function SongAssetsEditorClient({
                   </div>
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {isScoreSourceAsset(a) ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => recognizeScoreAsset(idx)}
+                        title="Αναγνώριση PDF/εικόνας σε MusicXML"
+                        aria-label="Αναγνώριση παρτιτούρας"
+                        icon={Wand2}
+                        disabled={recognizingAssetId !== null || omrActive}
+                      >
+                        {omrActive
+                          ? `${Math.max(0, Math.min(100, Number(omrJob?.progress || 0)))}%`
+                          : recognizingAssetId === a.id
+                            ? "Αναγνώριση..."
+                            : "Αναγνώριση"}
+                      </Button>
+                    ) : null}
+                    {a.id ? (
+                      <Button
+                        type="button"
+                        variant={isEditableScoreAsset(a) ? "primary" : "secondary"}
+                        onClick={() => editAsset(a)}
+                        title={isEditableScoreAsset(a) ? "Αντικατάσταση με διορθωμένο MusicXML/MXL" : "Επεξεργασία asset"}
+                        aria-label="Επεξεργασία asset"
+                        icon={Pencil}
+                      >
+                        Επεξεργασία
+                      </Button>
+                    ) : null}
                     <Button type="button" variant="secondary" onClick={() => move(idx, -1)} title="Πάνω" aria-label="Πάνω" icon={ArrowUp} />
                     <Button type="button" variant="secondary" onClick={() => move(idx, 1)} title="Κάτω" aria-label="Κάτω" icon={ArrowDown} />
                     <Button type="button" variant="danger" onClick={() => removeAsset(idx)} title="Διαγραφή" aria-label="Διαγραφή" icon={Trash2} />
                   </div>
                 </div>
+
+                {omrJob ? (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      border: "1px solid #2a2a2a",
+                      borderRadius: 10,
+                      background: "#080808",
+                      padding: 10,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12, color: "#d8d8d8" }}>
+                      <span>{omrJob.error || omrJob.message || omrJob.stage || "OMR"}</span>
+                      <span>{Math.max(0, Math.min(100, Number(omrJob.progress || 0)))}%</span>
+                    </div>
+                    <div style={{ marginTop: 8, height: 6, borderRadius: 999, background: "#202020", overflow: "hidden" }}>
+                      <div
+                        style={{
+                          width: `${Math.max(0, Math.min(100, Number(omrJob.progress || 0)))}%`,
+                          height: "100%",
+                          borderRadius: 999,
+                          background:
+                            omrJob.state === "failed"
+                              ? "#ff5555"
+                              : omrJob.state === "succeeded"
+                                ? "#35d07f"
+                                : "#6ea8ff",
+                          transition: "width 240ms ease",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
 
                 {/* Step 1 */}
                 <div style={{ marginTop: 10 }}>

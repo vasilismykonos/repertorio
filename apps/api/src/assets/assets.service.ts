@@ -2,6 +2,14 @@
 import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { AssetKind, AssetType, Prisma } from "@prisma/client";
+import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
+import * as path from "node:path";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+
+const UPLOAD_ROOT = "/home/reperto/uploads/assets";
+const OMR_JOB_ROOT = path.join(UPLOAD_ROOT, "omr-jobs");
 
 function parseEnumValue<T extends Record<string, string>>(
   enumObj: T,
@@ -28,6 +36,153 @@ function toPositiveIntOrNull(v: any): number | null {
   const n = Number(v);
   if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return null;
   return n;
+}
+
+function fileExtLower(value: string | null | undefined): string {
+  const clean = String(value || "").split("?")[0].split("#")[0];
+  return path.extname(clean).toLowerCase();
+}
+
+function uploadFilePathFromPublicPath(filePath: string | null | undefined): string | null {
+  const rel = String(filePath || "").trim();
+  if (!rel.startsWith("/uploads/assets/")) return null;
+  return path.join(UPLOAD_ROOT, rel.slice("/uploads/assets/".length));
+}
+
+function publicPathFromUploadFile(absPath: string): string {
+  const relative = path.relative(UPLOAD_ROOT, absPath).replace(/\\/g, "/");
+  return `/uploads/assets/${relative}`;
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fsp.access(filePath, fs.constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function findFirstScoreExport(dir: string): Promise<string | null> {
+  const entries = await fsp.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const nested = await findFirstScoreExport(full);
+      if (nested) files.push(nested);
+      continue;
+    }
+    if (entry.isFile() && [".mxl", ".musicxml", ".xml"].includes(fileExtLower(entry.name))) {
+      files.push(full);
+    }
+  }
+  files.sort((a, b) => {
+    const ax = fileExtLower(a) === ".mxl" ? 0 : 1;
+    const bx = fileExtLower(b) === ".mxl" ? 0 : 1;
+    return ax - bx || a.localeCompare(b);
+  });
+  return files[0] || null;
+}
+
+function isScoreSourceAsset(asset: any): boolean {
+  const type = String(asset?.type || "").toUpperCase();
+  const ext = fileExtLower(asset?.filePath || asset?.url || asset?.title);
+  return (
+    asset?.kind === "FILE" &&
+    (type === "PDF" || type === "IMAGE" || [".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff"].includes(ext))
+  );
+}
+
+type OmrJobState = "queued" | "running" | "succeeded" | "failed";
+
+type OmrJobStatus = {
+  id: string;
+  assetId: number;
+  state: OmrJobState;
+  progress: number;
+  stage: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt?: string;
+  sourceTitle?: string | null;
+  sourceFilePath?: string | null;
+  outputDir?: string;
+  scoreAsset?: any;
+  error?: string;
+  logs: string[];
+};
+
+const OMR_STAGE_PROGRESS: Record<string, number> = {
+  LOAD: 5,
+  BINARY: 10,
+  SCALE: 15,
+  GRID: 25,
+  HEADERS: 32,
+  STEM_SEEDS: 38,
+  BEAMS: 44,
+  LEDGERS: 50,
+  HEADS: 57,
+  STEMS: 64,
+  REDUCTION: 70,
+  CUE_BEAMS: 73,
+  TEXTS: 76,
+  MEASURES: 82,
+  CHORDS: 87,
+  CURVES: 90,
+  SYMBOLS: 93,
+  LINKS: 96,
+  RHYTHMS: 98,
+  PAGE: 99,
+};
+
+function safeJobId(value: string): string {
+  const v = String(value || "").trim();
+  if (!/^[a-zA-Z0-9._-]+$/.test(v)) throw new BadRequestException("Invalid job id");
+  return v;
+}
+
+function jobStatusPath(jobId: string): string {
+  return path.join(OMR_JOB_ROOT, `${safeJobId(jobId)}.json`);
+}
+
+function pushJobLog(job: OmrJobStatus, line: string) {
+  const clean = String(line || "").trim();
+  if (!clean) return;
+  job.logs = [...(job.logs || []), clean].slice(-80);
+}
+
+function updateJobFromAudiverisLine(job: OmrJobStatus, line: string) {
+  pushJobLog(job, line);
+  const stageMatch = line.match(/\|\s+([A-Z_]+)\s*$/);
+  const stage = stageMatch?.[1];
+  if (stage && OMR_STAGE_PROGRESS[stage] !== undefined) {
+    job.stage = stage;
+    job.progress = Math.max(job.progress || 0, OMR_STAGE_PROGRESS[stage]);
+    job.message = `Audiveris: ${stage}`;
+  }
+  const sheetMatch = line.match(/\[([^\]]+#\d+)\]/);
+  if (sheetMatch?.[1] && job.stage) {
+    job.message = `${sheetMatch[1]} - ${job.stage}`;
+  }
+}
+
+async function writeOmrJob(job: OmrJobStatus) {
+  await fsp.mkdir(OMR_JOB_ROOT, { recursive: true });
+  job.updatedAt = new Date().toISOString();
+  await fsp.writeFile(jobStatusPath(job.id), JSON.stringify(job, null, 2), "utf8");
+}
+
+async function readOmrJob(jobId: string): Promise<OmrJobStatus | null> {
+  const filePath = jobStatusPath(jobId);
+  const raw = await fsp.readFile(filePath, "utf8").catch(() => "");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as OmrJobStatus;
+  } catch {
+    return null;
+  }
 }
 
 type AssetLinkTargetType = "SONG" | "LIST" | "LIST_ITEM" | "LIST_GROUP";
@@ -286,6 +441,175 @@ export class AssetsService {
     if (!Number.isFinite(id) || id <= 0) throw new BadRequestException("Invalid id");
     await this.prisma.asset.delete({ where: { id } });
     return { ok: true };
+  }
+
+  async startOmrJob(id: number) {
+    if (!Number.isFinite(id) || id <= 0) throw new BadRequestException("Invalid id");
+
+    const source = await this.prisma.asset.findUnique({
+      where: { id },
+      include: {
+        SongAsset: {
+          orderBy: [{ sort: "asc" }, { createdAt: "asc" }],
+          include: { Song: { select: { id: true, title: true, slug: true } } },
+        },
+      },
+    });
+    if (!source) throw new NotFoundException("Asset not found");
+    if (!isScoreSourceAsset(source)) {
+      throw new BadRequestException("OMR can run only on PDF or image score assets.");
+    }
+
+    const audiverisBin = String(process.env.AUDIVERIS_BIN || "/usr/local/bin/audiveris").trim();
+    if (!audiverisBin || !(await pathExists(audiverisBin))) {
+      throw new BadRequestException("OMR engine is not configured. Set AUDIVERIS_BIN to an executable Audiveris wrapper.");
+    }
+
+    const inputPath = uploadFilePathFromPublicPath(source.filePath);
+    if (!inputPath || !(await pathExists(inputPath))) {
+      throw new BadRequestException("Source file was not found on disk.");
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const jobId = `${source.id}-${stamp}-${randomUUID().slice(0, 8)}`;
+    const outputDir = path.join(UPLOAD_ROOT, "score", `omr-${jobId}`);
+    await fsp.mkdir(outputDir, { recursive: true });
+
+    const now = new Date().toISOString();
+    const job: OmrJobStatus = {
+      id: jobId,
+      assetId: source.id,
+      state: "queued",
+      progress: 0,
+      stage: "QUEUED",
+      message: "Queued",
+      createdAt: now,
+      updatedAt: now,
+      sourceTitle: source.title ?? null,
+      sourceFilePath: source.filePath ?? null,
+      outputDir,
+      logs: [],
+    };
+    await writeOmrJob(job);
+
+    void this.runOmrJob(job, {
+      audiverisBin,
+      inputPath,
+      outputDir,
+      sourceTitle: String(source.title || source.filePath || `Asset ${source.id}`).trim(),
+      sourceSongLinks: source.SongAsset || [],
+    });
+
+    return { ok: true, job };
+  }
+
+  async getOmrJob(jobId: string) {
+    const job = await readOmrJob(jobId);
+    if (!job) throw new NotFoundException("OMR job not found");
+    return job;
+  }
+
+  private async runOmrJob(
+    job: OmrJobStatus,
+    input: {
+      audiverisBin: string;
+      inputPath: string;
+      outputDir: string;
+      sourceTitle: string;
+      sourceSongLinks: Array<{ songId: number; sort: number | null }>;
+    },
+  ) {
+    const update = async (patch: Partial<OmrJobStatus>) => {
+      Object.assign(job, patch);
+      await writeOmrJob(job);
+    };
+
+    try {
+      await update({ state: "running", progress: 1, stage: "START", message: "Starting Audiveris" });
+
+      await new Promise<void>((resolve, reject) => {
+        let lastProgressWrite = 0;
+        const child = spawn(input.audiverisBin, ["-batch", "-export", "-output", input.outputDir, input.inputPath], {
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        const timeout = setTimeout(() => {
+          child.kill("SIGTERM");
+          reject(new Error("OMR timed out after 30 minutes."));
+        }, 30 * 60 * 1000);
+
+        const consume = (chunk: Buffer) => {
+          for (const line of chunk.toString("utf8").split(/\r?\n/)) {
+            if (!line.trim()) continue;
+            updateJobFromAudiverisLine(job, line);
+            const now = Date.now();
+            if (now - lastProgressWrite >= 1000) {
+              lastProgressWrite = now;
+              void writeOmrJob(job);
+            }
+          }
+        };
+
+        child.stdout.on("data", consume);
+        child.stderr.on("data", consume);
+        child.on("error", (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+        child.on("close", (code) => {
+          clearTimeout(timeout);
+          if (code === 0) resolve();
+          else reject(new Error(`Audiveris exited with code ${code ?? "unknown"}.`));
+        });
+      });
+
+      await update({ progress: 99, stage: "EXPORT", message: "Looking for MusicXML export" });
+      const exported = await findFirstScoreExport(input.outputDir);
+      if (!exported) throw new Error("Audiveris finished but no MusicXML/MXL file was found.");
+
+      const stat = await fsp.stat(exported);
+      const created = await this.create({
+        kind: "FILE",
+        type: "SCORE",
+        title: `${input.sourceTitle} - OMR`,
+        url: null,
+        filePath: publicPathFromUploadFile(exported),
+        mimeType:
+          fileExtLower(exported) === ".mxl"
+            ? "application/vnd.recordare.musicxml"
+            : "application/vnd.recordare.musicxml+xml",
+        sizeBytes: stat.size,
+      });
+
+      for (const link of input.sourceSongLinks) {
+        await this.link({
+          assetId: created.id,
+          targetType: "SONG",
+          targetId: link.songId,
+          label: "Score: OMR",
+          sort: Number(link.sort || 0) + 1,
+          isPrimary: false,
+        });
+      }
+
+      await update({
+        state: "succeeded",
+        progress: 100,
+        stage: "DONE",
+        message: "OMR completed",
+        finishedAt: new Date().toISOString(),
+        scoreAsset: await this.getOne(created.id),
+      });
+    } catch (error: any) {
+      pushJobLog(job, String(error?.message || error || "OMR failed."));
+      await update({
+        state: "failed",
+        progress: Math.max(1, job.progress || 0),
+        stage: "FAILED",
+        message: "OMR failed",
+        error: String(error?.message || error || "OMR failed."),
+        finishedAt: new Date().toISOString(),
+      });
+    }
   }
 
   /* =========================================================

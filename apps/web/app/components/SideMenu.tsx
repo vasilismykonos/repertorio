@@ -8,7 +8,6 @@ import {
   ListMusic,
   Users,
   Settings,
-  User,
   Mic2,
   Download,
   Mail,
@@ -538,7 +537,6 @@ export default function SideMenu(props: Props) {
       },
       { key: "artists", href: "/artists", label: "Καλλιτέχνες", Icon: Mic2, as: "link" },
       { key: "rooms", href: "/rooms", label: "Rooms", Icon: Recycle, as: "link", badge: roomBadge },
-      { key: "me", href: "/me", label: "Λογαριασμός", Icon: User, as: "link" },
       { key: "users", href: "/users", label: "Χρήστες", Icon: Users, as: "link" },
 
       ...(effectiveIsAdmin
@@ -578,6 +576,32 @@ export default function SideMenu(props: Props) {
     <>
       <aside id="sidebar" className={sidebarClass} aria-hidden={!isOpen}>
         <div className="smh-top">
+          {isLoggedIn ? (
+            <Link href="/me" className="smh-user" onClick={onClose} title="Ο λογαριασμός μου">
+              <span className="smh-avatar">{avatarNode}</span>
+              <div className="smh-meta">
+                <div className="smh-name" title={displayName}>
+                  {displayName}
+                </div>
+
+                <div className="smh-sub">
+                  <span className={cx("smh-dot", isLoggedIn && "on")} />
+                  {statusText}
+
+                  {isInRoomLocal && currentRoomNameLocal ? (
+                    <span className="smh-room">
+                      <Recycle size={14} strokeWidth={2.6} />
+                      <span className="smh-room-name" title={currentRoomNameLocal}>
+                        {currentRoomNameLocal}
+                      </span>
+                    </span>
+                  ) : null}
+
+                  {!adminResolved ? <span style={{ opacity: 0.6 }}>role…</span> : null}
+                </div>
+              </div>
+            </Link>
+          ) : (
           <div className="smh-user">
             <span className="smh-avatar">{avatarNode}</span>
             <div className="smh-meta">
@@ -602,6 +626,7 @@ export default function SideMenu(props: Props) {
               </div>
             </div>
           </div>
+          )}
 
           <button
             id="closeSidebar"
@@ -1075,6 +1100,21 @@ export default function SideMenu(props: Props) {
             align-items: center;
             gap: 10px;
             min-width: 0;
+            border-radius: 14px;
+            color: inherit;
+            text-decoration: none;
+            padding: 4px;
+            margin: -4px;
+          }
+
+          a.smh-user {
+            cursor: pointer;
+          }
+
+          a.smh-user:hover,
+          a.smh-user:focus-visible {
+            background: rgba(255, 255, 255, 0.07);
+            outline: none;
           }
 
           .smh-avatar {
