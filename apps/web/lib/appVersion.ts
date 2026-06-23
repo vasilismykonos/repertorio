@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.71";
+export const APP_VERSION = "3.0.72";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.72",
+    date: "2026-06-23",
+    level: "patch",
+    title: "Καθημερινή επισκεψιμότητα",
+    items: [
+      "Στο admin tab «Επισκεψιμότητα» προστέθηκε ημερήσια προβολή με προβολές σελίδων, μοναδικούς επισκέπτες, requests και σφάλματα.",
+      "Η ημερήσια ανάλυση βγαίνει από το ίδιο cached δείγμα των access logs, χωρίς νέο tracking σε κάθε επίσκεψη.",
+      "Η υλοποίηση παραμένει ελαφριά και δεν επηρεάζει τη φόρτωση των απλών χρηστών.",
+    ],
+  },
   {
     version: "3.0.71",
     date: "2026-06-23",

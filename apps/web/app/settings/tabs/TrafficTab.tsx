@@ -42,6 +42,14 @@ type TrafficStats = {
   devices: Array<{ type: string; count: number }>;
   browsers: Array<{ name: string; count: number }>;
   referrers: Array<{ host: string; count: number }>;
+  dailyTraffic: Array<{
+    date: string;
+    pageViews: number;
+    uniqueVisitors: number;
+    requests: number;
+    botRequests: number;
+    errorRequests: number;
+  }>;
   userStats: null | {
     generatedAt: string;
     window: {
@@ -71,6 +79,17 @@ function formatDate(value: string | null | undefined) {
   return new Intl.DateTimeFormat("el-GR", {
     dateStyle: "short",
     timeStyle: "short",
+  }).format(date);
+}
+
+function formatDay(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(`${value}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("el-GR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
   }).format(date);
 }
 
@@ -168,6 +187,67 @@ function MiniTable({
         </div>
       ) : (
         <div style={{ padding: 14, color: "#666" }}>{empty || "Δεν υπάρχουν δεδομένα."}</div>
+      )}
+    </div>
+  );
+}
+
+function DailyTrafficTable({ rows }: { rows: NonNullable<TrafficStats["dailyTraffic"]> }) {
+  const maxViews = Math.max(1, ...rows.map((row) => row.pageViews));
+
+  return (
+    <div style={{ border: "1px solid #ddd", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+      <div style={{ padding: "12px 14px", borderBottom: "1px solid #eee", fontWeight: 900, color: "#111" }}>
+        Καθημερινή επισκεψιμότητα
+      </div>
+      {rows.length ? (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", color: "#111", fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555" }}>Ημέρα</th>
+                <th style={{ textAlign: "left", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555", minWidth: 180 }}>Προβολές</th>
+                <th style={{ textAlign: "right", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555" }}>Επισκέπτες</th>
+                <th style={{ textAlign: "right", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555" }}>Requests</th>
+                <th style={{ textAlign: "right", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555" }}>Σφάλματα</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows
+                .slice()
+                .reverse()
+                .map((row, index) => {
+                  const width = `${Math.max(4, Math.round((row.pageViews / maxViews) * 100))}%`;
+                  return (
+                    <tr key={row.date}>
+                      <td style={{ padding: "9px 12px", borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1", whiteSpace: "nowrap" }}>
+                        {formatDay(row.date)}
+                      </td>
+                      <td style={{ padding: "9px 12px", borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ flex: 1, height: 8, borderRadius: 999, background: "#eee", overflow: "hidden", minWidth: 90 }}>
+                            <div style={{ width, height: "100%", borderRadius: 999, background: "#111" }} />
+                          </div>
+                          <strong style={{ minWidth: 44, textAlign: "right" }}>{formatNumber(row.pageViews)}</strong>
+                        </div>
+                      </td>
+                      <td style={{ textAlign: "right", padding: "9px 12px", borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1" }}>
+                        {formatNumber(row.uniqueVisitors)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "9px 12px", borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1" }}>
+                        {formatNumber(row.requests)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "9px 12px", borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1" }}>
+                        {formatNumber(row.errorRequests)}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div style={{ padding: 14, color: "#666" }}>Δεν υπάρχουν ημερήσια δεδομένα στο δείγμα.</div>
       )}
     </div>
   );
@@ -304,6 +384,8 @@ export default function TrafficTab() {
               />
             </div>
           ) : null}
+
+          <DailyTrafficTable rows={stats.dailyTraffic || []} />
 
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(260px, 1fr)", gap: 12 }}>
             <MiniTable

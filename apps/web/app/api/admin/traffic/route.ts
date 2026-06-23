@@ -46,7 +46,17 @@ type TrafficStatsResponse = {
   devices: Array<{ type: string; count: number }>;
   browsers: Array<{ name: string; count: number }>;
   referrers: Array<{ host: string; count: number }>;
+  dailyTraffic: DailyTrafficRow[];
   userStats: UserTrafficStats | null;
+};
+
+type DailyTrafficRow = {
+  date: string;
+  pageViews: number;
+  uniqueVisitors: number;
+  requests: number;
+  botRequests: number;
+  errorRequests: number;
 };
 
 type UserTrafficStats = {
@@ -199,6 +209,37 @@ function top(map: Map<string, number>, limit: number, label: string) {
     .map(([key, count]) => ({ [label]: key, count }));
 }
 
+function dayKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function ensureDailyBucket(
+  map: Map<
+    string,
+    {
+      pageViews: number;
+      uniqueVisitors: Set<string>;
+      requests: number;
+      botRequests: number;
+      errorRequests: number;
+    }
+  >,
+  key: string,
+) {
+  let bucket = map.get(key);
+  if (!bucket) {
+    bucket = {
+      pageViews: 0,
+      uniqueVisitors: new Set<string>(),
+      requests: 0,
+      botRequests: 0,
+      errorRequests: 0,
+    };
+    map.set(key, bucket);
+  }
+  return bucket;
+}
+
 function parseAccessLogs(logText: string, files: string[], lineLimit: number): TrafficStatsResponse {
   const linePattern =
     /^(\S+) \S+ \S+ \[([^\]]+)\] "([A-Z]+) ([^" ]+)(?: HTTP\/[^"]+)?" (\d{3}) (\S+) "([^"]*)" "([^"]*)"$/;
@@ -209,6 +250,16 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
   const deviceMap = new Map<string, number>();
   const browserMap = new Map<string, number>();
   const referrerMap = new Map<string, number>();
+  const dailyMap = new Map<
+    string,
+    {
+      pageViews: number;
+      uniqueVisitors: Set<string>;
+      requests: number;
+      botRequests: number;
+      errorRequests: number;
+    }
+  >();
 
   let requests = 0;
   let pageViews = 0;
@@ -245,6 +296,13 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
     if (Number(status) >= 400) errorRequests += 1;
     if (bot) botRequests += 1;
 
+    const dayBucket = date ? ensureDailyBucket(dailyMap, dayKey(date)) : null;
+    if (dayBucket) {
+      dayBucket.requests += 1;
+      if (Number(status) >= 400) dayBucket.errorRequests += 1;
+      if (bot) dayBucket.botRequests += 1;
+    }
+
     const pagePath = stripQuery(path);
     const isPageView =
       !bot &&
@@ -258,6 +316,10 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
       increment(topPagesMap, pagePath);
       increment(deviceMap, deviceType(userAgent));
       increment(browserMap, browserName(userAgent));
+      if (dayBucket) {
+        dayBucket.pageViews += 1;
+        dayBucket.uniqueVisitors.add(ip);
+      }
 
       const host = referrerHost(referrer);
       if (host) increment(referrerMap, host);
@@ -292,6 +354,17 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
     devices: top(deviceMap, 6, "type") as Array<{ type: string; count: number }>,
     browsers: top(browserMap, 8, "name") as Array<{ name: string; count: number }>,
     referrers: top(referrerMap, 8, "host") as Array<{ host: string; count: number }>,
+    dailyTraffic: [...dailyMap.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-30)
+      .map(([date, bucket]) => ({
+        date,
+        pageViews: bucket.pageViews,
+        uniqueVisitors: bucket.uniqueVisitors.size,
+        requests: bucket.requests,
+        botRequests: bucket.botRequests,
+        errorRequests: bucket.errorRequests,
+      })),
     userStats: null,
   };
 }
