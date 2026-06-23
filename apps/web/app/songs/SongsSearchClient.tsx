@@ -122,6 +122,18 @@ type SongsSearchResponse = {
   aggs?: EsAggs;
 };
 
+type AiSearchLink = {
+  id: number;
+  title: string;
+};
+
+type AiSearchState = {
+  loading: boolean;
+  reply: string;
+  links: AiSearchLink[];
+  error: string | null;
+};
+
 type CategoryDto = {
   id: number;
   title: number | string;
@@ -642,6 +654,26 @@ function blurActiveElementSoon() {
   });
 }
 
+function extractAiSongLinks(reply: string): AiSearchLink[] {
+  const links: AiSearchLink[] = [];
+  const seen = new Set<number>();
+  const lines = String(reply || "").split(/\r?\n/);
+
+  for (const line of lines) {
+    const match = line.match(/#(\d+)\s*:\s*(.+)$/);
+    if (!match) continue;
+
+    const id = Number(match[1]);
+    const title = String(match[2] || "").trim();
+    if (!Number.isFinite(id) || id <= 0 || !title || seen.has(id)) continue;
+
+    seen.add(id);
+    links.push({ id, title });
+  }
+
+  return links.slice(0, 8);
+}
+
 export default function SongsSearchClient({ searchParams }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -777,6 +809,12 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [filtersReady, setFiltersReady] = useState(false);
+  const [aiSearch, setAiSearch] = useState<AiSearchState>({
+    loading: false,
+    reply: "",
+    links: [],
+    error: null,
+  });
 
   useEffect(() => {
     const onSubmit = () => blurActiveElementSoon();
@@ -994,6 +1032,62 @@ export default function SongsSearchClient({ searchParams }: Props) {
     if (listId) base.set("listId", listId);
     return buildUrlQueryFromFilters(filters, base);
   }, [filters, pickerMode, returnTo, listId]);
+
+  const aiQuestion = useMemo(() => {
+    const parts: string[] = [];
+    const q = filters.q.trim();
+    if (q) parts.push(`Βρες και εξήγησε τα πιο σχετικά τραγούδια για: ${q}`);
+    else parts.push("Πρότεινε σχετικά τραγούδια με βάση τα τρέχοντα φίλτρα αναζήτησης.");
+
+    if (filters.category_id) parts.push(`Κατηγορία: ${filters.category_id}`);
+    if (filters.rythm_id) parts.push(`Ρυθμός: ${filters.rythm_id}`);
+    if (filters.chords === "1") parts.push("μόνο με συγχορδίες");
+    if (filters.partiture === "1") parts.push("μόνο με παρτιτούρα");
+    if (filters.lyrics) parts.push(`στίχοι: ${lyricsSummary(filters.lyrics)}`);
+    if (filters.popular === "1") parts.push("δώσε προτεραιότητα σε δημοφιλή αποτελέσματα");
+
+    return parts.join(". ");
+  }, [filters]);
+
+  const runAiSearch = async () => {
+    if (aiSearch.loading) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setAiSearch({
+        loading: false,
+        reply: "",
+        links: [],
+        error: "Το AI χρειάζεται σύνδεση Internet. Η κανονική offline αναζήτηση παραμένει διαθέσιμη.",
+      });
+      return;
+    }
+
+    setAiSearch((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const res = await fetch("/api/ai/repertorio/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ message: aiQuestion }),
+        cache: "no-store",
+      });
+      const payload = await parseJsonSafe<any>(res);
+      if (!res.ok) throw new Error(String(payload?.error || payload?.message || "AI request failed"));
+
+      const reply = String(payload?.reply || "").trim();
+      setAiSearch({
+        loading: false,
+        reply: reply || "Δεν πήρα καθαρή απάντηση από το Repertorio AI.",
+        links: extractAiSongLinks(reply),
+        error: null,
+      });
+    } catch (err: any) {
+      setAiSearch({
+        loading: false,
+        reply: "",
+        links: [],
+        error: String(err?.message || err || "Δεν μπόρεσα να μιλήσω με το Repertorio AI."),
+      });
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -1572,8 +1666,113 @@ export default function SongsSearchClient({ searchParams }: Props) {
               <div className="filters-modal-trigger">
                 <FiltersModal {...(sharedFiltersProps as any)} />
               </div>
+
+              <button
+                type="button"
+                onClick={runAiSearch}
+                disabled={aiSearch.loading}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #2f7cff",
+                  background: aiSearch.loading ? "#1b1b1b" : "#0d6efd",
+                  color: "#fff",
+                  cursor: aiSearch.loading ? "wait" : "pointer",
+                  fontSize: 13,
+                  fontWeight: 800,
+                  height: 38,
+                  whiteSpace: "nowrap",
+                  boxShadow: aiSearch.loading ? "none" : "0 8px 22px rgba(13,110,253,0.22)",
+                }}
+                title="AI βοήθεια για την τρέχουσα αναζήτηση"
+              >
+                {aiSearch.loading ? "AI..." : "AI"}
+              </button>
             </div>
           </div>
+
+          {(aiSearch.loading || aiSearch.reply || aiSearch.error) && (
+            <section
+              aria-live="polite"
+              style={{
+                marginBottom: 12,
+                padding: 12,
+                borderRadius: 12,
+                border: "1px solid #2f7cff",
+                background: "#07111f",
+                color: "#fff",
+                boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: aiSearch.loading || aiSearch.reply || aiSearch.error ? 8 : 0,
+                }}
+              >
+                <strong style={{ fontSize: 14 }}>AI αναζήτηση</strong>
+                <button
+                  type="button"
+                  onClick={() => setAiSearch({ loading: false, reply: "", links: [], error: null })}
+                  style={{
+                    border: "1px solid #35527a",
+                    background: "#0b1628",
+                    color: "#fff",
+                    borderRadius: 8,
+                    padding: "4px 8px",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Κλείσιμο
+                </button>
+              </div>
+
+              {aiSearch.loading ? (
+                <div style={{ opacity: 0.9, fontSize: 14 }}>Το Repertorio AI διαβάζει την αναζήτηση...</div>
+              ) : aiSearch.error ? (
+                <div style={{ color: "#ffb4b4", fontSize: 14 }}>{aiSearch.error}</div>
+              ) : (
+                <>
+                  <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.45, fontSize: 14 }}>{aiSearch.reply}</div>
+                  {aiSearch.links.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                      {aiSearch.links.map((link) => {
+                        const href = `/songs/${link.id}?${currentSongsQuery}`;
+                        return (
+                          <Link
+                            key={link.id}
+                            href={href}
+                            prefetch={false}
+                            onClick={(event) => navigateDocumentWhenOffline(event, href)}
+                            style={{
+                              color: "#fff",
+                              textDecoration: "none",
+                              border: "1px solid #456fa8",
+                              background: "#102644",
+                              borderRadius: 999,
+                              padding: "6px 10px",
+                              fontSize: 13,
+                              maxWidth: "100%",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            title={link.title}
+                          >
+                            #{link.id} {link.title}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+          )}
 
           {selectedChips.length > 0 && (
             <div
