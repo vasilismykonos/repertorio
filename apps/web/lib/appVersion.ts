@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.72";
+export const APP_VERSION = "3.0.73";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.73",
+    date: "2026-06-23",
+    level: "patch",
+    title: "Repertorio AI Agent",
+    items: [
+      "Προστέθηκε ασφαλές server-side proxy για τον Aeolos AI Agent στο Repertorio.",
+      "Ο agent μπορεί να απαντά σε read-only ερωτήσεις με ελαφρύ context από τραγούδια και λίστες του χρήστη.",
+      "Η πρόσβαση γίνεται με εσωτερικό κλειδί από server σε server, χωρίς να εκτίθεται μυστικό στον browser.",
+    ],
+  },
   {
     version: "3.0.72",
     date: "2026-06-23",
