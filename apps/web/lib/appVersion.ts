@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.74";
+export const APP_VERSION = "3.0.75";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.75",
+    date: "2026-06-23",
+    level: "patch",
+    title: "Πιο σχετική AI αναζήτηση",
+    items: [
+      "Η AI βοήθεια στην αναζήτηση βασίζεται πλέον στα αποτελέσματα που εμφανίζονται ήδη στη σελίδα.",
+      "Ο agent δεν κάνει δεύτερη ανεξάρτητη αναζήτηση όταν υπάρχουν ορατά αποτελέσματα, ώστε οι προτάσεις να ταιριάζουν με αυτό που βλέπει ο χρήστης.",
+      "Το context προς τον agent περιορίζεται σε σύντομα metadata για χαμηλό κόστος και καλύτερη απόδοση.",
+    ],
+  },
   {
     version: "3.0.74",
     date: "2026-06-23",

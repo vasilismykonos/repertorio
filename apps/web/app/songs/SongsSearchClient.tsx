@@ -674,6 +674,29 @@ function extractAiSongLinks(reply: string): AiSearchLink[] {
   return links.slice(0, 8);
 }
 
+function compactSongForAi(song: SongSearchItem) {
+  const songId = getCanonicalSongId(song);
+  if (!songId) return null;
+
+  return {
+    id: songId,
+    title: String(song.title || "").trim(),
+    firstLyrics: String(song.firstLyrics || song.lyrics || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 180),
+    category: song.categoryTitle || song.category || song.category_title || null,
+    rythm: song.rythmTitle || song.rythm || song.rhythmTitle || null,
+    originalKey: song.originalKey || null,
+    status: song.status || null,
+    views: song.views ?? null,
+    hasChords: Boolean(song.chords),
+    hasScore: Boolean(song.partiture),
+    isInstrumental: Boolean(song.isInstrumental),
+    tags: Array.isArray(song.tagTitles) ? song.tagTitles.slice(0, 6) : [],
+  };
+}
+
 export default function SongsSearchClient({ searchParams }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1036,8 +1059,8 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const aiQuestion = useMemo(() => {
     const parts: string[] = [];
     const q = filters.q.trim();
-    if (q) parts.push(`Βρες και εξήγησε τα πιο σχετικά τραγούδια για: ${q}`);
-    else parts.push("Πρότεινε σχετικά τραγούδια με βάση τα τρέχοντα φίλτρα αναζήτησης.");
+    if (q) parts.push(`Αξιολόγησε τα εμφανιζόμενα αποτελέσματα για: ${q}`);
+    else parts.push("Αξιολόγησε τα εμφανιζόμενα αποτελέσματα με βάση τα τρέχοντα φίλτρα αναζήτησης.");
 
     if (filters.category_id) parts.push(`Κατηγορία: ${filters.category_id}`);
     if (filters.rythm_id) parts.push(`Ρυθμός: ${filters.rythm_id}`);
@@ -1045,6 +1068,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
     if (filters.partiture === "1") parts.push("μόνο με παρτιτούρα");
     if (filters.lyrics) parts.push(`στίχοι: ${lyricsSummary(filters.lyrics)}`);
     if (filters.popular === "1") parts.push("δώσε προτεραιότητα σε δημοφιλή αποτελέσματα");
+    parts.push("Πρότεινε μόνο τραγούδια από τη λίστα αποτελεσμάτων που σου στέλνω.");
 
     return parts.join(". ");
   }, [filters]);
@@ -1066,7 +1090,15 @@ export default function SongsSearchClient({ searchParams }: Props) {
       const res = await fetch("/api/ai/repertorio/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ message: aiQuestion }),
+        body: JSON.stringify({
+          message: aiQuestion,
+          pageContext: {
+            source: "songs-search",
+            total,
+            filters,
+            items: songs.map(compactSongForAi).filter(Boolean).slice(0, 12),
+          },
+        }),
         cache: "no-store",
       });
       const payload = await parseJsonSafe<any>(res);

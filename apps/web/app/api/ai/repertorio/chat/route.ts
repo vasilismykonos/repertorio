@@ -36,6 +36,36 @@ async function readJsonSafe(res: Response) {
   }
 }
 
+function sanitizePageContext(value: any) {
+  if (!value || typeof value !== "object") return null;
+
+  const rawItems = Array.isArray(value.items) ? value.items : [];
+  const items = rawItems
+    .map((item: any) => ({
+      id: Number(item?.id),
+      title: String(item?.title || "").slice(0, 160),
+      firstLyrics: String(item?.firstLyrics || "").slice(0, 220),
+      category: item?.category == null ? null : String(item.category).slice(0, 80),
+      rythm: item?.rythm == null ? null : String(item.rythm).slice(0, 80),
+      originalKey: item?.originalKey == null ? null : String(item.originalKey).slice(0, 20),
+      status: item?.status == null ? null : String(item.status).slice(0, 40),
+      views: Number.isFinite(Number(item?.views)) ? Number(item.views) : null,
+      hasChords: Boolean(item?.hasChords),
+      hasScore: Boolean(item?.hasScore),
+      isInstrumental: Boolean(item?.isInstrumental),
+      tags: Array.isArray(item?.tags) ? item.tags.map((tag: any) => String(tag).slice(0, 60)).slice(0, 6) : [],
+    }))
+    .filter((item: any) => Number.isFinite(item.id) && item.id > 0 && item.title)
+    .slice(0, 12);
+
+  return {
+    source: String(value.source || "").slice(0, 40),
+    total: Number.isFinite(Number(value.total)) ? Number(value.total) : items.length,
+    filters: value.filters && typeof value.filters === "object" ? value.filters : null,
+    items,
+  };
+}
+
 export async function POST(req: NextRequest) {
   const user = await getCurrentUserFromApi(req);
   if (!user) {
@@ -81,6 +111,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         message,
+        pageContext: sanitizePageContext(body?.pageContext),
         user: {
           id: user.id,
           email: user.email,
