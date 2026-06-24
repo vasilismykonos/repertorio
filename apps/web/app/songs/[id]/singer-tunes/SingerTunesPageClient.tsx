@@ -315,26 +315,28 @@ function ModalShell({
 export function SongSingerTunesEditorClient({
   songId,
   initialRows,
+  initialRowsLoaded = false,
   initialAuthRequired = false,
   initialError = null,
 }: {
   songId: number;
   initialRows?: SingerTuneRow[];
+  initialRowsLoaded?: boolean;
   initialAuthRequired?: boolean;
   initialError?: string | null;
 }) {
   const { status } = useSession();
 
-  const hasInitialRows = Array.isArray(initialRows);
+  const hasInitialRows = Boolean(initialRowsLoaded && Array.isArray(initialRows));
   const didUseInitialRowsRef = useRef(hasInitialRows);
 
   const [rows, setRows] = useState<SingerTuneRow[]>(() => (Array.isArray(initialRows) ? initialRows : []));
-  const [loading, setLoading] = useState(!hasInitialRows && !initialAuthRequired);
+  const [loading, setLoading] = useState(!hasInitialRows);
 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(initialError);
 
-  const [authRequired, setAuthRequired] = useState(initialAuthRequired);
+  const [authRequired, setAuthRequired] = useState(Boolean(initialAuthRequired && hasInitialRows));
 
   // ✅ modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -751,6 +753,7 @@ export default function SingerTunesPageClient({
   songOriginalKey,
   songSign,
   initialRows,
+  initialRowsLoaded,
   initialAuthRequired,
   initialError,
 }: {
@@ -759,6 +762,7 @@ export default function SingerTunesPageClient({
   songOriginalKey: string | null;
   songSign: "+" | "-" | null;
   initialRows: SingerTuneRow[];
+  initialRowsLoaded?: boolean;
   initialAuthRequired?: boolean;
   initialError?: string | null;
 }) {
@@ -766,6 +770,7 @@ export default function SingerTunesPageClient({
     <SongSingerTunesEditorClient
       songId={songId}
       initialRows={initialRows}
+      initialRowsLoaded={initialRowsLoaded}
       initialAuthRequired={initialAuthRequired}
       initialError={initialError}
     />

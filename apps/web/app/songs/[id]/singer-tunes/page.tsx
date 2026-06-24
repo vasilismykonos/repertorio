@@ -63,6 +63,7 @@ export default async function SingerTunesPage({ params }: { params: { id: string
 
   const currentUser = await getCurrentUserFromApi();
   const initialAuthRequired = !currentUser?.email;
+  const initialRowsLoaded = Boolean(currentUser?.email);
   const initial = currentUser?.email
     ? await fetchSingerTunesForUser(songId, currentUser.email)
     : { rows: [], error: null };
@@ -74,6 +75,7 @@ export default async function SingerTunesPage({ params }: { params: { id: string
       songOriginalKey={songOriginalKey}
       songSign={songSign}
       initialRows={initial.rows}
+      initialRowsLoaded={initialRowsLoaded}
       initialAuthRequired={initialAuthRequired}
       initialError={initial.error}
     />

@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.87";
+export const APP_VERSION = "3.0.88";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.88",
+    date: "2026-06-24",
+    level: "patch",
+    title: "Singer tunes page auth fallback",
+    items: [
+      "The full singer tunes page no longer treats an unauthenticated server fallback as a final empty result.",
+      "When the browser session is available, the page refreshes singer tunes from the client API instead of staying on the login-required message.",
+    ],
+  },
   {
     version: "3.0.87",
     date: "2026-06-24",
