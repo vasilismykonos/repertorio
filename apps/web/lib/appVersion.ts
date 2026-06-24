@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.85";
+export const APP_VERSION = "3.0.86";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.86",
+    date: "2026-06-24",
+    level: "patch",
+    title: "Σταθεροποίηση panel τονικοτήτων",
+    items: [
+      "Το panel «Τονικότητες» κρατά τις server-confirmed τονικότητες και δεν τις αντικαθιστά με client auth error.",
+      "Το κουμπί επεξεργασίας εμφανίζεται όταν υπάρχουν server-confirmed δεδομένα χρήστη, ακόμη κι αν το client session καθυστερήσει.",
+    ],
+  },
   {
     version: "3.0.85",
     date: "2026-06-24",

@@ -95,7 +95,7 @@ export default function SongSingerTunesClient(props: {
     let cancelled = false;
 
     (async () => {
-      if (hasInitialRows && status !== "authenticated") {
+      if (hasInitialRows) {
         if (!cancelled) {
           setErr(null);
           setAuthRequired(false);
@@ -256,7 +256,7 @@ export default function SongSingerTunesClient(props: {
           }}
         >
           <div style={{ fontWeight: 700 }}>Τονικότητες</div>
-          {status === "authenticated" && !usingOfflineUser
+          {(status === "authenticated" || hasInitialRows) && !usingOfflineUser
             ? A.editLink({
                 href: `/songs/${songId}/singer-tunes`,
                 title: "Διαχείριση τονικοτήτων",
