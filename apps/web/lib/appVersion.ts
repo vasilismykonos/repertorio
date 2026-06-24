@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.89";
+export const APP_VERSION = "3.0.90";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.90",
+    date: "2026-06-24",
+    level: "minor",
+    title: "AI catalog search",
+    items: [
+      "Η AI αναζήτηση ψάχνει πλέον ευρύτερα στον κατάλογο και επιστρέφει υποψήφια τραγούδια, όχι μόνο απλά φίλτρα.",
+      "Προστέθηκαν μουσικά προφίλ για όρους ύφους όπως τα μάγκικα/ρεμπέτικα, με σύντομη εξήγηση γιατί ταιριάζει κάθε αποτέλεσμα.",
+    ],
+  },
   {
     version: "3.0.89",
     date: "2026-06-24",

@@ -1344,16 +1344,6 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const runAiSearch = async () => {
     if (aiSearch.loading) return;
     const localSuggestions = aiSuggestions;
-    if (aiSearch.query.trim() && localSuggestions.length > 0) {
-      setAiSearch((prev) => ({
-        ...prev,
-        reply: "Βρήκα εφαρμόσιμες προτάσεις αναζήτησης.",
-        links: [],
-        suggestions: localSuggestions,
-        error: null,
-      }));
-      return;
-    }
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setAiSearch({
@@ -1369,29 +1359,43 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
     setAiSearch((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      const res = await fetch("/api/ai/repertorio/chat", {
+      const hasManualQuery = aiSearch.query.trim().length > 0;
+      const res = await fetch(hasManualQuery ? "/api/ai/repertorio/search" : "/api/ai/repertorio/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          message: aiQuestion,
-          pageContext: {
-            source: "songs-search",
-            total,
-            filters,
-            items: songs.map(compactSongForAi).filter(Boolean).slice(0, 12),
-          },
-        }),
+        body: JSON.stringify(
+          hasManualQuery
+            ? { message: aiSearch.query, filters }
+            : {
+                message: aiQuestion,
+                pageContext: {
+                  source: "songs-search",
+                  total,
+                  filters,
+                  items: songs.map(compactSongForAi).filter(Boolean).slice(0, 12),
+                },
+              },
+        ),
         cache: "no-store",
       });
       const payload = await parseJsonSafe<any>(res);
       if (!res.ok) throw new Error(String(payload?.error || payload?.message || "AI request failed"));
 
       const reply = String(payload?.reply || "").trim();
+      const payloadLinks = Array.isArray(payload?.results)
+        ? payload.results
+            .map((item: any) => ({
+              id: Number(item?.id),
+              title: String(item?.title || "").trim(),
+            }))
+            .filter((item: AiSearchLink) => Number.isFinite(item.id) && item.id > 0 && item.title)
+            .slice(0, 12)
+        : extractAiSongLinks(reply);
       setAiSearch({
         loading: false,
         query: aiSearch.query,
         reply: reply || "Δεν πήρα καθαρή απάντηση από το Repertorio AI.",
-        links: extractAiSongLinks(reply),
+        links: payloadLinks,
         suggestions: localSuggestions,
         error: null,
       });
