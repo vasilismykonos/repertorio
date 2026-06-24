@@ -64,6 +64,7 @@ export default function SongSingerTunesClient(props: {
   selectedTonicity?: string | null;
   selectedTonicitySign?: "+" | "-" | null;
   initialRows?: SingerTuneRow[] | null;
+  initialRowsLoaded?: boolean;
   initialAuthRequired?: boolean;
 }) {
   const {
@@ -74,10 +75,11 @@ export default function SongSingerTunesClient(props: {
     selectedTonicity = null,
     selectedTonicitySign = null,
     initialRows = null,
+    initialRowsLoaded = false,
     initialAuthRequired = false,
   } = props;
   const { status } = useSession();
-  const hasInitialRows = Array.isArray(initialRows);
+  const hasInitialRows = Boolean(initialRowsLoaded && Array.isArray(initialRows));
   const selectedSingerTuneIdNumber = Number(selectedSingerTuneId || 0);
   const selectedTonicityFromList = parseTonicity(selectedTonicity);
 

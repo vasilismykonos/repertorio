@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.86";
+export const APP_VERSION = "3.0.87";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.87",
+    date: "2026-06-24",
+    level: "patch",
+    title: "Διόρθωση άδειων αρχικών τονικοτήτων",
+    items: [
+      "Το panel «Τονικότητες» ξεχωρίζει πλέον αν τα αρχικά server rows φορτώθηκαν πραγματικά ή αν είναι απλώς άδειο fallback.",
+      "Αν η server-side φόρτωση δεν έχει authenticated χρήστη, το client συνεχίζει να κάνει κανονικό fetch αντί να εμφανίζει άδειες τονικότητες.",
+    ],
+  },
   {
     version: "3.0.86",
     date: "2026-06-24",

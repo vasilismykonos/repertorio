@@ -61,6 +61,7 @@ type Props = {
   redirectDefault?: RedirectDefault;
   youtubeUrl: string;
   initialSingerTunes?: any[];
+  initialSingerTunesLoaded?: boolean;
   initialSingerTunesAuthRequired?: boolean;
 };
 
@@ -733,6 +734,7 @@ export default function SongPageClient(props: Props) {
     redirectDefault,
     youtubeUrl,
     initialSingerTunes,
+    initialSingerTunesLoaded,
     initialSingerTunesAuthRequired,
   } = props;
 
@@ -2402,6 +2404,7 @@ export default function SongPageClient(props: Props) {
           selectedTonicity={viewSelectedTonicity}
           selectedTonicitySign={viewSelectedTonicitySign}
           initialRows={viewSong.id === song.id ? (initialSingerTunes as any) : null}
+          initialRowsLoaded={viewSong.id === song.id ? Boolean(initialSingerTunesLoaded) : false}
           initialAuthRequired={viewSong.id === song.id ? Boolean(initialSingerTunesAuthRequired) : false}
         />
 
@@ -2818,6 +2821,7 @@ export default function SongPageClient(props: Props) {
         selectedTonicity={effectiveUrlTonicity}
         selectedTonicitySign={effectiveUrlTonicitySign}
         initialRows={initialSingerTunes as any}
+        initialRowsLoaded={Boolean(initialSingerTunesLoaded)}
         initialAuthRequired={Boolean(initialSingerTunesAuthRequired)}
       />
 

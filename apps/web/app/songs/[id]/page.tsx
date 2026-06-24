@@ -603,6 +603,7 @@ export default async function SongPage({ params, searchParams }: SongPageProps) 
   const initialSingerTunes = currentUser?.email
     ? await fetchInitialSingerTunes(song.id, currentUser.email).catch(() => [])
     : [];
+  const initialSingerTunesLoaded = Boolean(currentUser?.email);
 
   return (
     <SongPageClient
@@ -614,6 +615,7 @@ export default async function SongPage({ params, searchParams }: SongPageProps) 
       defaultPanelsOpen={defaultPanelsOpen}
       redirectDefault={redirectDefault}
       initialSingerTunes={initialSingerTunes}
+      initialSingerTunesLoaded={initialSingerTunesLoaded}
       initialSingerTunesAuthRequired={!currentUser?.email}
     />
   );
