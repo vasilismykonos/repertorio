@@ -1,7 +1,7 @@
 // /home/reperto/repertorio-dev/apps/web/app/songs/[id]/singer-tunes/SingerTunesPageClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 
 import UserMentionsField, { type Mention } from "@/app/components/UserMentionsField";
@@ -312,16 +312,29 @@ function ModalShell({
 }
 
 
-export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
+export function SongSingerTunesEditorClient({
+  songId,
+  initialRows,
+  initialAuthRequired = false,
+  initialError = null,
+}: {
+  songId: number;
+  initialRows?: SingerTuneRow[];
+  initialAuthRequired?: boolean;
+  initialError?: string | null;
+}) {
   const { status } = useSession();
 
-  const [rows, setRows] = useState<SingerTuneRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const hasInitialRows = Array.isArray(initialRows);
+  const didUseInitialRowsRef = useRef(hasInitialRows);
+
+  const [rows, setRows] = useState<SingerTuneRow[]>(() => (Array.isArray(initialRows) ? initialRows : []));
+  const [loading, setLoading] = useState(!hasInitialRows && !initialAuthRequired);
 
   const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(initialError);
 
-  const [authRequired, setAuthRequired] = useState(false);
+  const [authRequired, setAuthRequired] = useState(initialAuthRequired);
 
   // ✅ modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -391,6 +404,15 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
     let cancelled = false;
 
     async function loadForSession() {
+      if (didUseInitialRowsRef.current) {
+        didUseInitialRowsRef.current = false;
+        setLoading(false);
+        setAuthRequired(initialAuthRequired);
+        setErr(initialError);
+        void loadMentionSuggestions();
+        return;
+      }
+
       if (status === "loading") {
         setLoading(true);
         return;
@@ -419,7 +441,7 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [songId, status]);
+  }, [songId, status, initialAuthRequired, initialError]);
 
   function resetForm() {
     setEditId(null);
@@ -729,12 +751,23 @@ export default function SingerTunesPageClient({
   songOriginalKey,
   songSign,
   initialRows,
+  initialAuthRequired,
+  initialError,
 }: {
   songId: number;
   songTitle: string;
   songOriginalKey: string | null;
   songSign: "+" | "-" | null;
   initialRows: SingerTuneRow[];
+  initialAuthRequired?: boolean;
+  initialError?: string | null;
 }) {
-  return <SongSingerTunesEditorClient songId={songId} />;
+  return (
+    <SongSingerTunesEditorClient
+      songId={songId}
+      initialRows={initialRows}
+      initialAuthRequired={initialAuthRequired}
+      initialError={initialError}
+    />
+  );
 }

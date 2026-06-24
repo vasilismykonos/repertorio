@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.83";
+export const APP_VERSION = "3.0.84";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.84",
+    date: "2026-06-24",
+    level: "patch",
+    title: "Server-side φόρτωση τονικοτήτων",
+    items: [
+      "Η σελίδα επεξεργασίας τονικοτήτων φορτώνει πλέον αρχικά τις τονικότητες server-side με τον συνδεδεμένο χρήστη.",
+      "Το client component ξεκινά με τα επιβεβαιωμένα server δεδομένα και δεν μπλοκάρει τη σελίδα από προσωρινό ή λάθος client session state.",
+    ],
+  },
   {
     version: "3.0.83",
     date: "2026-06-24",
