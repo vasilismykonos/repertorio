@@ -811,17 +811,29 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
           margin: 18px auto;
           width: min(760px, calc(100% - 24px));
           min-height: 70vh;
-          background: #fff;
-          color: #111827;
+          background: #fff !important;
+          color: #111827 !important;
+          -webkit-text-fill-color: #111827 !important;
           padding: 42px 48px;
           box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+        }
+
+        .list-print-preview *,
+        .list-print-preview h1,
+        .list-print-preview span,
+        .list-print-preview div,
+        .list-print-preview li {
+          color: #111827 !important;
+          -webkit-text-fill-color: #111827 !important;
+          text-shadow: none !important;
         }
 
         .list-print-preview h1 {
           margin: 0;
           font-size: 30px;
           line-height: 36px;
-          color: #111827;
+          color: #111827 !important;
+          -webkit-text-fill-color: #111827 !important;
         }
 
         .list-print-meta {
@@ -829,7 +841,8 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
           display: flex;
           flex-wrap: wrap;
           gap: 10px 18px;
-          color: #4b5563;
+          color: #4b5563 !important;
+          -webkit-text-fill-color: #4b5563 !important;
           font-weight: 700;
         }
 
@@ -857,13 +870,15 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
         }
 
         .list-print-item-number {
-          color: #6b7280;
+          color: #6b7280 !important;
+          -webkit-text-fill-color: #6b7280 !important;
           text-align: right;
         }
 
         .list-print-item-selection {
           margin: 4px 0 0 66px;
-          color: #4b5563;
+          color: #4b5563 !important;
+          -webkit-text-fill-color: #4b5563 !important;
           font-size: 14px;
           line-height: 19px;
           font-weight: 700;
@@ -871,7 +886,8 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
 
         .list-print-footer {
           margin-top: 32px;
-          color: #6b7280;
+          color: #6b7280 !important;
+          -webkit-text-fill-color: #6b7280 !important;
           font-size: 13px;
           font-weight: 700;
         }
@@ -926,6 +942,19 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             margin: 0 !important;
             padding: 18mm 16mm !important;
             box-shadow: none !important;
+            background: #fff !important;
+            color: #111827 !important;
+            -webkit-text-fill-color: #111827 !important;
+          }
+
+          #list-print-preview *,
+          #list-print-preview h1,
+          #list-print-preview span,
+          #list-print-preview div,
+          #list-print-preview li {
+            color: #111827 !important;
+            -webkit-text-fill-color: #111827 !important;
+            text-shadow: none !important;
           }
 
           .list-print-modal,

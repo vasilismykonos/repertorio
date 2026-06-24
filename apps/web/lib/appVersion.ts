@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.76";
+export const APP_VERSION = "3.0.77";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.77",
+    date: "2026-06-24",
+    level: "patch",
+    title: "Διόρθωση χρωμάτων εκτύπωσης λίστας",
+    items: [
+      "Η προεπισκόπηση και η εκτύπωση λίστας χρησιμοποιούν πλέον ρητά σκούρα γράμματα σε άσπρο φόντο.",
+      "Προστέθηκαν ισχυρά CSS overrides ώστε τα global dark theme styles να μην επηρεάζουν το χαρτί εκτύπωσης.",
+    ],
+  },
   {
     version: "3.0.76",
     date: "2026-06-24",
