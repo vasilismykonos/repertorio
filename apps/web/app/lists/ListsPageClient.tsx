@@ -21,6 +21,7 @@ import ListsGroupsBlock, { type ListGroupWithRole } from "./ListsGroupsBlock";
 ========================= */
 
 const LAST_VIEWED_LIST_KEY = "repertorio:lastViewedListId";
+const RECENT_LISTS_KEY = "repertorio:recentListIds";
 const RECENT_GROUPS_KEY = "repertorio:recentGroupIds";
 
 function listIdValue(value: any): number | null {
@@ -37,13 +38,34 @@ function readLastViewedListId(): number | null {
   }
 }
 
-function rememberLastViewedList(id: any) {
+function readRecentListIds(): number[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(RECENT_LISTS_KEY) || "[]");
+    const ids = Array.isArray(parsed) ? parsed : [];
+    const recent = ids
+      .map(listIdValue)
+      .filter((item): item is number => Boolean(item));
+    const lastViewed = readLastViewedListId();
+    const all = lastViewed ? [lastViewed, ...recent] : recent;
+    return Array.from(new Set(all)).slice(0, 20);
+  } catch {
+    const lastViewed = readLastViewedListId();
+    return lastViewed ? [lastViewed] : [];
+  }
+}
+
+function rememberRecentList(id: any): number[] {
   const listId = listIdValue(id);
-  if (!listId || typeof window === "undefined") return;
+  if (!listId || typeof window === "undefined") return [];
   try {
     window.localStorage.setItem(LAST_VIEWED_LIST_KEY, String(listId));
+    const next = [listId, ...readRecentListIds().filter((item) => item !== listId)].slice(0, 20);
+    window.localStorage.setItem(RECENT_LISTS_KEY, JSON.stringify(next));
+    return next;
   } catch {
     // Best-effort preference only.
+    return [listId];
   }
 }
 
@@ -348,10 +370,14 @@ export default function ListsPageClient({
   const [activeGroupsIndex, setActiveGroupsIndex] = useState(groupsIndex);
   const [offlineFallbackTried, setOfflineFallbackTried] = useState(false);
   const [lastViewedListId, setLastViewedListId] = useState<number | null>(null);
+  const [recentListIds, setRecentListIds] = useState<number[]>([]);
+  const [pinnedExpanded, setPinnedExpanded] = useState(false);
   const formRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
-    setLastViewedListId(readLastViewedListId());
+    const recent = readRecentListIds();
+    setRecentListIds(recent);
+    setLastViewedListId(recent[0] ?? readLastViewedListId());
   }, []);
 
   useEffect(() => {
@@ -401,16 +427,40 @@ export default function ListsPageClient({
     );
   }
 
-  const items = useMemo(() => {
-    if (!lastViewedListId) return activeData.items;
-    const listItems = Array.isArray(activeData.items) ? activeData.items : [];
-    const idx = listItems.findIndex((list: any) => Number(list?.id) === lastViewedListId);
-    if (idx <= 0) return listItems;
-    const next = listItems.slice();
-    const [recent] = next.splice(idx, 1);
-    next.unshift(recent);
-    return next;
-  }, [activeData.items, lastViewedListId]);
+  const items = useMemo(() => (Array.isArray(activeData.items) ? activeData.items : []), [activeData.items]);
+
+  const listSections = useMemo(() => {
+    const byId = new Map<number, any>();
+    for (const list of items) {
+      const id = listIdValue(list?.id);
+      if (id) byId.set(id, list);
+    }
+
+    const recentIds = (recentListIds.length > 0 ? recentListIds : lastViewedListId ? [lastViewedListId] : [])
+      .map(listIdValue)
+      .filter((item): item is number => Boolean(item));
+
+    const recentLists: any[] = [];
+    const used = new Set<number>();
+    for (const id of recentIds) {
+      const list = byId.get(id);
+      if (!list || used.has(id)) continue;
+      recentLists.push(list);
+      used.add(id);
+      if (recentLists.length >= 3) break;
+    }
+
+    const pinnedLists: any[] = [];
+    const otherLists: any[] = [];
+    for (const list of items) {
+      const id = listIdValue(list?.id);
+      if (id && used.has(id)) continue;
+      if (Boolean(list?.marked)) pinnedLists.push(list);
+      else otherLists.push(list);
+    }
+
+    return { recentLists, pinnedLists, otherLists };
+  }, [items, recentListIds, lastViewedListId]);
 
   const facetTotal = activeFacets.total ?? 0;
 
@@ -430,6 +480,204 @@ export default function ListsPageClient({
   const titleLineHeight = "22px";
   const metaFontSize = 13;
   const countBaseSize = 20;
+  const visiblePinnedLists = pinnedExpanded ? listSections.pinnedLists : listSections.pinnedLists.slice(0, 4);
+  const hiddenPinnedCount = Math.max(0, listSections.pinnedLists.length - visiblePinnedLists.length);
+
+  const cardGridStyle: React.CSSProperties = {
+    display: "grid",
+    gap: "12px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  };
+
+  function renderListCard(list: any) {
+    const title = list.title || `Λίστα #${list.id}`;
+    const isMarked = Boolean(list.marked);
+    const listId = listIdValue(list.id);
+    const isMostRecent = Boolean(lastViewedListId && listId === lastViewedListId);
+
+    const itemsCount = Number.isFinite(list.itemsCount) ? Number(list.itemsCount) : 0;
+    const countText = String(itemsCount);
+    const countFontSize = countText.length >= 4 ? 16 : countText.length === 3 ? 18 : countBaseSize;
+
+    const role: Role | undefined = list.role;
+
+    const roleCounts = normalizeRoleCounts(list);
+
+    const totalMembersExcludingOwner =
+      (roleCounts.LIST_EDITOR || 0) + (roleCounts.SONGS_EDITOR || 0) + (roleCounts.VIEWER || 0);
+
+    const hasAnyNonOwnerMember = totalMembersExcludingOwner > 0;
+
+    return (
+      <Link
+        key={list.id}
+        href={`/lists/${list.id}`}
+        prefetch={false}
+        onClick={(event) => {
+          const nextRecent = rememberRecentList(list.id);
+          const nextListId = listIdValue(list.id);
+          setRecentListIds(nextRecent);
+          setLastViewedListId(nextListId);
+          rememberRecentGroup(list.groupId);
+          navigateDocument(event, `/lists/${list.id}`);
+        }}
+        style={{
+          textDecoration: "none",
+          color: "#fff",
+          borderRadius: 20,
+          border: isMarked ? "1px solid rgba(255,255,255,0.95)" : "1px solid rgba(255,255,255,0.28)",
+          background: isMarked ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.08)",
+          padding: "14px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "10px",
+          minHeight: 144,
+          boxShadow: "0 10px 26px rgba(0,0,0,0.28)",
+          outline: "none",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: 999,
+              display: "grid",
+              placeItems: "center",
+              fontWeight: 900,
+              fontSize: countFontSize,
+              border: "1px solid rgba(255,255,255,0.34)",
+              background: "rgba(0,0,0,0.30)",
+              flex: "0 0 auto",
+              color: "#fff",
+              textShadow: "0 1px 2px rgba(0,0,0,0.45)",
+            }}
+            aria-label={`${itemsCount} τραγούδια`}
+            title={`${itemsCount} τραγούδια`}
+          >
+            {countText}
+          </div>
+
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {isMostRecent ? (
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 900,
+                  padding: "6px 9px",
+                  borderRadius: 999,
+                  border: "1px solid rgba(125,211,252,0.55)",
+                  background: "rgba(14,165,233,0.18)",
+                  color: "#fff",
+                  whiteSpace: "nowrap",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+                aria-label="Πιο πρόσφατη προβολή"
+                title="Πιο πρόσφατη προβολή"
+              >
+                <Clock size={14} />
+              </span>
+            ) : null}
+
+            {isMarked ? (
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 800,
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,255,255,0.40)",
+                  background: "rgba(255,255,255,0.12)",
+                  color: "#fff",
+                  whiteSpace: "nowrap",
+                }}
+                aria-label="Αγαπημένη"
+                title="Αγαπημένη"
+              >
+                ⭐
+              </span>
+            ) : null}
+
+            {role ? (
+              <span style={roleBadgeStyle(role)} title={`Δικαίωμα λίστας: ${roleLabel(role)} — ${roleHint(role)}`}>
+                <span aria-hidden="true" style={{ display: "inline-flex" }}>
+                  {roleIcon(role)}
+                </span>
+                {roleLabel(role)}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          style={{
+            fontSize: titleFontSize,
+            fontWeight: isMarked ? 900 : 800,
+            lineHeight: titleLineHeight,
+            letterSpacing: 0.2,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            wordBreak: "break-word",
+            color: "rgba(255,255,255,0.96)",
+            textShadow: "0 1px 2px rgba(0,0,0,0.35)",
+          }}
+        >
+          {title}
+        </div>
+
+        <div style={{ marginTop: "auto", display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          {hasAnyNonOwnerMember ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: metaFontSize,
+                color: "rgba(255,255,255,0.78)",
+                whiteSpace: "nowrap",
+              }}
+              title="Σύνολο μελών (εκτός δημιουργού)"
+            >
+              <Users size={14} style={{ opacity: 0.9 }} />
+              {totalMembersExcludingOwner} μέλη
+            </div>
+          ) : (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: metaFontSize,
+                color: "rgba(255,255,255,0.55)",
+                whiteSpace: "nowrap",
+              }}
+              title="Δεν υπάρχουν άλλα μέλη (εκτός δημιουργού)"
+            />
+          )}
+
+          <RoleCountPills counts={roleCounts} titlePrefix="Μέλη ανά ρόλο" />
+        </div>
+      </Link>
+    );
+  }
+
+  function renderListsSection(title: string, sectionItems: any[], options?: { action?: React.ReactNode }) {
+    if (sectionItems.length === 0) return null;
+    return (
+      <section style={{ marginTop: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+          <h2 style={{ margin: 0, fontSize: 18, lineHeight: "24px", color: "rgba(255,255,255,0.94)" }}>{title}</h2>
+          {options?.action ?? null}
+        </div>
+        <div style={cardGridStyle}>{sectionItems.map(renderListCard)}</div>
+      </section>
+    );
+  }
 
   return (
     <section style={{ padding: "1rem" }}>
@@ -518,180 +766,33 @@ export default function ListsPageClient({
       {items.length === 0 ? (
         <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 16 }}>Δεν βρέθηκαν λίστες.</p>
       ) : (
-        <div style={{ display: "grid", gap: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-          {items.map((list: any) => {
-            const title = list.title || `Λίστα #${list.id}`;
-            const isMarked = Boolean(list.marked);
-            const isMostRecent = Boolean(lastViewedListId && listIdValue(list.id) === lastViewedListId);
-
-            const itemsCount = Number.isFinite(list.itemsCount) ? Number(list.itemsCount) : 0;
-            const countText = String(itemsCount);
-            const countFontSize = countText.length >= 4 ? 16 : countText.length === 3 ? 18 : countBaseSize;
-
-            const role: Role | undefined = list.role;
-
-            const roleCounts = normalizeRoleCounts(list);
-
-            const totalMembersExcludingOwner =
-              (roleCounts.LIST_EDITOR || 0) + (roleCounts.SONGS_EDITOR || 0) + (roleCounts.VIEWER || 0);
-
-            const hasAnyNonOwnerMember = totalMembersExcludingOwner > 0;
-
-            return (
-              <Link
-                key={list.id}
-                href={`/lists/${list.id}`}
-                prefetch={false}
-                onClick={(event) => {
-                  rememberLastViewedList(list.id);
-                  rememberRecentGroup(list.groupId);
-                  navigateDocument(event, `/lists/${list.id}`);
-                }}
-                style={{
-                  textDecoration: "none",
-                  color: "#fff",
-                  borderRadius: 20,
-                  border: isMarked ? "1px solid rgba(255,255,255,0.95)" : "1px solid rgba(255,255,255,0.28)",
-                  background: isMarked ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.08)",
-                  padding: "14px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px",
-                  minHeight: 144,
-                  boxShadow: "0 10px 26px rgba(0,0,0,0.28)",
-                  outline: "none",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                  <div
-                    style={{
-                      width: 50,
-                      height: 50,
-                      borderRadius: 999,
-                      display: "grid",
-                      placeItems: "center",
-                      fontWeight: 900,
-                      fontSize: countFontSize,
-                      border: "1px solid rgba(255,255,255,0.34)",
-                      background: "rgba(0,0,0,0.30)",
-                      flex: "0 0 auto",
-                      color: "#fff",
-                      textShadow: "0 1px 2px rgba(0,0,0,0.45)",
-                    }}
-                    aria-label={`${itemsCount} τραγούδια`}
-                    title={`${itemsCount} τραγούδια`}
-                  >
-                    {countText}
-                  </div>
-
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    {isMostRecent ? (
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 900,
-                          padding: "6px 9px",
-                          borderRadius: 999,
-                          border: "1px solid rgba(125,211,252,0.55)",
-                          background: "rgba(14,165,233,0.18)",
-                          color: "#fff",
-                          whiteSpace: "nowrap",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                        aria-label="Πιο πρόσφατη προβολή"
-                        title="Πιο πρόσφατη προβολή"
-                      >
-                        <Clock size={14} />
-                      </span>
-                    ) : null}
-
-                    {isMarked ? (
-                      <span
-                        style={{
-                          fontSize: 14,
-                          fontWeight: 800,
-                          padding: "6px 10px",
-                          borderRadius: 999,
-                          border: "1px solid rgba(255,255,255,0.40)",
-                          background: "rgba(255,255,255,0.12)",
-                          color: "#fff",
-                          whiteSpace: "nowrap",
-                        }}
-                        aria-label="Αγαπημένη"
-                        title="Αγαπημένη"
-                      >
-                        ⭐
-                      </span>
-                    ) : null}
-
-                    {role ? (
-                      <span style={roleBadgeStyle(role)} title={`Δικαίωμα λίστας: ${roleLabel(role)} — ${roleHint(role)}`}>
-                        <span aria-hidden="true" style={{ display: "inline-flex" }}>
-                          {roleIcon(role)}
-                        </span>
-                        {roleLabel(role)}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div
+        <>
+          {renderListsSection("Πρόσφατες", listSections.recentLists)}
+          {renderListsSection("Καρφιτσωμένες", visiblePinnedLists, {
+            action:
+              listSections.pinnedLists.length > 4 ? (
+                <button
+                  type="button"
+                  onClick={() => setPinnedExpanded((value) => !value)}
                   style={{
-                    fontSize: titleFontSize,
-                    fontWeight: isMarked ? 900 : 800,
-                    lineHeight: titleLineHeight,
-                    letterSpacing: 0.2,
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    wordBreak: "break-word",
-                    color: "rgba(255,255,255,0.96)",
-                    textShadow: "0 1px 2px rgba(0,0,0,0.35)",
+                    border: "1px solid rgba(255,255,255,0.28)",
+                    borderRadius: 999,
+                    background: "rgba(255,255,255,0.10)",
+                    color: "#fff",
+                    fontWeight: 900,
+                    padding: "5px 11px",
+                    minWidth: 44,
+                    cursor: "pointer",
                   }}
+                  aria-label={pinnedExpanded ? "Εμφάνιση λιγότερων καρφιτσωμένων λιστών" : "Εμφάνιση όλων των καρφιτσωμένων λιστών"}
+                  title={pinnedExpanded ? "Λιγότερες" : `Άλλες ${hiddenPinnedCount} καρφιτσωμένες`}
                 >
-                  {title}
-                </div>
-
-                <div style={{ marginTop: "auto", display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                  {hasAnyNonOwnerMember ? (
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 8,
-                        fontSize: metaFontSize,
-                        color: "rgba(255,255,255,0.78)",
-                        whiteSpace: "nowrap",
-                      }}
-                      title="Σύνολο μελών (εκτός δημιουργού)"
-                    >
-                      <Users size={14} style={{ opacity: 0.9 }} />
-                      {totalMembersExcludingOwner} μέλη
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 8,
-                        fontSize: metaFontSize,
-                        color: "rgba(255,255,255,0.55)",
-                        whiteSpace: "nowrap",
-                      }}
-                      title="Δεν υπάρχουν άλλα μέλη (εκτός δημιουργού)"
-                    />
-                  )}
-
-                  <RoleCountPills counts={roleCounts} titlePrefix="Μέλη ανά ρόλο" />
-                </div>
-              </Link>
-            );
+                  {pinnedExpanded ? "−" : "…"}
+                </button>
+              ) : null,
           })}
-        </div>
+          {renderListsSection("Υπόλοιπες", listSections.otherLists)}
+        </>
       )}
 
       {/* Pagination */}

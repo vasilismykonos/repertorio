@@ -14,6 +14,7 @@ import { Crown, Download, Eye, Music2, Printer, Share2, Shield, X } from "lucide
 type Role = ListDetailDto["role"];
 
 const LAST_VIEWED_LIST_KEY = "repertorio:lastViewedListId";
+const RECENT_LISTS_KEY = "repertorio:recentListIds";
 const RECENT_GROUPS_KEY = "repertorio:recentGroupIds";
 
 type Props = {
@@ -44,6 +45,28 @@ function rememberRecentGroup(id: any) {
       .filter((item): item is number => Boolean(item))
       .slice(0, 20);
     window.localStorage.setItem(RECENT_GROUPS_KEY, JSON.stringify(next));
+  } catch {
+    // Best-effort preference only.
+  }
+}
+
+function listIdValue(value: any): number | null {
+  const id = Math.trunc(Number(value));
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function rememberRecentList(id: any) {
+  const listId = listIdValue(id);
+  if (!listId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LAST_VIEWED_LIST_KEY, String(listId));
+    const parsed = JSON.parse(window.localStorage.getItem(RECENT_LISTS_KEY) || "[]");
+    const ids = Array.isArray(parsed) ? parsed : [];
+    const next = [listId, ...ids.filter((item: any) => listIdValue(item) !== listId)]
+      .map(listIdValue)
+      .filter((item): item is number => Boolean(item))
+      .slice(0, 20);
+    window.localStorage.setItem(RECENT_LISTS_KEY, JSON.stringify(next));
   } catch {
     // Best-effort preference only.
   }
@@ -171,11 +194,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
   const [shareStatus, setShareStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(LAST_VIEWED_LIST_KEY, String(listId));
-    } catch {
-      // Best-effort preference only.
-    }
+    rememberRecentList(listId);
     rememberRecentGroup(data?.groupId);
   }, [listId, data?.groupId]);
 
