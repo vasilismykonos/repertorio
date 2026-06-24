@@ -450,6 +450,23 @@ export default function ListsPageClient({
       if (recentLists.length >= 3) break;
     }
 
+    const popularLists = items
+      .filter((list: any) => {
+        const id = listIdValue(list?.id);
+        return id && !used.has(id) && Number(list?.popularityViews ?? 0) > 0;
+      })
+      .sort((a: any, b: any) => {
+        const viewsDiff = Number(b?.popularityViews ?? 0) - Number(a?.popularityViews ?? 0);
+        if (viewsDiff !== 0) return viewsDiff;
+        return String(a?.title ?? "").localeCompare(String(b?.title ?? ""), "el");
+      })
+      .slice(0, 4);
+
+    for (const list of popularLists) {
+      const id = listIdValue(list?.id);
+      if (id) used.add(id);
+    }
+
     const pinnedLists: any[] = [];
     const otherLists: any[] = [];
     for (const list of items) {
@@ -459,7 +476,7 @@ export default function ListsPageClient({
       else otherLists.push(list);
     }
 
-    return { recentLists, pinnedLists, otherLists };
+    return { recentLists, popularLists, pinnedLists, otherLists };
   }, [items, recentListIds, lastViewedListId]);
 
   const facetTotal = activeFacets.total ?? 0;
@@ -768,6 +785,7 @@ export default function ListsPageClient({
       ) : (
         <>
           {renderListsSection("Πρόσφατες", listSections.recentLists)}
+          {renderListsSection("Δημοφιλή", listSections.popularLists)}
           {renderListsSection("Καρφιτσωμένες", visiblePinnedLists, {
             action:
               listSections.pinnedLists.length > 4 ? (

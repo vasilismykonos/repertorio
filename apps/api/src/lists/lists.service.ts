@@ -596,6 +596,24 @@ async getListsIndex(params: {
       })
     : [];
 
+  const popularityRows = listIds.length
+    ? await this.prisma.listItem.findMany({
+        where: { listId: { in: listIds }, songId: { not: null } },
+        select: {
+          listId: true,
+          song: { select: { views: true } },
+        },
+      })
+    : [];
+
+  const popularityViewsByListId = new Map<number, number>();
+  for (const row of popularityRows as any[]) {
+    const listId = Number(row?.listId);
+    if (!Number.isFinite(listId)) continue;
+    const views = Number(row?.song?.views ?? 0);
+    popularityViewsByListId.set(listId, (popularityViewsByListId.get(listId) ?? 0) + (Number.isFinite(views) ? views : 0));
+  }
+
   const countsByListId = new Map<
     number,
     { OWNER: number; LIST_EDITOR: number; SONGS_EDITOR: number; VIEWER: number }
@@ -692,6 +710,7 @@ async getListsIndex(params: {
         updatedAt: this.isoDateOrNull(r.updatedAt),
         role: this.computeHighestListRole(r.members),
         itemsCount: r._count?.items ?? 0,
+        popularityViews: popularityViewsByListId.get(r.id) ?? 0,
 
         // ✅ NEW
         containsSong: containsSongSet.has(r.id),

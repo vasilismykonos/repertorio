@@ -27,6 +27,7 @@ export type ListSummary = {
     | "SONGS_EDITOR"
     | "VIEWER";
   itemsCount: number;
+  popularityViews?: number;
 };
 
 export type ListGroupSummary = {
