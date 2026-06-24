@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.82";
+export const APP_VERSION = "3.0.83";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.83",
+    date: "2026-06-24",
+    level: "patch",
+    title: "Διόρθωση φόρτωσης σελίδας τονικοτήτων",
+    items: [
+      "Η σελίδα επεξεργασίας τονικοτήτων δεν βασίζεται πλέον αποκλειστικά στο client `useSession` πριν εμφανίσει μήνυμα σύνδεσης.",
+      "Αν το session εμφανιστεί ως ανώνυμο, γίνεται επιβεβαίωση από `/api/current-user` πριν μπλοκαριστεί η φόρτωση των τονικοτήτων.",
+    ],
+  },
   {
     version: "3.0.82",
     date: "2026-06-24",

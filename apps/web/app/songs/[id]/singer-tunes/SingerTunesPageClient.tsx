@@ -139,6 +139,20 @@ function mergeMentionSuggestions(selfUser: UserPick | null, recentUsers: UserPic
   return uniqUsers([...head, ...tail]).slice(0, RECENT_SINGER_TUNE_USERS_LIMIT + 1);
 }
 
+async function fetchCurrentUserPick(): Promise<UserPick | null> {
+  try {
+    const res = await fetch("/api/current-user", {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const body = await readJson(res);
+    if (!res.ok) return null;
+    return normalizeUserPick((body as any)?.user);
+  } catch {
+    return null;
+  }
+}
+
 async function deleteOne(songId: number, id: number): Promise<ApiResult<unknown>> {
   const res = await fetch(
     `/api/songs/${songId}/singer-tunes?id=${encodeURIComponent(String(id))}`,
@@ -353,18 +367,7 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
 
   async function loadMentionSuggestions() {
     const recentUsers = readRecentSingerTuneUsers();
-    let selfUser: UserPick | null = null;
-
-    try {
-      const res = await fetch("/api/current-user", {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-      const body = await readJson(res);
-      if (res.ok) selfUser = normalizeUserPick((body as any)?.user);
-    } catch {
-      selfUser = null;
-    }
+    const selfUser = await fetchCurrentUserPick();
 
     setMentionSuggestions(mergeMentionSuggestions(selfUser, recentUsers));
   }
@@ -385,21 +388,36 @@ export function SongSingerTunesEditorClient({ songId }: { songId: number }) {
   }
 
   useEffect(() => {
-    if (status === "loading") {
-      setLoading(true);
-      return;
+    let cancelled = false;
+
+    async function loadForSession() {
+      if (status === "loading") {
+        setLoading(true);
+        return;
+      }
+
+      if (status === "unauthenticated") {
+        setLoading(true);
+        const currentUser = await fetchCurrentUserPick();
+        if (cancelled) return;
+
+        if (!currentUser) {
+          setRows([]);
+          setErr(null);
+          setAuthRequired(true);
+          setLoading(false);
+          return;
+        }
+      }
+
+      await reload();
+      if (!cancelled) void loadMentionSuggestions();
     }
 
-    if (status === "unauthenticated") {
-      setRows([]);
-      setErr(null);
-      setAuthRequired(true);
-      setLoading(false);
-      return;
-    }
-
-    reload();
-    void loadMentionSuggestions();
+    void loadForSession();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songId, status]);
 
