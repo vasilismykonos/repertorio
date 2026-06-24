@@ -48,7 +48,7 @@ export class SongSingerTunesService {
   }
 
   private async getAllowedCreatorIdsForViewer(viewerUserId: number): Promise<{
-    allowedCreatorIds: number[];
+    allowedCreatorIds: number[] | null;
     canEditByCreatorId: Map<number, boolean>;
   }> {
     const access = await this.accessSvc.getMyAccess(viewerUserId);
@@ -58,10 +58,14 @@ export class SongSingerTunesService {
       canEditByCreatorId.set(row.creatorUserId, !!row.canEdit);
     }
 
-    const uniq = new Set<number>([
-      viewerUserId,
-      ...(access.creatorUserIds || []),
-    ]);
+    if (access.mode === 'ALL') {
+      return {
+        allowedCreatorIds: null,
+        canEditByCreatorId,
+      };
+    }
+
+    const uniq = new Set<number>([viewerUserId, ...(access.creatorUserIds || [])]);
     return {
       allowedCreatorIds: Array.from(uniq),
       canEditByCreatorId,
@@ -122,7 +126,9 @@ export class SongSingerTunesService {
     } else {
       const { allowedCreatorIds } =
         await this.getAllowedCreatorIdsForViewer(viewerUserId);
-      where.createdByUserId = { in: allowedCreatorIds };
+      if (Array.isArray(allowedCreatorIds)) {
+        where.createdByUserId = { in: allowedCreatorIds };
+      }
     }
 
     if (rowIdNum) where.id = rowIdNum;
