@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.79";
+export const APP_VERSION = "3.0.80";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.80",
+    date: "2026-06-24",
+    level: "patch",
+    title: "Σταθερότερη αναγνώριση σύνδεσης",
+    items: [
+      "Τα server API routes αναγνωρίζουν πλέον τον συνδεδεμένο χρήστη και μέσω server session όταν δεν είναι διαθέσιμο το JWT token.",
+      "Διορθώθηκε περίπτωση όπου οι τονικότητες τραγουδιού ζητούσαν σύνδεση ενώ ο χρήστης ήταν ήδη συνδεδεμένος.",
+    ],
+  },
   {
     version: "3.0.79",
     date: "2026-06-24",

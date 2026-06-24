@@ -59,16 +59,24 @@ function normalizeRole(raw: unknown): UserRole {
 async function getAuthIdentity(req?: NextRequest): Promise<AuthIdentity> {
   if (req) {
     const secret = process.env.NEXTAUTH_SECRET;
-    if (!secret) {
-      return { email: null, name: null, image: null };
+    if (secret) {
+      const token = await getToken({ req, secret }).catch(() => null);
+
+      if (token?.email) {
+        return {
+          email: (token.email as string | undefined) ?? null,
+          name: (token.name as string | undefined) ?? null,
+          image: (token.picture as string | undefined) ?? null,
+        };
+      }
     }
 
-    const token = await getToken({ req, secret }).catch(() => null);
+    const session = await getServerSession(authOptions).catch(() => null);
 
     return {
-      email: (token?.email as string | undefined) ?? null,
-      name: (token?.name as string | undefined) ?? null,
-      image: (token?.picture as string | undefined) ?? null,
+      email: session?.user?.email ?? null,
+      name: session?.user?.name ?? null,
+      image: session?.user?.image ?? null,
     };
   }
 
