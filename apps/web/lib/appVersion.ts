@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.81";
+export const APP_VERSION = "3.0.82";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.82",
+    date: "2026-06-24",
+    level: "patch",
+    title: "Αξιόπιστη ανάγνωση browser session",
+    items: [
+      "Τα server API routes χρησιμοποιούν ως τελικό fallback το `/api/auth/session` με τα cookies του request για να αναγνωρίσουν τον συνδεδεμένο χρήστη.",
+      "Η φόρτωση τονικοτήτων αποφεύγει πλέον περιπτώσεις όπου ο browser είναι συνδεδεμένος αλλά το route δεν βρίσκει email από JWT/server session.",
+    ],
+  },
   {
     version: "3.0.81",
     date: "2026-06-24",

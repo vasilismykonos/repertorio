@@ -56,6 +56,28 @@ function normalizeRole(raw: unknown): UserRole {
   return (allowedRoles.find((r) => r === rawRole) as UserRole) || "USER";
 }
 
+async function getAuthSessionIdentity(req: NextRequest): Promise<AuthIdentity> {
+  const cookie = req.headers.get("cookie") || "";
+  if (!cookie) return { email: null, name: null, image: null };
+
+  const origin = req.nextUrl?.origin;
+  if (!origin) return { email: null, name: null, image: null };
+
+  const res = await fetch(`${origin}/api/auth/session`, {
+    headers: { cookie },
+    cache: "no-store",
+  }).catch(() => null);
+
+  if (!res?.ok) return { email: null, name: null, image: null };
+
+  const session = await res.json().catch(() => null);
+  return {
+    email: session?.user?.email ?? null,
+    name: session?.user?.name ?? null,
+    image: session?.user?.image ?? null,
+  };
+}
+
 async function getAuthIdentity(req?: NextRequest): Promise<AuthIdentity> {
   if (req) {
     const secret = process.env.NEXTAUTH_SECRET;
@@ -72,12 +94,15 @@ async function getAuthIdentity(req?: NextRequest): Promise<AuthIdentity> {
     }
 
     const session = await getServerSession(authOptions).catch(() => null);
+    if (session?.user?.email) {
+      return {
+        email: session.user.email,
+        name: session.user.name ?? null,
+        image: session.user.image ?? null,
+      };
+    }
 
-    return {
-      email: session?.user?.email ?? null,
-      name: session?.user?.name ?? null,
-      image: session?.user?.image ?? null,
-    };
+    return getAuthSessionIdentity(req);
   }
 
   const session = await getServerSession(authOptions).catch(() => null);
