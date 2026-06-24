@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.75";
+export const APP_VERSION = "3.0.76";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.76",
+    date: "2026-06-24",
+    level: "patch",
+    title: "Εκτύπωση και κοινοποίηση λίστας",
+    items: [
+      "Στη σελίδα προβολής λίστας προστέθηκε προεπισκόπηση εκτύπωσης με καθαρή μορφή για χαρτί.",
+      "Προστέθηκε κοινοποίηση λίστας ως εικόνα για κινητά μέσω Web Share API, με fallback σε λήψη PNG.",
+      "Η εικόνα και η εκτύπωση βασίζονται στα ίδια δεδομένα της λίστας χωρίς επιπλέον κλήσεις στο API.",
+    ],
+  },
   {
     version: "3.0.75",
     date: "2026-06-23",
