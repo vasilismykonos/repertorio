@@ -129,6 +129,42 @@ function pickText(...candidates: unknown[]): string | null {
   return null;
 }
 
+async function readJson(res: Response) {
+  const t = await res.text();
+  try {
+    return t ? JSON.parse(t) : null;
+  } catch {
+    return t;
+  }
+}
+
+function getInternalBaseUrl(): string | null {
+  const base = (process.env.API_INTERNAL_BASE_URL || "").trim().replace(/\/$/, "");
+  return base ? base : null;
+}
+
+function getInternalKey(): string | null {
+  const key = (process.env.INTERNAL_API_KEY || "").trim();
+  return key || null;
+}
+
+async function fetchInitialSingerTunes(songId: number, viewerEmail: string) {
+  const baseUrl = getInternalBaseUrl();
+  const internalKey = getInternalKey();
+  if (!baseUrl || !internalKey) return [];
+
+  const res = await fetch(`${baseUrl}/songs/${songId}/singer-tunes/internal`, {
+    headers: {
+      Accept: "application/json",
+      "x-internal-key": internalKey,
+      "x-viewer-email": viewerEmail,
+    },
+    cache: "no-store",
+  });
+  const body = await readJson(res);
+  return res.ok && Array.isArray(body) ? body : [];
+}
+
 function normalizeVersions(raw: unknown): SongVersion[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
 
@@ -564,6 +600,10 @@ export default async function SongPage({ params, searchParams }: SongPageProps) 
     ? readSongsRedirectDefaultFromProfile(currentUser.profile)
     : ("TITLE" as const);
 
+  const initialSingerTunes = currentUser?.email
+    ? await fetchInitialSingerTunes(song.id, currentUser.email).catch(() => [])
+    : [];
+
   return (
     <SongPageClient
       song={song}
@@ -573,6 +613,8 @@ export default async function SongPage({ params, searchParams }: SongPageProps) 
       schemaNode={renderSongSchema(song)}
       defaultPanelsOpen={defaultPanelsOpen}
       redirectDefault={redirectDefault}
+      initialSingerTunes={initialSingerTunes}
+      initialSingerTunesAuthRequired={!currentUser?.email}
     />
   );
 }

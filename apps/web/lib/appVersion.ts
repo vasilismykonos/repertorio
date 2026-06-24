@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.84";
+export const APP_VERSION = "3.0.85";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.85",
+    date: "2026-06-24",
+    level: "patch",
+    title: "Server-side τονικότητες στην προβολή τραγουδιού",
+    items: [
+      "Το panel «Τονικότητες» στην κανονική προβολή τραγουδιού παίρνει πλέον αρχικά τις τονικότητες server-side.",
+      "Αποφεύγεται το λάθος μήνυμα σύνδεσης όταν το client session εμφανιστεί λανθασμένα ως ανώνυμο.",
+    ],
+  },
   {
     version: "3.0.84",
     date: "2026-06-24",

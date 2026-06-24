@@ -60,6 +60,8 @@ type Props = {
   defaultPanelsOpen?: Partial<PanelsOpen>;
   redirectDefault?: RedirectDefault;
   youtubeUrl: string;
+  initialSingerTunes?: any[];
+  initialSingerTunesAuthRequired?: boolean;
 };
 
 type SongListOption = {
@@ -730,6 +732,8 @@ export default function SongPageClient(props: Props) {
     defaultPanelsOpen,
     redirectDefault,
     youtubeUrl,
+    initialSingerTunes,
+    initialSingerTunesAuthRequired,
   } = props;
 
   const router = useRouter();
@@ -2397,6 +2401,8 @@ export default function SongPageClient(props: Props) {
           selectedSingerTuneId={viewSelectedSingerTuneId}
           selectedTonicity={viewSelectedTonicity}
           selectedTonicitySign={viewSelectedTonicitySign}
+          initialRows={viewSong.id === song.id ? (initialSingerTunes as any) : null}
+          initialAuthRequired={viewSong.id === song.id ? Boolean(initialSingerTunesAuthRequired) : false}
         />
 
         {viewHasChords && panels.chords ? (
@@ -2811,6 +2817,8 @@ export default function SongPageClient(props: Props) {
         selectedSingerTuneId={effectiveSelectedSingerTuneId}
         selectedTonicity={effectiveUrlTonicity}
         selectedTonicitySign={effectiveUrlTonicitySign}
+        initialRows={initialSingerTunes as any}
+        initialAuthRequired={Boolean(initialSingerTunesAuthRequired)}
       />
 
       {hasChords && panels.chords ? (

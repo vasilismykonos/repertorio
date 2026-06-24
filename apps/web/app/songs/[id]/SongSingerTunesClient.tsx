@@ -63,6 +63,8 @@ export default function SongSingerTunesClient(props: {
   selectedSingerTuneId?: number | null;
   selectedTonicity?: string | null;
   selectedTonicitySign?: "+" | "-" | null;
+  initialRows?: SingerTuneRow[] | null;
+  initialAuthRequired?: boolean;
 }) {
   const {
     open,
@@ -71,14 +73,17 @@ export default function SongSingerTunesClient(props: {
     selectedSingerTuneId = null,
     selectedTonicity = null,
     selectedTonicitySign = null,
+    initialRows = null,
+    initialAuthRequired = false,
   } = props;
   const { status } = useSession();
+  const hasInitialRows = Array.isArray(initialRows);
   const selectedSingerTuneIdNumber = Number(selectedSingerTuneId || 0);
   const selectedTonicityFromList = parseTonicity(selectedTonicity);
 
-  const [rows, setRows] = useState<SingerTuneRow[] | null>(null);
+  const [rows, setRows] = useState<SingerTuneRow[] | null>(() => (hasInitialRows ? initialRows : null));
   const [err, setErr] = useState<string | null>(null);
-  const [authRequired, setAuthRequired] = useState(false);
+  const [authRequired, setAuthRequired] = useState(initialAuthRequired);
   const [usingOfflineUser, setUsingOfflineUser] = useState(false);
 
   const [selected, setSelected] = useState<RepSelected>(() => readSelectedFromGlobal());
@@ -90,6 +95,17 @@ export default function SongSingerTunesClient(props: {
     let cancelled = false;
 
     (async () => {
+      if (hasInitialRows && status !== "authenticated") {
+        if (!cancelled) {
+          setErr(null);
+          setAuthRequired(false);
+          setUsingOfflineUser(false);
+          setRows(initialRows);
+          void writeOfflineSingerTunes(songId, initialRows ?? []).catch(() => null);
+        }
+        return;
+      }
+
       const online = browserOnline();
       const meta = await readOfflineMeta().catch(() => null);
       const canUseOfflineUser = hasOfflineUser(meta) && !online;
@@ -153,7 +169,7 @@ export default function SongSingerTunesClient(props: {
     return () => {
       cancelled = true;
     };
-  }, [open, songId, status]);
+  }, [open, songId, status, hasInitialRows, initialRows]);
 
   // Ακούμε αλλαγές τονικότητας
   useEffect(() => {
@@ -171,7 +187,7 @@ export default function SongSingerTunesClient(props: {
   }, [open]);
 
   function applyTune(r: SingerTuneRow) {
-    if (status !== "authenticated" && !usingOfflineUser) return;
+    if (status !== "authenticated" && !usingOfflineUser && !hasInitialRows) return;
     const ton = parseTonicity(r.tune);
     if (!ton) return;
     if (typeof window === "undefined") return;
