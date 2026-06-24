@@ -127,10 +127,18 @@ type AiSearchLink = {
   title: string;
 };
 
+type AiSearchSuggestion = {
+  label: string;
+  description: string;
+  filters: Partial<FiltersState>;
+};
+
 type AiSearchState = {
   loading: boolean;
+  query: string;
   reply: string;
   links: AiSearchLink[];
+  suggestions: AiSearchSuggestion[];
   error: string | null;
 };
 
@@ -697,6 +705,221 @@ function compactSongForAi(song: SongSearchItem) {
   };
 }
 
+function normalizeAiText(value: string): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ς/g, "σ")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function optionMatchesAiQuery(queryNorm: string, option: Option): boolean {
+  const label = normalizeAiText(option.label || option.value);
+  if (!label || !queryNorm) return false;
+  if (queryNorm.includes(label) || label.includes(queryNorm)) return true;
+
+  const labelTokens = label.split(" ").filter((token) => token.length >= 4);
+  return labelTokens.some((token) => queryNorm.includes(token) || queryNorm.includes(token.replace(/σ$/, "")));
+}
+
+function firstMatchingOption(queryNorm: string, options: Option[]): Option | null {
+  const matches = options.filter((option) => optionMatchesAiQuery(queryNorm, option));
+  matches.sort((a, b) => String(b.label).length - String(a.label).length);
+  return matches[0] || null;
+}
+
+function appendCsvId(csv: string | undefined, id: string): string {
+  const cleanId = String(id || "").trim();
+  if (!/^\d+$/.test(cleanId)) return csv || "";
+  return uniqCsv([csv || "", cleanId].filter(Boolean).join(","));
+}
+
+function cleanAiQueryText(input: string, matchedLabels: string[]): string {
+  let out = normalizeAiText(input);
+  const noise = [
+    "ψαξε",
+    "βρες",
+    "δειξε",
+    "αναζητησε",
+    "τραγουδια",
+    "τραγουδι",
+    "με",
+    "χωρισ",
+    "που",
+    "εχουν",
+    "εχει",
+    "μονο",
+    "δημοφιλη",
+    "συγχορδιεσ",
+    "συγχορδιων",
+    "παρτιτουρα",
+    "παρτιτουρεσ",
+    "στιχουσ",
+    "στιχοι",
+    "οργανικα",
+    "οργανικο",
+    "σε",
+    "του",
+    "τησ",
+    "τον",
+    "την",
+  ];
+
+  for (const label of matchedLabels) {
+    const norm = normalizeAiText(label);
+    if (norm) out = out.replace(new RegExp(`\\b${norm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g"), " ");
+  }
+  for (const word of noise) {
+    out = out.replace(new RegExp(`\\b${word}\\b`, "g"), " ");
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
+function buildAiSearchSuggestions(
+  input: string,
+  current: FiltersState,
+  options: {
+    categoryOptions: Option[];
+    rythmOptions: Option[];
+    tagOptions: Option[];
+    composerOptions: Option[];
+    lyricistOptions: Option[];
+    singerFrontOptions: Option[];
+    singerBackOptions: Option[];
+  },
+): AiSearchSuggestion[] {
+  const raw = input.trim();
+  const queryNorm = normalizeAiText(raw);
+  if (!queryNorm) return [];
+
+  const filters: Partial<FiltersState> = { skip: 0 };
+  const labels: string[] = [];
+  const matchedLabels: string[] = [];
+
+  const has = (pattern: RegExp) => pattern.test(queryNorm);
+
+  if (has(/\bχωρισ\s+συγχορδ/)) {
+    filters.chords = "0";
+    labels.push("χωρίς συγχορδίες");
+  } else if (has(/\b(με\s+)?συγχορδ/)) {
+    filters.chords = "1";
+    labels.push("με συγχορδίες");
+  }
+
+  if (has(/\bχωρισ\s+(παρτιτουρ|score)/)) {
+    filters.partiture = "0";
+    labels.push("χωρίς παρτιτούρα");
+  } else if (has(/\b(παρτιτουρ|score)/)) {
+    filters.partiture = "1";
+    labels.push("με παρτιτούρα");
+  }
+
+  if (has(/\bοργανικ/)) {
+    filters.lyrics = "instrumental";
+    labels.push("οργανικά");
+  } else if (has(/\bχωρισ\s+στιχ/)) {
+    filters.lyrics = "0";
+    labels.push("χωρίς στίχους");
+  } else if (has(/\b(με|εχει|εχουν)\s+στιχ/)) {
+    filters.lyrics = "1";
+    labels.push("με στίχους");
+  }
+
+  if (has(/\bδημοφιλ/)) {
+    filters.popular = "1";
+    labels.push("δημοφιλή πρώτα");
+  }
+
+  if (has(/\bαναμον/)) {
+    filters.status = "PENDING_APPROVAL";
+    labels.push("σε αναμονή");
+  } else if (has(/\bπροχειρ/)) {
+    filters.status = "DRAFT";
+    labels.push("πρόχειρα");
+  } else if (has(/\bδημοσιευ/)) {
+    filters.status = "PUBLISHED";
+    labels.push("δημοσιευμένα");
+  }
+
+  const optionMappings: Array<{
+    label: string;
+    key: keyof FiltersState;
+    options: Option[];
+  }> = [
+    { label: "κατηγορία", key: "category_id", options: options.categoryOptions },
+    { label: "ρυθμός", key: "rythm_id", options: options.rythmOptions },
+    { label: "tag", key: "tagIds", options: options.tagOptions },
+    { label: "συνθέτης", key: "composerIds", options: options.composerOptions },
+    { label: "στιχουργός", key: "lyricistIds", options: options.lyricistOptions },
+  ];
+
+  for (const mapping of optionMappings) {
+    const match = firstMatchingOption(queryNorm, mapping.options);
+    if (!match) continue;
+    const value = String(match.value);
+    if (mapping.key === "category_id" || mapping.key === "rythm_id") {
+      (filters as any)[mapping.key] = value;
+    } else {
+      (filters as any)[mapping.key] = appendCsvId(String((current as any)[mapping.key] || ""), value);
+    }
+    labels.push(`${mapping.label}: ${match.label}`);
+    matchedLabels.push(match.label);
+  }
+
+  const singerMatch =
+    firstMatchingOption(queryNorm, options.singerFrontOptions) ||
+    firstMatchingOption(queryNorm, options.singerBackOptions);
+  if (singerMatch) {
+    const value = String(singerMatch.value);
+    filters.singerFrontIds = appendCsvId(current.singerFrontIds, value);
+    filters.singerBackIds = appendCsvId(current.singerBackIds, value);
+    labels.push(`τραγουδιστής/φωνή: ${singerMatch.label}`);
+    matchedLabels.push(singerMatch.label);
+  }
+
+  const yearMatch = queryNorm.match(/\b(19\d{2}|20\d{2})\b/);
+  if (yearMatch) {
+    filters.yearFrom = yearMatch[1];
+    filters.yearTo = yearMatch[1];
+    labels.push(`έτος: ${yearMatch[1]}`);
+  }
+
+  const q = cleanAiQueryText(raw, matchedLabels);
+  if (q) {
+    filters.q = q;
+    labels.push(`κείμενο: ${q}`);
+  } else if (!("q" in filters)) {
+    filters.q = current.q;
+  }
+
+  if (labels.length === 0) {
+    return [
+      {
+        label: "Αναζήτηση με το κείμενο",
+        description: `Θα ψάξει κανονικά για: ${raw}`,
+        filters: { q: raw, skip: 0 },
+      },
+    ];
+  }
+
+  const primary: AiSearchSuggestion = {
+    label: "Εφαρμογή έξυπνης αναζήτησης",
+    description: labels.join(" · "),
+    filters,
+  };
+
+  const textOnly: AiSearchSuggestion = {
+    label: "Μόνο αναζήτηση κειμένου",
+    description: `Χωρίς αλλαγή φίλτρων: ${raw}`,
+    filters: { q: raw, skip: 0 },
+  };
+
+  return [primary, textOnly];
+}
+
 export default function SongsSearchClient({ searchParams }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -834,8 +1057,10 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const [filtersReady, setFiltersReady] = useState(false);
   const [aiSearch, setAiSearch] = useState<AiSearchState>({
     loading: false,
+    query: "",
     reply: "",
     links: [],
+    suggestions: [],
     error: null,
   });
 
@@ -1057,6 +1282,15 @@ export default function SongsSearchClient({ searchParams }: Props) {
   }, [filters, pickerMode, returnTo, listId]);
 
   const aiQuestion = useMemo(() => {
+    const manual = aiSearch.query.trim();
+    if (manual) {
+      return [
+        `Μετάφρασε σε χρήσιμη αναζήτηση Repertorio: ${manual}`,
+        "Απάντησε σύντομα, με βάση τα πραγματικά αποτελέσματα/φίλτρα που σου δίνονται.",
+        "Αν προτείνεις συγκεκριμένα τραγούδια, γράψε κάθε τραγούδι σε γραμμή με μορφή #id: τίτλος.",
+      ].join(" ");
+    }
+
     const parts: string[] = [];
     const q = filters.q.trim();
     if (q) parts.push(`Αξιολόγησε τα εμφανιζόμενα αποτελέσματα για: ${q}`);
@@ -1071,15 +1305,63 @@ export default function SongsSearchClient({ searchParams }: Props) {
     parts.push("Πρότεινε μόνο τραγούδια από τη λίστα αποτελεσμάτων που σου στέλνω.");
 
     return parts.join(". ");
-  }, [filters]);
+  }, [filters, aiSearch.query]);
+
+  const aiSuggestions = useMemo(
+    () =>
+      buildAiSearchSuggestions(aiSearch.query, filters, {
+        categoryOptions,
+        rythmOptions,
+        tagOptions,
+        composerOptions,
+        lyricistOptions,
+        singerFrontOptions,
+        singerBackOptions,
+      }),
+    [
+      aiSearch.query,
+      filters,
+      categoryOptions,
+      rythmOptions,
+      tagOptions,
+      composerOptions,
+      lyricistOptions,
+      singerFrontOptions,
+      singerBackOptions,
+    ],
+  );
+
+  function applyAiSuggestion(suggestion: AiSearchSuggestion) {
+    patchFilters(suggestion.filters);
+    setAiSearch((prev) => ({
+      ...prev,
+      reply: `Εφαρμόστηκε: ${suggestion.description}`,
+      suggestions: aiSuggestions,
+      error: null,
+    }));
+  }
 
   const runAiSearch = async () => {
     if (aiSearch.loading) return;
+    const localSuggestions = aiSuggestions;
+    if (aiSearch.query.trim() && localSuggestions.length > 0) {
+      setAiSearch((prev) => ({
+        ...prev,
+        reply: "Βρήκα εφαρμόσιμες προτάσεις αναζήτησης.",
+        links: [],
+        suggestions: localSuggestions,
+        error: null,
+      }));
+      return;
+    }
+
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setAiSearch({
         loading: false,
+        query: aiSearch.query,
         reply: "",
         links: [],
+        suggestions: [],
         error: "Το AI χρειάζεται σύνδεση Internet. Η κανονική offline αναζήτηση παραμένει διαθέσιμη.",
       });
       return;
@@ -1107,15 +1389,19 @@ export default function SongsSearchClient({ searchParams }: Props) {
       const reply = String(payload?.reply || "").trim();
       setAiSearch({
         loading: false,
+        query: aiSearch.query,
         reply: reply || "Δεν πήρα καθαρή απάντηση από το Repertorio AI.",
         links: extractAiSongLinks(reply),
+        suggestions: localSuggestions,
         error: null,
       });
     } catch (err: any) {
       setAiSearch({
         loading: false,
+        query: aiSearch.query,
         reply: "",
         links: [],
+        suggestions: localSuggestions,
         error: String(err?.message || err || "Δεν μπόρεσα να μιλήσω με το Repertorio AI."),
       });
     }
@@ -1699,31 +1985,69 @@ export default function SongsSearchClient({ searchParams }: Props) {
                 <FiltersModal {...(sharedFiltersProps as any)} />
               </div>
 
-              <button
-                type="button"
-                onClick={runAiSearch}
-                disabled={aiSearch.loading}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "1px solid #2f7cff",
-                  background: aiSearch.loading ? "#1b1b1b" : "#0d6efd",
-                  color: "#fff",
-                  cursor: aiSearch.loading ? "wait" : "pointer",
-                  fontSize: 13,
-                  fontWeight: 800,
-                  height: 38,
-                  whiteSpace: "nowrap",
-                  boxShadow: aiSearch.loading ? "none" : "0 8px 22px rgba(13,110,253,0.22)",
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void runAiSearch();
                 }}
-                title="AI βοήθεια για την τρέχουσα αναζήτηση"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  minWidth: 0,
+                  flex: "1 1 260px",
+                  maxWidth: 520,
+                }}
               >
-                {aiSearch.loading ? "AI..." : "AI"}
-              </button>
+                <input
+                  value={aiSearch.query}
+                  onChange={(event) =>
+                    setAiSearch((prev) => ({
+                      ...prev,
+                      query: event.target.value,
+                      suggestions: [],
+                      error: null,
+                    }))
+                  }
+                  placeholder="AI: π.χ. ζεϊμπέκικα με συγχορδίες"
+                  aria-label="AI αναζήτηση"
+                  style={{
+                    height: 38,
+                    minWidth: 0,
+                    flex: "1 1 auto",
+                    borderRadius: 999,
+                    border: "1px solid #2f7cff",
+                    background: "#fff",
+                    color: "#111",
+                    padding: "0 12px",
+                    fontSize: 14,
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={aiSearch.loading}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    border: "1px solid #2f7cff",
+                    background: aiSearch.loading ? "#1b1b1b" : "#0d6efd",
+                    color: "#fff",
+                    cursor: aiSearch.loading ? "wait" : "pointer",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    height: 38,
+                    whiteSpace: "nowrap",
+                    boxShadow: aiSearch.loading ? "none" : "0 8px 22px rgba(13,110,253,0.22)",
+                  }}
+                  title="Μετάφραση φυσικής γλώσσας σε φίλτρα αναζήτησης"
+                >
+                  {aiSearch.loading ? "AI..." : "AI"}
+                </button>
+              </form>
             </div>
           </div>
 
-          {(aiSearch.loading || aiSearch.reply || aiSearch.error) && (
+          {(aiSearch.loading || aiSearch.reply || aiSearch.error || aiSearch.suggestions.length > 0) && (
             <section
               aria-live="polite"
               style={{
@@ -1748,7 +2072,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
                 <strong style={{ fontSize: 14 }}>AI αναζήτηση</strong>
                 <button
                   type="button"
-                  onClick={() => setAiSearch({ loading: false, reply: "", links: [], error: null })}
+                  onClick={() => setAiSearch({ loading: false, query: "", reply: "", links: [], suggestions: [], error: null })}
                   style={{
                     border: "1px solid #35527a",
                     background: "#0b1628",
@@ -1770,6 +2094,47 @@ export default function SongsSearchClient({ searchParams }: Props) {
               ) : (
                 <>
                   <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.45, fontSize: 14 }}>{aiSearch.reply}</div>
+                  {aiSearch.suggestions.length > 0 && (
+                    <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                      {aiSearch.suggestions.map((suggestion, index) => (
+                        <div
+                          key={`${suggestion.label}-${index}`}
+                          style={{
+                            border: "1px solid #35527a",
+                            background: "#0b1628",
+                            borderRadius: 10,
+                            padding: 10,
+                            display: "flex",
+                            gap: 10,
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div style={{ minWidth: 0, flex: "1 1 220px" }}>
+                            <div style={{ fontWeight: 800, fontSize: 14 }}>{suggestion.label}</div>
+                            <div style={{ opacity: 0.86, fontSize: 13, marginTop: 2 }}>{suggestion.description}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => applyAiSuggestion(suggestion)}
+                            style={{
+                              border: "1px solid #2f7cff",
+                              background: "#0d6efd",
+                              color: "#fff",
+                              borderRadius: 8,
+                              padding: "7px 10px",
+                              cursor: "pointer",
+                              fontWeight: 800,
+                              fontSize: 13,
+                            }}
+                          >
+                            Εφαρμογή
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {aiSearch.links.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
                       {aiSearch.links.map((link) => {
