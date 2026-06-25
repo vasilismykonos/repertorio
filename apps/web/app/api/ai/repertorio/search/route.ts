@@ -57,12 +57,16 @@ type SearchIntent = {
   profiles: MusicProfile[];
   labels: string[];
   searchTerms: string[];
+  artistHints: Array<{ label: string; aliases: string[] }>;
   flags: {
     wantsChords: boolean | null;
     wantsScore: boolean | null;
     wantsLyrics: "lyrics" | "noLyrics" | "instrumental" | null;
     popular: boolean;
     pending: boolean;
+    yearFrom: number | null;
+    yearTo: number | null;
+    programUse: boolean;
   };
   freeTokens: string[];
 };
@@ -193,6 +197,33 @@ const MUSIC_PROFILES: MusicProfile[] = [
       { label: "γυναικεία αναφορά", terms: ["γυναικ", "κοπελ", "κυρα", "μανα", "μανα μου"], points: 3 },
     ],
   },
+  {
+    id: "zeibekika",
+    label: "ζεϊμπέκικα",
+    triggers: ["ζειμπεκ", "ζεϊμπεκ", "ζειμπεκι", "ζεϊμπεκι"],
+    searchTerms: ["ζεϊμπέκικο", "ζεϊμπεκικο", "βαρύ ζεϊμπέκικο"],
+    signals: [
+      { label: "ζεϊμπέκικος ρυθμός/αναφορά", terms: ["ζειμπεκ", "ζεϊμπεκ"], points: 10 },
+    ],
+  },
+  {
+    id: "hasapika",
+    label: "χασάπικα/χασαποσέρβικα",
+    triggers: ["χασαπ", "χασαποσερβ", "σερβικο"],
+    searchTerms: ["χασάπικο", "χασαποσέρβικο", "σερβικό"],
+    signals: [
+      { label: "χασάπικος/σερβικός ρυθμός", terms: ["χασαπ", "σερβικ"], points: 10 },
+    ],
+  },
+  {
+    id: "old_laika",
+    label: "παλιά λαϊκά",
+    triggers: ["παλια λαικα", "παλιο λαικο", "κλασικα λαικα", "λαικα παλια"],
+    searchTerms: ["λαϊκό", "παλιό λαϊκό", "Τσιτσάνης", "Χιώτης", "Παπαϊωάννου", "Μητσάκης"],
+    signals: [
+      { label: "παλιό λαϊκό ύφος/δημιουργοί", terms: ["λαικ", "τσιτσαν", "χιωτ", "παπαιωαν", "μητσακ"], points: 7 },
+    ],
+  },
 ];
 
 const STOP_WORDS = new Set([
@@ -223,7 +254,25 @@ const STOP_WORDS = new Set([
   "τα",
   "το",
   "οι",
+  "παλια",
+  "παλιο",
+  "κλασικα",
 ]);
+
+const ARTIST_HINTS: Array<{ label: string; aliases: string[] }> = [
+  { label: "Μάρκος Βαμβακάρης", aliases: ["μαρκοσ", "μαρκου", "βαμβακαρ", "βαμβακαρη"] },
+  { label: "Βασίλης Τσιτσάνης", aliases: ["τσιτσαν", "τσιτσανη"] },
+  { label: "Μανώλης Χιώτης", aliases: ["χιωτ", "χιωτη"] },
+  { label: "Γιώργος Μητσάκης", aliases: ["μητσακ", "μητσακη"] },
+  { label: "Γιάννης Παπαϊωάννου", aliases: ["παπαιωαν", "παπαϊωαν"] },
+  { label: "Απόστολος Καλδάρας", aliases: ["καλδαρ", "καλδαρα"] },
+  { label: "Στράτος Παγιουμτζής", aliases: ["στρατοσ", "παγιουμτζ", "παγιουμτζη"] },
+  { label: "Ρόζα Εσκενάζυ", aliases: ["ροζα", "εσκεναζ"] },
+  { label: "Ρίτα Αμπατζή", aliases: ["ριτα", "αμπατζ"] },
+  { label: "Σωτηρία Μπέλλου", aliases: ["σωτηρια", "μπελλου"] },
+  { label: "Μαρίκα Νίνου", aliases: ["μαρικα", "νινου"] },
+  { label: "Στέλιος Καζαντζίδης", aliases: ["καζαντζιδ", "καζαντζιδη"] },
+];
 
 function getApiBaseUrl(): string {
   return (process.env.API_INTERNAL_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:3000/api/v1")
@@ -271,6 +320,8 @@ function buildIntent(message: string): SearchIntent {
   const normalized = normalizeGreek(message);
   const profiles = MUSIC_PROFILES.filter((profile) => hasAny(normalized, profile.triggers));
   const labels = profiles.map((profile) => profile.label);
+  const artistHints = ARTIST_HINTS.filter((artist) => hasAny(normalized, artist.aliases));
+  labels.push(...artistHints.map((artist) => artist.label));
   const flags = {
     wantsChords: hasAny(normalized, ["συγχορδ"]) ? !hasAny(normalized, ["χωρισ συγχορδ"]) : null,
     wantsScore: hasAny(normalized, ["παρτιτουρ", "score"]) ? !hasAny(normalized, ["χωρισ παρτιτουρ", "χωρισ score"]) : null,
@@ -283,18 +334,57 @@ function buildIntent(message: string): SearchIntent {
           : null,
     popular: hasAny(normalized, ["δημοφιλ", "γνωστα", "γνωστοτερα"]),
     pending: hasAny(normalized, ["αναμον", "pending"]),
+    yearFrom: null as number | null,
+    yearTo: null as number | null,
+    programUse: hasAny(normalized, ["προγραμμα", "σετ", "μαγαζ", "προβα", "live", "λαιβ"]),
   };
+
+  if (hasAny(normalized, ["προπολεμ", "πριν τον πολεμο", "πριν το 40", "πριν το 1940"])) {
+    labels.push("προπολεμικά");
+    flags.yearTo = 1940;
+  } else if (hasAny(normalized, ["μεσοπολεμ", "μεσοπολεμου"])) {
+    labels.push("μεσοπολεμικά");
+    flags.yearFrom = 1920;
+    flags.yearTo = 1940;
+  } else if (hasAny(normalized, ["παλια", "παλιο", "κλασικα"])) {
+    labels.push("παλιά τραγούδια");
+    flags.yearTo = 1960;
+  }
+
+  const decadeMatch = normalized.match(/\b(19[2-9]0|20[0-2]0)s?\b/);
+  if (decadeMatch) {
+    const decade = Number(decadeMatch[1]);
+    if (Number.isFinite(decade)) {
+      labels.push(`δεκαετία ${decade}`);
+      flags.yearFrom = decade;
+      flags.yearTo = decade + 9;
+    }
+  }
+
+  const beforeYear = normalized.match(/\b(πριν|εωσ|ως|μεχρι)\s+(?:το\s+)?(19\d{2}|20\d{2})\b/);
+  if (beforeYear) {
+    flags.yearTo = Number(beforeYear[2]);
+    labels.push(`έως ${beforeYear[2]}`);
+  }
+
+  const afterYear = normalized.match(/\b(μετα|απο)\s+(?:το\s+)?(19\d{2}|20\d{2})\b/);
+  if (afterYear) {
+    flags.yearFrom = Number(afterYear[2]);
+    labels.push(`από ${afterYear[2]}`);
+  }
 
   const freeTokens = meaningfulTokens(normalized);
   const profileTerms = profiles.flatMap((profile) => profile.searchTerms);
   const searchTerms = uniqueStrings([
     message.trim(),
+    ...artistHints.flatMap((artist) => [artist.label, ...artist.aliases]),
     ...profileTerms,
     ...freeTokens,
     ...profiles.map((profile) => profile.label),
+    ...(flags.yearTo && flags.yearTo <= 1960 ? ["Μάρκος", "Βαμβακάρης", "Τσιτσάνης", "Παπαϊωάννου", "Χιώτης"] : []),
   ]).slice(0, 30);
 
-  return { original: message.trim(), normalized, profiles, labels: uniqueStrings(labels), searchTerms, flags, freeTokens };
+  return { original: message.trim(), normalized, profiles, labels: uniqueStrings(labels), searchTerms, artistHints, flags, freeTokens };
 }
 
 function songId(item: any): number | null {
@@ -342,6 +432,8 @@ function addIntentFilters(url: URL, intent: SearchIntent) {
   if (intent.flags.wantsLyrics === "lyrics") url.searchParams.set("lyrics", "1");
   if (intent.flags.wantsLyrics === "noLyrics") url.searchParams.set("lyrics", "0");
   if (intent.flags.popular) url.searchParams.set("popular", "1");
+  if (intent.flags.yearFrom !== null) url.searchParams.set("yearFrom", String(intent.flags.yearFrom));
+  if (intent.flags.yearTo !== null) url.searchParams.set("yearTo", String(intent.flags.yearTo));
 }
 
 async function fetchSongs(term: string, intent: SearchIntent, take = 32): Promise<SearchCandidate[]> {
@@ -434,6 +526,17 @@ function rankCandidate(candidate: SearchCandidate, intent: SearchIntent): Ranked
     else if (lyricsText.includes(token)) score += 1.5;
   }
 
+  for (const artist of intent.artistHints) {
+    const aliases = [artist.label, ...artist.aliases];
+    const titleMatches = matchTerms(titleText, aliases);
+    const metaMatches = matchTerms(metadataText, aliases);
+    const lyricMatches = matchTerms(lyricsText, aliases);
+    if (titleMatches.length || metaMatches.length || lyricMatches.length) {
+      score += metaMatches.length * 18 + titleMatches.length * 10 + lyricMatches.length * 2;
+      reasons.push(`σχετίζεται με ${artist.label}`);
+    }
+  }
+
   if (intent.flags.wantsChords === true && (candidate.hasChords === true || hasTruthyFlag(candidate.chords))) {
     score += 2;
     reasons.push("έχει συγχορδίες");
@@ -445,6 +548,23 @@ function rankCandidate(candidate: SearchCandidate, intent: SearchIntent): Ranked
   if (intent.flags.wantsLyrics === "instrumental" && candidate.isInstrumental) {
     score += 5;
     reasons.push("οργανικό");
+  }
+
+  const minYear = Array.isArray(candidate.years) && candidate.years.length ? Math.min(...candidate.years) : null;
+  const maxYear = Array.isArray(candidate.years) && candidate.years.length ? Math.max(...candidate.years) : null;
+  if (intent.flags.yearFrom !== null || intent.flags.yearTo !== null) {
+    const overlapsFrom = intent.flags.yearFrom === null || maxYear === null || maxYear >= intent.flags.yearFrom;
+    const overlapsTo = intent.flags.yearTo === null || minYear === null || minYear <= intent.flags.yearTo;
+    if (overlapsFrom && overlapsTo) {
+      score += 5;
+      reasons.push(candidate.yearText ? `ταιριάζει χρονικά (${candidate.yearText})` : "ταιριάζει χρονικά");
+    }
+  }
+
+  if (intent.flags.programUse) {
+    if (candidate.hasChords === true || hasTruthyFlag(candidate.chords)) score += 2;
+    if (candidate.views && candidate.views > 20) score += 2;
+    reasons.push("χρήσιμο για πρόγραμμα");
   }
 
   if (candidate.views && candidate.views > 0) score += Math.min(7, Math.log10(candidate.views + 1) * 2);
@@ -464,16 +584,31 @@ function buildReply(intent: SearchIntent, ranked: RankedCandidate[]) {
     ].join("\n");
   }
 
+  const criteria: string[] = [];
+  if (intent.flags.yearFrom !== null || intent.flags.yearTo !== null) {
+    criteria.push(
+      intent.flags.yearFrom !== null && intent.flags.yearTo !== null
+        ? `${intent.flags.yearFrom}-${intent.flags.yearTo}`
+        : intent.flags.yearTo !== null
+          ? `έως ${intent.flags.yearTo}`
+          : `από ${intent.flags.yearFrom}`,
+    );
+  }
+  if (intent.flags.wantsChords === true) criteria.push("με συγχορδίες");
+  if (intent.flags.wantsScore === true) criteria.push("με παρτιτούρα");
+  if (intent.flags.programUse) criteria.push("για πρόγραμμα/πρόβα");
+
   const header = intent.labels.length
     ? `Κατάλαβα: ${intent.labels.join(", ")}. Τα πιο πιθανά αποτελέσματα είναι:`
     : `Βρήκα σχετικά αποτελέσματα για «${intent.original}»:`;
+  const criteriaLine = criteria.length ? [`Κριτήρια: ${criteria.join(" · ")}`] : [];
 
   const lines = ranked.slice(0, 10).map((song, index) => {
     const reason = song.reasons.length ? ` — ${song.reasons.join(", ")}` : "";
     return `${index + 1}. #${song.id}: ${song.title}${reason}`;
   });
 
-  return [header, ...lines].join("\n");
+  return [header, ...criteriaLine, ...lines].join("\n");
 }
 
 export async function POST(req: NextRequest) {
