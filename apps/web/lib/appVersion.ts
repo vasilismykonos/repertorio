@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.90";
+export const APP_VERSION = "3.0.91";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.91",
+    date: "2026-06-25",
+    level: "minor",
+    title: "Πιο έξυπνη AI αναζήτηση",
+    items: [
+      "Η AI αναζήτηση χρησιμοποιεί πλέον πολλαπλά μουσικά προφίλ ύφους/θέματος και καλύτερο ranking ανά πεδίο.",
+      "Τα αποτελέσματα εξηγούν πιο καθαρά γιατί προτείνονται και καλύπτουν αναζητήσεις όπως μάγκικα, χασικλίδικα, χωρισμού, γλεντζέδικα και σμυρναίικα.",
+    ],
+  },
   {
     version: "3.0.90",
     date: "2026-06-24",
