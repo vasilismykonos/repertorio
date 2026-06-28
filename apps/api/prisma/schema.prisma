@@ -33,6 +33,11 @@ model User {
   notifications             Notification[]         @relation("NotificationRecipient")
   notificationsCreated      Notification[]         @relation("NotificationActor")
   pushSubscriptions         PushSubscription[]
+  historyEvents             UserHistoryEvent[]
+  songRoadVotes             SongRoadVote[]
+  chatThreadsCreated        ChatThread[]           @relation("ChatThreadCreatedBy")
+  chatParticipants          ChatParticipant[]
+  chatMessages              ChatMessage[]          @relation("ChatMessageSender")
 }
 
 model Song {
@@ -75,11 +80,80 @@ model Song {
   singerTunes      SongSingerTune[]
   SongTag          SongTag[]
   versions         SongVersion[]
+  historyEvents    UserHistoryEvent[]
+  roadVotes        SongRoadVote[]
 
   @@index([categoryId])
   @@index([rythmId])
   @@index([createdByUserId])
   @@index([isInstrumental])
+}
+
+model SongRoadVote {
+  id        Int      @id @default(autoincrement())
+  songId    Int
+  userId    Int
+  road      String   @db.VarChar(120)
+  confidence Int     @default(3)
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  song      Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([songId, userId], name: "SongRoadVote_song_user_unique")
+  @@index([songId])
+  @@index([userId])
+  @@index([road])
+}
+
+model ChatThread {
+  id              Int      @id @default(autoincrement())
+  title           String?  @db.VarChar(160)
+  isGroup         Boolean  @default(false)
+  createdByUserId Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastMessageAt   DateTime?
+
+  createdBy       User?    @relation("ChatThreadCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  participants    ChatParticipant[]
+  messages        ChatMessage[]
+
+  @@index([lastMessageAt])
+  @@index([createdByUserId])
+}
+
+model ChatParticipant {
+  threadId   Int
+  userId     Int
+  joinedAt   DateTime @default(now())
+  lastReadAt DateTime?
+  mutedAt    DateTime?
+
+  thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([threadId, userId])
+  @@index([userId])
+  @@index([threadId])
+}
+
+model ChatMessage {
+  id           Int      @id @default(autoincrement())
+  threadId     Int
+  senderUserId Int
+  body         String
+  createdAt    DateTime @default(now())
+  editedAt     DateTime?
+  deletedAt    DateTime?
+
+  thread       ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender       User       @relation("ChatMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@index([senderUserId])
 }
 
 model SongSingerTune {
@@ -329,6 +403,25 @@ model PushSubscription {
   @@index([lastSeenAt])
 }
 
+model UserHistoryEvent {
+  id         Int                  @id @default(autoincrement())
+  userId     Int
+  type       UserHistoryEventType
+  songId     Int?
+  searchTerm String?              @db.VarChar(300)
+  path       String?              @db.VarChar(600)
+  metadata   Json?
+  occurredAt DateTime
+  createdAt  DateTime             @default(now())
+
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  song       Song?                @relation(fields: [songId], references: [id], onDelete: SetNull)
+
+  @@index([userId, occurredAt])
+  @@index([userId, type, occurredAt])
+  @@index([songId])
+}
+
 model SongCategory {
   id         Int      @id @default(autoincrement())
   songId     Int
@@ -494,6 +587,11 @@ enum SongStatus {
   PENDING_APPROVAL
   PUBLISHED
   ARCHIVED
+}
+
+enum UserHistoryEventType {
+  SONG_VIEW
+  SONG_SEARCH
 }
 
 enum SongCreditRole {

@@ -171,6 +171,20 @@ export class AssetsController {
     return this.assetsService.getOne(assetId);
   }
 
+  @Get(":id/score-content")
+  async getScoreContent(@Param("id") id: string) {
+    const assetId = Number(id);
+    if (!Number.isFinite(assetId)) throw new BadRequestException("Invalid id");
+    return this.assetsService.getScoreContent(assetId);
+  }
+
+  @Patch(":id/score-content")
+  async saveScoreContent(@Param("id") id: string, @Body() body: any) {
+    const assetId = Number(id);
+    if (!Number.isFinite(assetId)) throw new BadRequestException("Invalid id");
+    return this.assetsService.saveScoreContent(assetId, String(body?.xml ?? ""));
+  }
+
   /**
    * Multipart create (file upload to disk).
    * POST /api/v1/assets/full

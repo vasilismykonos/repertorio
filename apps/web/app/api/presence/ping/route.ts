@@ -8,14 +8,28 @@ export const revalidate = 0;
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUserFromApi(req);
-  if (!user?.id) {
+
+  if (user?.id) {
+    await fetchJson(
+      `/presence/ping?userId=${encodeURIComponent(String(user.id))}`,
+      { method: "POST" },
+    ).catch(() => null);
+
     return new NextResponse(null, { status: 204 });
   }
 
-  await fetchJson(
-    `/presence/ping?userId=${encodeURIComponent(String(user.id))}`,
-    { method: "POST" },
-  ).catch(() => null);
+  const body = await req.json().catch(() => null);
+  const guestId = String(req.nextUrl.searchParams.get("guestId") || body?.guestId || "").trim();
+  const guestLabel = String(
+    req.nextUrl.searchParams.get("guestLabel") || body?.guestLabel || "Επισκέπτης",
+  ).trim();
+
+  if (guestId) {
+    await fetchJson(
+      `/presence/ping?guestId=${encodeURIComponent(guestId)}&guestLabel=${encodeURIComponent(guestLabel || "Επισκέπτης")}`,
+      { method: "POST" },
+    ).catch(() => null);
+  }
 
   return new NextResponse(null, { status: 204 });
 }

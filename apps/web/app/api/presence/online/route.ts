@@ -18,20 +18,6 @@ function intParam(value: string | null, fallback: number): number {
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUserFromApi(req);
-  if (!user?.id) {
-    return NextResponse.json(
-      {
-        ok: true,
-        authenticated: false,
-        windowSec: 180,
-        count: 0,
-        onlineCount: 0,
-        users: [],
-        generatedAt: new Date().toISOString(),
-      },
-      { status: 200, headers: NO_STORE_HEADERS },
-    );
-  }
 
   const sp = req.nextUrl.searchParams;
   const windowSec = intParam(sp.get("windowSec"), 180);
@@ -43,7 +29,7 @@ export async function GET(req: NextRequest) {
     );
 
     return NextResponse.json(
-      { ...(data as any), authenticated: true },
+      { ...(data as any), authenticated: Boolean(user?.id) },
       { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch (e: any) {

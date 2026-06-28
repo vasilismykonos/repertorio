@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import ActionBar from "@/app/components/ActionBar";
@@ -209,6 +209,56 @@ function normalizeOriginalKeySign(value: unknown): OriginalKeySign | null {
   return value === "+" || value === "-" ? value : null;
 }
 
+const MAKAM_CHARACTERISTIC_PREFIX = "Δρόμος:";
+const MAKAM_OPTIONS = [
+  "Χιτζάζ",
+  "Χιτζασκιάρ",
+  "Ουσάκ",
+  "Κιουρδί",
+  "Νιαβέντ",
+  "Ραστ",
+  "Σεγκιάχ",
+  "Σαμπάχ",
+  "Σουζινάκ",
+  "Χουζάμ",
+  "Πειραιώτικος",
+  "Μινόρε",
+  "Ματζόρε",
+  "Νικρίζ",
+  "Νεβεσέρ",
+  "Σαμπάχ μανές",
+  "Μουστεάρ",
+  "Χουσεϊνί",
+] as const;
+
+function splitCharacteristics(value: string | null | undefined): string[] {
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isMakamCharacteristic(value: string): boolean {
+  return /^(μακάμ|μακαμ|δρόμος|δρομος)\s*:/i.test(value.trim());
+}
+
+function extractMakamFromCharacteristics(value: string | null | undefined): string {
+  const direct = splitCharacteristics(value).find(isMakamCharacteristic);
+  if (direct) return direct.replace(/^(μακάμ|μακαμ|δρόμος|δρομος)\s*:/i, "").trim();
+
+  const known = splitCharacteristics(value).find((item) =>
+    MAKAM_OPTIONS.some((option) => option.localeCompare(item, "el-GR", { sensitivity: "accent" }) === 0),
+  );
+  return known ?? "";
+}
+
+function setMakamInCharacteristics(value: string | null | undefined, makam: string): string | null {
+  const cleanMakam = makam.trim();
+  const rest = splitCharacteristics(value).filter((item) => !isMakamCharacteristic(item));
+  if (cleanMakam) rest.push(`${MAKAM_CHARACTERISTIC_PREFIX} ${cleanMakam}`);
+  return rest.length ? rest.join(", ") : null;
+}
+
 export default function SongEditForm({
   song,
   credits,
@@ -226,6 +276,12 @@ export default function SongEditForm({
   const [titleLive, setTitleLive] = useState(song.title ?? "");
   const [lyricsLive, setLyricsLive] = useState(song.lyrics ?? "");
   const [isInstrumental, setIsInstrumental] = useState(Boolean(song.isInstrumental));
+  const [makamLive, setMakamLive] = useState(extractMakamFromCharacteristics(song.characteristics));
+  const [makamSearchOpen, setMakamSearchOpen] = useState(false);
+  const [makamQuery, setMakamQuery] = useState(extractMakamFromCharacteristics(song.characteristics));
+  const makamPickerRef = useRef<HTMLDivElement | null>(null);
+  const [creatorEditOpen, setCreatorEditOpen] = useState(false);
+  const [creatorValue, setCreatorValue] = useState(String(song.createdByUserId ?? ""));
 
   const scoreUrl =
     song.hasScore && song.scoreFile ? `/api/scores/${song.scoreFile}` : null;
@@ -250,6 +306,20 @@ export default function SongEditForm({
 
   const initialComposerNames = splitNames(song.composerName ?? null);
   const initialLyricistNames = splitNames(song.lyricistName ?? null);
+  const makamSuggestions = React.useMemo(() => {
+    const query = makamQuery.trim().toLocaleLowerCase("el-GR");
+    if (!query) return MAKAM_OPTIONS.slice(0, 8);
+    return MAKAM_OPTIONS.filter((option) =>
+      option.toLocaleLowerCase("el-GR").includes(query),
+    ).slice(0, 8);
+  }, [makamQuery]);
+  const hasExactMakamSuggestion = React.useMemo(() => {
+    const query = makamQuery.trim();
+    if (!query) return false;
+    return MAKAM_OPTIONS.some((option) =>
+      option.localeCompare(query, "el-GR", { sensitivity: "accent" }) === 0,
+    );
+  }, [makamQuery]);
 
   const [isBusy, setIsBusy] = useState(false);
   const router = useRouter();
@@ -271,6 +341,23 @@ export default function SongEditForm({
     SongDuplicateCandidate[]
   >([]);
   const [allowLikelyDuplicate, setAllowLikelyDuplicate] = useState(false);
+
+  useEffect(() => {
+    if (!makamSearchOpen) return;
+
+    function handlePointerDown(event: MouseEvent | TouchEvent) {
+      const target = event.target as Node | null;
+      if (target && makamPickerRef.current?.contains(target)) return;
+      setMakamSearchOpen(false);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+    };
+  }, [makamSearchOpen]);
 
   const duplicateCheckKey = React.useMemo(() => {
     return JSON.stringify([
@@ -531,7 +618,7 @@ export default function SongEditForm({
         lyrics: isInstrumental ? null : lyrics,
         isInstrumental,
         chords,
-        characteristics: song.characteristics ?? null,
+        characteristics: setMakamInCharacteristics(song.characteristics, makamLive),
         originalKey: computedOriginalKey,
         originalKeySign: computedOriginalKeySign,
         status,
@@ -718,9 +805,10 @@ export default function SongEditForm({
             readOnly
           />
 
-          <div className="song-edit-section">
+          <div className="song-edit-section song-edit-section-main">
             <h2 className="song-edit-section-title">Βασικές πληροφορίες</h2>
 
+            <div className="song-edit-compact-grid">
             <div className="song-edit-field">
               <label htmlFor="title">Τίτλος *</label>
               <input
@@ -772,8 +860,14 @@ export default function SongEditForm({
                 </>
               )}
             </div>
+            </div>
 
-            <div className="song-edit-field">
+            <div className="song-edit-subsection">
+              <div className="song-edit-subsection-head">
+                <h3>Μουσικά στοιχεία</h3>
+              </div>
+
+            <div className="song-edit-field song-edit-field-chords">
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <label htmlFor="chords" style={{ margin: 0 }}>
                   Συγχορδίες
@@ -847,38 +941,140 @@ export default function SongEditForm({
               )}
             </div>
 
+            <div className="song-edit-field song-edit-field-makam">
+              <label htmlFor="makamRoad">Δρόμος / Μακάμ</label>
+              <div ref={makamPickerRef} className="song-edit-makam-picker">
+                <button
+                  id="makamRoad"
+                  type="button"
+                  className="song-edit-makam-trigger"
+                  aria-haspopup="listbox"
+                  aria-expanded={makamSearchOpen}
+                  onClick={() => {
+                    setMakamQuery(makamLive);
+                    setMakamSearchOpen((value) => !value);
+                  }}
+                >
+                  <span>{makamLive.trim() || "Επιλογή δρόμου / μακάμ"}</span>
+                  <b aria-hidden="true">⌄</b>
+                </button>
+                {makamSearchOpen ? (
+                  <div className="song-edit-makam-dropdown">
+                    <input
+                      value={makamQuery}
+                      onChange={(e) => setMakamQuery(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setMakamSearchOpen(false);
+                        if (e.key === "Enter" && makamQuery.trim()) {
+                          e.preventDefault();
+                          setMakamLive(makamQuery.trim());
+                          setMakamSearchOpen(false);
+                        }
+                      }}
+                      className="song-edit-input-light song-edit-makam-search"
+                      placeholder="Αναζήτηση ή νέος δρόμος..."
+                      autoComplete="off"
+                      autoFocus
+                    />
+                    {makamSuggestions.length ? (
+                      <div className="song-edit-makam-options" role="listbox">
+                        {makamSuggestions.map((option) => (
+                          <button
+                            key={option}
+                            type="button"
+                            role="option"
+                            aria-selected={option === makamLive}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              setMakamLive(option);
+                              setMakamQuery(option);
+                              setMakamSearchOpen(false);
+                            }}
+                            className={option === makamLive ? "selected" : ""}
+                          >
+                            {option}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="song-edit-makam-empty">
+                        Δεν βρέθηκε υπάρχων δρόμος.
+                      </div>
+                    )}
+                    {makamQuery.trim() && !hasExactMakamSuggestion ? (
+                      <button
+                        type="button"
+                        className="song-edit-makam-create"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          const next = makamQuery.trim();
+                          setMakamLive(next);
+                          setMakamSearchOpen(false);
+                        }}
+                      >
+                        Προσθήκη νέου: <strong>{makamQuery.trim()}</strong>
+                      </button>
+                    ) : null}
+                    {makamLive.trim() ? (
+                      <button
+                        type="button"
+                        className="song-edit-makam-clear"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setMakamLive("");
+                          setMakamQuery("");
+                          setMakamSearchOpen(false);
+                        }}
+                      >
+                        Καθαρισμός επιλογής
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            </div>
+
             {canChangeCreator && !isCreate && (
-              <div className="song-edit-field">
-                <label htmlFor="createdByUserId">Δημιουργός (User ID)</label>
-
-                <input
-                  type="number"
-                  id="createdByUserId"
-                  name="createdByUserId"
-                  defaultValue={song.createdByUserId ?? ""}
-                  min={1}
-                  step={1}
-                  inputMode="numeric"
-                  className="song-edit-input-light"
-                  placeholder="π.χ. 4"
-                />
-
-                <div style={{ marginTop: 6, opacity: 0.85, fontSize: 13 }}>
-                  Τρέχων:{" "}
+              <div className="song-edit-creator-row">
+                {!creatorEditOpen ? (
+                  <input type="hidden" name="createdByUserId" value={creatorValue} readOnly />
+                ) : null}
+                <span>
+                  Δημιουργός:{" "}
                   <strong>
                     {song.createdByDisplayName?.trim()
-                      ? `${song.createdByDisplayName.trim()} (#${
-                          song.createdByUserId ?? "—"
-                        })`
+                      ? `${song.createdByDisplayName.trim()} (#${song.createdByUserId ?? "—"})`
                       : song.createdByUserId != null
                         ? `#${song.createdByUserId}`
                         : "—"}
                   </strong>
-                </div>
+                </span>
+                <button type="button" onClick={() => setCreatorEditOpen((value) => !value)}>
+                  {creatorEditOpen ? "Κλείσιμο" : "Αλλαγή"}
+                </button>
+                {creatorEditOpen ? (
+                  <label className="song-edit-creator-input" htmlFor="createdByUserId">
+                    <span>User ID</span>
+                    <input
+                      type="number"
+                      id="createdByUserId"
+                      name="createdByUserId"
+                      value={creatorValue}
+                      onChange={(e) => setCreatorValue(e.currentTarget.value)}
+                      min={1}
+                      step={1}
+                      inputMode="numeric"
+                      className="song-edit-input-light"
+                      placeholder="π.χ. 4"
+                    />
+                  </label>
+                ) : null}
               </div>
             )}
 
-            <div className="song-edit-field">
+            <div className="song-edit-subsection song-edit-subsection-lyrics">
+            <div className="song-edit-field song-edit-field-lyrics">
               <label htmlFor="lyrics">Στίχοι</label>
               <button
                 type="button"
@@ -927,6 +1123,7 @@ export default function SongEditForm({
                 className="song-edit-input-light"
                 style={isInstrumental ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
               />
+            </div>
             </div>
 
             <SongAssetsEditorClient

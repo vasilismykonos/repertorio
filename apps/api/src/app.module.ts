@@ -20,6 +20,8 @@ import { ElasticsearchAdminModule } from "./elasticsearch/elasticsearch-admin.mo
 // ✅ Presence module (online users)
 import { PresenceModule } from "./presence/presence.module";
 import { NotificationsModule } from "./notifications/notifications.module";
+import { UserHistoryModule } from "./user-history/user-history.module";
+import { ChatModule } from "./chat/chat.module";
 
 @Module({
   imports: [
@@ -33,7 +35,9 @@ import { NotificationsModule } from "./notifications/notifications.module";
     ElasticsearchAdminModule,
     PresenceModule, // ✅ πρόσθεσέ το εδώ
     NotificationsModule,
+    UserHistoryModule,
     AssetsModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],

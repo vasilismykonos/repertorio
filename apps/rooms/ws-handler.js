@@ -54,7 +54,7 @@ function buildPresenceMessage(roomManager, room) {
   return {
     type: "presence_counts",
     room,
-    userCount: counts.sessions,
+    userCount: counts.uniqueUsers,
     uniqueUsers: counts.uniqueUsers,
     sessions: counts.sessions,
   };
@@ -78,7 +78,7 @@ function broadcastRoomCounts(roomManager, room) {
   broadcastToRoom(roomManager, room, {
     type: "update_count",
     room,
-    userCount: presence.sessions,
+    userCount: presence.uniqueUsers,
     uniqueUsers: presence.uniqueUsers,
     sessions: presence.sessions,
   });

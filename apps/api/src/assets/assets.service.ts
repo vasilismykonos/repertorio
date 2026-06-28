@@ -7,6 +7,7 @@ import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import JSZip from "jszip";
 
 const UPLOAD_ROOT = "/home/reperto/uploads/assets";
 const OMR_JOB_ROOT = path.join(UPLOAD_ROOT, "omr-jobs");
@@ -52,6 +53,64 @@ function uploadFilePathFromPublicPath(filePath: string | null | undefined): stri
 function publicPathFromUploadFile(absPath: string): string {
   const relative = path.relative(UPLOAD_ROOT, absPath).replace(/\\/g, "/");
   return `/uploads/assets/${relative}`;
+}
+
+function safeUploadAbsPath(absPath: string): string {
+  const resolved = path.resolve(absPath);
+  const root = path.resolve(UPLOAD_ROOT);
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    throw new BadRequestException("Unsafe asset path.");
+  }
+  return resolved;
+}
+
+function scoreFilePathFromAsset(asset: any): string | null {
+  const filePath = String(asset?.filePath || "").trim();
+  if (!filePath) return null;
+
+  if (filePath.startsWith("/uploads/assets/")) {
+    return uploadFilePathFromPublicPath(filePath);
+  }
+
+  if (filePath.startsWith("/assets/score/")) {
+    return path.join("/home/reperto/repertorio/apps/web/public", filePath.slice(1));
+  }
+
+  return null;
+}
+
+function isEditableScorePath(filePath: string): boolean {
+  return [".mxl", ".musicxml", ".xml"].includes(fileExtLower(filePath));
+}
+
+function isMusicXmlText(value: string): boolean {
+  const clean = String(value || "").trim();
+  if (!clean || clean.length > 10 * 1024 * 1024) return false;
+  return clean.includes("<score-partwise") || clean.includes("<score-timewise");
+}
+
+async function readMusicXmlFromFile(absPath: string): Promise<{ xml: string; sourceFormat: "MXL" | "MUSICXML" }> {
+  const ext = fileExtLower(absPath);
+  if (ext === ".musicxml" || ext === ".xml") {
+    return { xml: await fsp.readFile(absPath, "utf8"), sourceFormat: "MUSICXML" };
+  }
+
+  if (ext !== ".mxl") {
+    throw new BadRequestException("The score asset must be .mxl, .musicxml or .xml.");
+  }
+
+  const zip = await JSZip.loadAsync(await fsp.readFile(absPath));
+  const entries = Object.values(zip.files)
+    .filter((entry) => !entry.dir)
+    .filter((entry) => {
+      const name = entry.name.toLowerCase();
+      return name.endsWith(".xml") && !name.endsWith("container.xml") && !name.includes("__macosx/");
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const scoreEntry = entries[0];
+  if (!scoreEntry) throw new BadRequestException("No MusicXML file was found inside the MXL asset.");
+  return { xml: await scoreEntry.async("text"), sourceFormat: "MXL" };
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -348,6 +407,88 @@ export class AssetsService {
 
     if (!a) throw new NotFoundException("Asset not found");
     return mapAsset(a);
+  }
+
+  async getScoreContent(id: number) {
+    if (!Number.isFinite(id) || id <= 0) throw new BadRequestException("Invalid id");
+
+    const asset = await this.prisma.asset.findUnique({ where: { id } });
+    if (!asset) throw new NotFoundException("Asset not found");
+    if (asset.kind !== AssetKind.FILE || asset.type !== AssetType.SCORE) {
+      throw new BadRequestException("Only SCORE file assets can be edited as notation.");
+    }
+
+    const absPath = scoreFilePathFromAsset(asset);
+    if (!absPath || !isEditableScorePath(absPath) || !(await pathExists(absPath))) {
+      throw new BadRequestException("Editable score file was not found.");
+    }
+
+    const { xml, sourceFormat } = await readMusicXmlFromFile(absPath);
+    return {
+      id: asset.id,
+      title: asset.title,
+      filePath: asset.filePath,
+      sourceFormat,
+      xml,
+    };
+  }
+
+  async saveScoreContent(id: number, xml: string) {
+    if (!Number.isFinite(id) || id <= 0) throw new BadRequestException("Invalid id");
+    if (!isMusicXmlText(xml)) throw new BadRequestException("Invalid MusicXML content.");
+
+    const asset = await this.prisma.asset.findUnique({ where: { id } });
+    if (!asset) throw new NotFoundException("Asset not found");
+    if (asset.kind !== AssetKind.FILE || asset.type !== AssetType.SCORE) {
+      throw new BadRequestException("Only SCORE file assets can be edited as notation.");
+    }
+
+    const currentAbsPath = scoreFilePathFromAsset(asset);
+    if (!currentAbsPath || !isEditableScorePath(currentAbsPath) || !(await pathExists(currentAbsPath))) {
+      throw new BadRequestException("Editable score file was not found.");
+    }
+
+    const now = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupDir = path.join(UPLOAD_ROOT, "score", "_backups", String(id));
+    await fsp.mkdir(backupDir, { recursive: true });
+    const backupPath = path.join(backupDir, `${now}_${path.basename(currentAbsPath)}`);
+    await fsp.copyFile(currentAbsPath, backupPath);
+
+    const outputDir = path.join(UPLOAD_ROOT, "score", "edited");
+    await fsp.mkdir(outputDir, { recursive: true });
+    const safeTitle = String(asset.title || `asset-${id}`)
+      .replace(/\s+/g, "_")
+      .replace(/[^a-zA-Z0-9._-]/g, "")
+      .slice(0, 80) || `asset-${id}`;
+    const outputPath = safeUploadAbsPath(path.join(outputDir, `${now}_${safeTitle}.musicxml`));
+    const normalizedXml = xml.startsWith("<?xml") ? xml : `<?xml version="1.0" encoding="UTF-8"?>\n${xml}`;
+    await fsp.writeFile(outputPath, normalizedXml, "utf8");
+    const stat = await fsp.stat(outputPath);
+
+    const updated = await this.prisma.asset.update({
+      where: { id },
+      data: {
+        filePath: publicPathFromUploadFile(outputPath),
+        mimeType: "application/vnd.recordare.musicxml+xml",
+        sizeBytes: BigInt(stat.size),
+      },
+      include: {
+        SongAsset: { include: { Song: { select: { id: true, title: true, slug: true } } } },
+        ListAsset: { include: { list: { select: { id: true, title: true, legacyId: true, groupId: true } } } },
+        ListItemAsset: {
+          include: { listItem: { select: { id: true, title: true, listId: true, sortId: true, songId: true } } },
+        },
+        ListGroupAsset: {
+          include: { listGroup: { select: { id: true, title: true, fullTitle: true, legacyId: true } } },
+        },
+      },
+    });
+
+    return {
+      ok: true,
+      asset: mapAsset(updated),
+      backupPath: publicPathFromUploadFile(backupPath),
+    };
   }
 
   async create(data: {

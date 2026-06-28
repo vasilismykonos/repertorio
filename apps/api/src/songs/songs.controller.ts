@@ -284,6 +284,18 @@ export class SongsController {
     });
   }
 
+  @Get('recommendations')
+  async recommendations(
+    @Query('userId') userIdStr?: string,
+    @Query('take') take?: string,
+  ) {
+    const userId = toNumberOrNull(userIdStr);
+    if (!userId || userId <= 0) {
+      return { items: [], profile: { sourceSongCount: 0, categoryTitles: [], rythmTitles: [], tagTitles: [] } };
+    }
+    return this.songsService.recommendForUser(userId, take);
+  }
+
   @Get(':id')
   async findOne(
     @Param('id', ParseIntPipe) id: number,

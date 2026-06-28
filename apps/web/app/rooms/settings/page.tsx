@@ -13,10 +13,5 @@ export default async function RoomsSettingsPage() {
     redirect("/rooms");
   }
 
-  return (
-    <>
-      <link rel="stylesheet" href="/rooms/repertorio-rooms.css" />
-      <RoomsSettingsClient />
-    </>
-  );
+  return <RoomsSettingsClient />;
 }

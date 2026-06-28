@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Paperclip } from "lucide-react";
+import { Paperclip, type LucideIcon } from "lucide-react";
 
 import Button from "../../components/buttons/Button";
 import SongAssetsClient from "./SongAssetsClient";
@@ -12,6 +12,15 @@ type Props = {
   assets: any[];
   onToggle: () => void;
 };
+
+const PANEL_ICON_HAS_CONTENT = "#22c55e";
+
+function panelIcon(Icon: LucideIcon, hasContent: boolean): LucideIcon {
+  function PanelIcon(props: any) {
+    return <Icon {...props} color={hasContent ? PANEL_ICON_HAS_CONTENT : props.color} />;
+  }
+  return PanelIcon as LucideIcon;
+}
 
 export default function SongAssetsPanel(props: Props) {
   const { open, hasAssets, assets, onToggle } = props;
@@ -26,8 +35,7 @@ export default function SongAssetsPanel(props: Props) {
           onClick={onToggle}
           title={open ? "Απόκρυψη υλικού" : "Εμφάνιση υλικού"}
           aria-pressed={open}
-          icon={Paperclip}
-          disabled={!hasAssets}
+          icon={panelIcon(Paperclip, hasAssets)}
         >
           Υλικό
         </Button>

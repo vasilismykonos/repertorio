@@ -37,7 +37,11 @@ type TrafficStatsResponse = {
     requests: number;
     pageViews: number;
     uniqueVisitors: number;
+    rawUniqueIps: number;
     botRequests: number;
+    internalRequests: number;
+    scannerRequests: number;
+    suspiciousRequests: number;
     errorRequests: number;
     errorRate: number;
   };
@@ -56,6 +60,8 @@ type DailyTrafficRow = {
   uniqueVisitors: number;
   requests: number;
   botRequests: number;
+  internalRequests: number;
+  scannerRequests: number;
   errorRequests: number;
 };
 
@@ -163,8 +169,39 @@ function isStaticOrApiPath(path: string): boolean {
 }
 
 function isBot(userAgent: string): boolean {
-  return /bot|crawl|spider|slurp|bingpreview|facebookexternalhit|whatsapp|telegrambot|python|curl|wget|headless|monitor/i.test(
+  return /bot|crawl|spider|slurp|bingpreview|facebookexternalhit|whatsapp|telegrambot|python|curl|wget|headless|monitor|mj12|semrush|ahrefs|baidu|yandex|claudebot|gptbot|bytespider|petalbot|dotbot|siteaudit|scan|scrapy|go-http-client|java|okhttp|httpclient/i.test(
     userAgent || "",
+  );
+}
+
+function isInternalRequestPath(path: string): boolean {
+  const p = stripQuery(path);
+  return (
+    p.startsWith("/api/") ||
+    p.startsWith("/rooms-api/") ||
+    p.startsWith("/_next/") ||
+    p === "/manifest.webmanifest" ||
+    p === "/manifest.dev.webmanifest" ||
+    p === "/favicon.ico" ||
+    /\.(?:css|js|map|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|mp3|pdf|xml|txt)$/i.test(p)
+  );
+}
+
+function isScannerPath(path: string): boolean {
+  const p = stripQuery(path).toLowerCase();
+  return (
+    p.includes("wp-") ||
+    p.includes("wordpress") ||
+    p.includes("xmlrpc") ||
+    p.includes("phpmyadmin") ||
+    p.includes("administrator") ||
+    p.includes("/.env") ||
+    p.includes("/.git") ||
+    p.includes("actuator") ||
+    p.includes("cgi-bin") ||
+    p.endsWith(".php") ||
+    p.endsWith(".asp") ||
+    p.endsWith(".aspx")
   );
 }
 
@@ -221,6 +258,8 @@ function ensureDailyBucket(
       uniqueVisitors: Set<string>;
       requests: number;
       botRequests: number;
+      internalRequests: number;
+      scannerRequests: number;
       errorRequests: number;
     }
   >,
@@ -233,6 +272,8 @@ function ensureDailyBucket(
       uniqueVisitors: new Set<string>(),
       requests: 0,
       botRequests: 0,
+      internalRequests: 0,
+      scannerRequests: 0,
       errorRequests: 0,
     };
     map.set(key, bucket);
@@ -244,7 +285,8 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
   const linePattern =
     /^(\S+) \S+ \S+ \[([^\]]+)\] "([A-Z]+) ([^" ]+)(?: HTTP\/[^"]+)?" (\d{3}) (\S+) "([^"]*)" "([^"]*)"$/;
 
-  const uniqueIps = new Set<string>();
+  const rawUniqueIps = new Set<string>();
+  const visitorIps = new Set<string>();
   const topPagesMap = new Map<string, number>();
   const statusMap = new Map<string, number>();
   const deviceMap = new Map<string, number>();
@@ -257,6 +299,8 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
       uniqueVisitors: Set<string>;
       requests: number;
       botRequests: number;
+      internalRequests: number;
+      scannerRequests: number;
       errorRequests: number;
     }
   >();
@@ -264,6 +308,8 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
   let requests = 0;
   let pageViews = 0;
   let botRequests = 0;
+  let internalRequests = 0;
+  let scannerRequests = 0;
   let errorRequests = 0;
   let parsedLines = 0;
   let windowStart: Date | null = null;
@@ -285,22 +331,28 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
     const referrer = m[7];
     const userAgent = m[8];
     const bot = isBot(userAgent);
+    const internalRequest = isInternalRequestPath(path);
+    const scannerRequest = isScannerPath(path);
 
     if (date) {
       if (!windowStart || date < windowStart) windowStart = date;
       if (!windowEnd || date > windowEnd) windowEnd = date;
     }
 
-    uniqueIps.add(ip);
+    rawUniqueIps.add(ip);
     increment(statusMap, status);
     if (Number(status) >= 400) errorRequests += 1;
     if (bot) botRequests += 1;
+    if (internalRequest) internalRequests += 1;
+    if (scannerRequest) scannerRequests += 1;
 
     const dayBucket = date ? ensureDailyBucket(dailyMap, dayKey(date)) : null;
     if (dayBucket) {
       dayBucket.requests += 1;
       if (Number(status) >= 400) dayBucket.errorRequests += 1;
       if (bot) dayBucket.botRequests += 1;
+      if (internalRequest) dayBucket.internalRequests += 1;
+      if (scannerRequest) dayBucket.scannerRequests += 1;
     }
 
     const pagePath = stripQuery(path);
@@ -313,6 +365,7 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
 
     if (isPageView) {
       pageViews += 1;
+      visitorIps.add(ip);
       increment(topPagesMap, pagePath);
       increment(deviceMap, deviceType(userAgent));
       increment(browserMap, browserName(userAgent));
@@ -341,8 +394,12 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
     totals: {
       requests,
       pageViews,
-      uniqueVisitors: uniqueIps.size,
+      uniqueVisitors: visitorIps.size,
+      rawUniqueIps: rawUniqueIps.size,
       botRequests,
+      internalRequests,
+      scannerRequests,
+      suspiciousRequests: botRequests + scannerRequests,
       errorRequests,
       errorRate: requests ? Number(((errorRequests / requests) * 100).toFixed(2)) : 0,
     },
@@ -363,6 +420,8 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
         uniqueVisitors: bucket.uniqueVisitors.size,
         requests: bucket.requests,
         botRequests: bucket.botRequests,
+        internalRequests: bucket.internalRequests,
+        scannerRequests: bucket.scannerRequests,
         errorRequests: bucket.errorRequests,
       })),
     userStats: null,

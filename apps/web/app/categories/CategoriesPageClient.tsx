@@ -2,8 +2,8 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowUpDown, Music2, Plus, Search } from "lucide-react";
 
-import ActionBar from "@/app/components/ActionBar";
 import { Button, LinkButton } from "@/app/components/buttons";
 
 export type CategoryListItem = {
@@ -38,6 +38,14 @@ function buildPageUrl(q: string, take: number, skip: number, sort: CategorySortK
   return `/categories?${params.toString()}`;
 }
 
+function buildSongsUrl(categoryId: number) {
+  return `/songs?take=50&skip=0&category_id=${categoryId}`;
+}
+
+function firstLetter(value: string) {
+  return (value || "?").trim().slice(0, 1).toLocaleUpperCase("el");
+}
+
 export default function CategoriesPageClient({
   q,
   take,
@@ -46,249 +54,154 @@ export default function CategoriesPageClient({
   categories,
   loadError,
 }: Props) {
-  // client-side search/filter
   const filtered = loadError
     ? []
-    : categories.filter((c) => {
+    : categories.filter((category) => {
         if (!q) return true;
-        const hay = `${c.title ?? ""} ${c.slug ?? ""}`.toLowerCase();
-        return hay.includes(q.toLowerCase());
+        const needle = q.toLocaleLowerCase("el");
+        const haystack = `${category.title ?? ""} ${category.slug ?? ""}`.toLocaleLowerCase("el");
+        return haystack.includes(needle);
       });
 
-  // sort (A-Ω / Ω-Α)
   filtered.sort((a, b) => {
     const cmp = a.title.localeCompare(b.title, "el");
     return sort === "title_desc" ? -cmp : cmp;
   });
 
   const total = filtered.length;
-
-  // client-side pagination
-  const safeSkip = clampInt(
-    skip,
-    0,
-    Math.max(0, total === 0 ? 0 : total - 1),
-    0,
-  );
+  const safeSkip = clampInt(skip, 0, Math.max(0, total === 0 ? 0 : total - 1), 0);
   const pageItems = filtered.slice(safeSkip, safeSkip + take);
-
   const hasPrev = safeSkip > 0;
   const hasNext = safeSkip + take < total;
-
-  // sort toggle
   const nextSort: CategorySortKey = sort === "title_asc" ? "title_desc" : "title_asc";
   const sortLabel = sort === "title_asc" ? "Α-Ω" : "Ω-Α";
-  const sortTitle =
-    sort === "title_asc"
-      ? "Ταξινόμηση φθίνουσα (Ω-Α)"
-      : "Ταξινόμηση αύξουσα (Α-Ω)";
+  const nextSortLabel = sort === "title_asc" ? "Ω-Α" : "Α-Ω";
 
   return (
-    <section
-      style={{
-        padding: "24px 16px",
-        maxWidth: 900,
-        margin: "0 auto",
-        color: "#fff",
-      }}
-    >
-      <ActionBar
-        left={<h1 style={{ fontSize: 28, margin: 0 }}>Κατηγορίες</h1>}
-        right={
-          <LinkButton
-            href="/categories/new"
-            variant="primary"
-            title="Νέα κατηγορία"
-            action="new"
-          >
-            Νέα κατηγορία
-          </LinkButton>
-        }
-      />
+    <section className="categories-page categories-page--compact">
+      <header className="categories-header">
+        <div>
+          <h1>Κατηγορίες</h1>
+          <p>
+            {total} {total === 1 ? "κατηγορία" : "κατηγορίες"}
+          </p>
+        </div>
 
-      <form
-        method="GET"
-        action="/categories"
-        style={{
-          margin: "12px 0 16px",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 8,
-          alignItems: "center",
-        }}
-      >
-        {/* Search input (λευκό) */}
-        <input
-          type="text"
-          name="q"
-          placeholder="Αναζήτηση κατηγορίας..."
-          defaultValue={q}
-          style={{
-            flex: "1 1 240px",
-            padding: "8px 12px",
-            borderRadius: 20,
-            border: "1px solid #ccc",
-            backgroundColor: "#fff",
-            color: "#000",
-          }}
-        />
+        <LinkButton href="/categories/new" variant="primary" action="new" showLabel icon={Plus}>
+          Νέα κατηγορία
+        </LinkButton>
+      </header>
 
-        {/* ✅ Search button ακριβώς μετά το πεδίο search */}
-        <Button type="submit" variant="primary" title="Αναζήτηση" action="search">
-          Αναζήτηση
-        </Button>
+      <section className="categories-toolbar" aria-label="Φίλτρα κατηγοριών">
+        <form method="GET" action="/categories" className="categories-search-form">
+          <label className="categories-search">
+            <Search size={17} />
+            <input
+              type="text"
+              name="q"
+              placeholder="Αναζήτηση κατηγορίας..."
+              defaultValue={q}
+            />
+          </label>
 
-        {/* Page size */}
-        <select
-          name="take"
-          defaultValue={String(take)}
-          style={{
-            padding: "8px 12px",
-            borderRadius: 20,
-            border: "1px solid #555",
-            backgroundColor: "#111",
-            color: "#fff",
-          }}
-        >
-          <option value="25">25 / σελίδα</option>
-          <option value="50">50 / σελίδα</option>
-          <option value="100">100 / σελίδα</option>
-          <option value="200">200 / σελίδα</option>
-        </select>
+          <select name="take" defaultValue={String(take)} aria-label="Πλήθος ανά σελίδα">
+            <option value="25">25 / σελίδα</option>
+            <option value="50">50 / σελίδα</option>
+            <option value="100">100 / σελίδα</option>
+            <option value="200">200 / σελίδα</option>
+          </select>
 
-        {/* ✅ Ταξινόμηση δίπλα στο take (όπως rythms) */}
+          <input type="hidden" name="skip" value="0" />
+          <input type="hidden" name="sort" value={sort} />
+
+          <Button type="submit" variant="primary" action="search" showLabel>
+            Αναζήτηση
+          </Button>
+
+          {q ? (
+            <LinkButton href={buildPageUrl("", take, 0, sort)} variant="secondary" action="cancel">
+              Καθαρισμός
+            </LinkButton>
+          ) : null}
+        </form>
+
         <LinkButton
           href={buildPageUrl(q, take, 0, nextSort)}
           variant="secondary"
-          title={sortTitle}
           action="sort"
           showLabel
-          iconOnly={false}
+          icon={ArrowUpDown}
+          title={`Ταξινόμηση ${nextSortLabel}`}
         >
-          Ταξινόμηση: {sortLabel}
+          {sortLabel}
         </LinkButton>
-
-        {/* Σε νέα αναζήτηση πάμε στην αρχή */}
-        <input type="hidden" name="skip" value="0" />
-
-        {/* Κρατάμε το sort όταν κάνουμε submit */}
-        <input type="hidden" name="sort" value={sort} />
-
-        {/* Καθαρισμός φίλτρου */}
-        {q ? (
-          <LinkButton
-            href={buildPageUrl("", take, 0, sort)}
-            variant="secondary"
-            title="Καθαρισμός"
-            action="cancel"
-          >
-            Καθαρισμός
-          </LinkButton>
-        ) : null}
-      </form>
+      </section>
 
       {loadError ? (
-        <p style={{ color: "#e38" }}>
+        <div className="categories-empty error">
           Σφάλμα φόρτωσης κατηγοριών. Παρακαλώ δοκιμάστε ξανά αργότερα.
-        </p>
+        </div>
       ) : total === 0 ? (
-        <p style={{ color: "#888" }}>Δεν υπάρχουν κατηγορίες.</p>
+        <div className="categories-empty">Δεν βρέθηκαν κατηγορίες.</div>
       ) : (
         <>
-          <div style={{ marginBottom: 12, fontSize: 14, color: "#ccc" }}>
-            Βρέθηκαν {total} κατηγορίες.
-            {total > 0 ? (
-              <>
-                {" "}
-                Εμφάνιση {safeSkip + 1}–{Math.min(safeSkip + take, total)}.
-              </>
-            ) : null}
+          <div className="categories-results-meta">
+            <span>
+              Εμφάνιση {safeSkip + 1}-{Math.min(safeSkip + take, total)} από {total}
+            </span>
           </div>
 
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {pageItems.map((cat) => (
-              <li
-                key={cat.id}
-                style={{
-                  padding: "8px 0",
-                  borderBottom: "1px solid #333",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 12,
-                }}
+          <div className="categories-grid">
+            {pageItems.map((category) => (
+              <Link
+                key={category.id}
+                href={buildSongsUrl(category.id)}
+                className="category-card category-card--link"
+                title={`Προβολή τραγουδιών: ${category.title}`}
               >
-                <span style={{ minWidth: 0 }}>
-                  <Link
-                    href={`/categories/${cat.id}`}
-                    style={{
-                      color: "#ccc",
-                      textDecoration: "none",
-                      display: "inline-block",
-                      maxWidth: "100%",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                    title={cat.title}
-                  >
-                    {cat.title}
-                  </Link>
+                <span className="category-card-main">
+                  <span className="category-card-letter">{firstLetter(category.title)}</span>
+                  <span className="category-card-text">
+                    <strong>{category.title}</strong>
+                  </span>
                 </span>
 
-                <Link
-                  href={`/songs?take=50&skip=0&category_id=${cat.id}`}
-                  style={{
-                    color: "#888",
-                    fontSize: 14,
-                    whiteSpace: "nowrap",
-                    textDecoration: "none",
-                  }}
-                  title="Προβολή τραγουδιών αυτής της κατηγορίας"
-                >
-                  {cat.songsCount} τραγούδι(α)
-                </Link>
-              </li>
+                <span className="category-card-count">
+                  <Music2 size={15} />
+                  {category.songsCount}
+                </span>
+              </Link>
             ))}
-          </ul>
+          </div>
 
           {total > take ? (
-            <div
-              style={{
-                marginTop: 24,
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 8,
-              }}
-            >
+            <nav className="categories-pagination" aria-label="Σελιδοποίηση κατηγοριών">
               {hasPrev ? (
                 <LinkButton
                   href={buildPageUrl(q, take, Math.max(0, safeSkip - take), sort)}
                   variant="secondary"
-                  title="Προηγούμενη"
                   action="back"
-                  style={{ padding: "6px 12px", fontSize: 14 }}
+                  showLabel
                 >
-                  ← Προηγούμενη
+                  Προηγούμενη
                 </LinkButton>
               ) : (
-                <div />
+                <span />
               )}
 
               {hasNext ? (
                 <LinkButton
                   href={buildPageUrl(q, take, safeSkip + take, sort)}
                   variant="secondary"
-                  title="Επόμενη"
                   action="select"
-                  style={{ padding: "6px 12px", fontSize: 14 }}
+                  showLabel
                 >
-                  Επόμενη →
+                  Επόμενη
                 </LinkButton>
               ) : (
-                <div />
+                <span />
               )}
-            </div>
+            </nav>
           ) : null}
         </>
       )}

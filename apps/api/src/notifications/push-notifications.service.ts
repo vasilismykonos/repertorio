@@ -88,14 +88,20 @@ export class PushNotificationsService {
   }
 
   async sendToUser(userId: number, payload: PushPayload) {
-    if (!this.configured) return;
+    if (!this.configured) {
+      this.logger.warn(`Web push is not configured; notification ${payload.notificationId} was not sent.`);
+      return;
+    }
 
     const subscriptions = await this.prisma.pushSubscription.findMany({
       where: { userId },
       select: { id: true, endpoint: true, p256dh: true, auth: true },
     });
 
-    if (subscriptions.length === 0) return;
+    if (subscriptions.length === 0) {
+      this.logger.debug(`No push subscriptions for user ${userId}; notification ${payload.notificationId}.`);
+      return;
+    }
 
     const body = JSON.stringify({
       title: payload.title,
@@ -104,7 +110,7 @@ export class PushNotificationsService {
       notificationId: payload.notificationId,
     });
 
-    await Promise.all(
+    const results = await Promise.all(
       subscriptions.map(async (subscription) => {
         try {
           await webpush.sendNotification(
@@ -117,15 +123,23 @@ export class PushNotificationsService {
             },
             body,
           );
+          return { ok: true };
         } catch (err: any) {
           const statusCode = Number(err?.statusCode || err?.status);
           if (statusCode === 404 || statusCode === 410) {
             await this.prisma.pushSubscription.delete({ where: { id: subscription.id } }).catch(() => null);
-            return;
+            return { ok: false, stale: true };
           }
           this.logger.warn(`Web push failed for subscription ${subscription.id}: ${err?.message || err}`);
+          return { ok: false };
         }
       }),
+    );
+
+    const sent = results.filter((result) => result.ok).length;
+    const stale = results.filter((result) => result.stale).length;
+    this.logger.log(
+      `Web push notification ${payload.notificationId} for user ${userId}: sent ${sent}/${subscriptions.length}, stale ${stale}.`,
     );
   }
 }

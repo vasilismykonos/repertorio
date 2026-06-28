@@ -3,10 +3,12 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Music2, List as ListIcon, Layers } from "lucide-react";
+import { Music2, List as ListIcon, Layers, PencilRuler } from "lucide-react";
 
 import ActionBar from "@/app/components/ActionBar";
 import { A } from "@/app/components/buttons";
+import Button from "@/app/components/buttons/Button";
+import ScorePlayerClient from "@/app/songs/[id]/score/ScorePlayerClient";
 
 import AssetForm, {
   type AssetForEdit,
@@ -65,6 +67,24 @@ function contextLabel(ctx: AssetAttachTarget) {
   }
   const t = ctx.title ? ` — ${ctx.title}` : "";
   return `Ομάδα λίστας ${t}`;
+}
+
+function normalizeAssetType(value: unknown) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function assetFileUrl(asset: AssetForEdit) {
+  const filePath = String(asset?.filePath ?? "").trim();
+  if (filePath) return filePath;
+  return String(asset?.url ?? "").trim();
+}
+
+function isPlayableScoreAsset(asset: AssetForEdit) {
+  if (normalizeAssetType(asset?.type) !== "SCORE") return false;
+  if (String(asset?.kind ?? "").toUpperCase() !== "FILE") return false;
+
+  const url = assetFileUrl(asset).toLowerCase();
+  return url.endsWith(".mxl") || url.endsWith(".musicxml") || url.endsWith(".xml");
 }
 
 /**
@@ -174,6 +194,11 @@ export default function AssetEditPageClient({ idNum, asset }: Props) {
     return returnToParam || referrerPath || "/assets";
   }, [returnToParam, referrerPath]);
 
+  const notationEditorHref = useMemo(() => {
+    const returnTo = `/assets/${idNum}/edit`;
+    return `/assets/${idNum}/notation-editor?returnTo=${encodeURIComponent(returnTo)}`;
+  }, [idNum]);
+
   function goBack() {
     if (busy) return;
 
@@ -240,7 +265,7 @@ export default function AssetEditPageClient({ idNum, asset }: Props) {
   }
 
   return (
-    <div style={{ padding: "0 16px 40px", maxWidth: 760, margin: "0 auto" }}>
+    <div style={{ padding: "0 16px 40px", maxWidth: 1180, margin: "0 auto" }}>
       <ActionBar
         left={
           <>
@@ -327,6 +352,63 @@ export default function AssetEditPageClient({ idNum, asset }: Props) {
           }}
         />
       </div>
+
+      {isPlayableScoreAsset(asset) ? (
+        <section
+          style={{
+            marginTop: 18,
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 10,
+            background: "#0f0f0f",
+            padding: 12,
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              flexWrap: "wrap",
+              marginBottom: 10,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>Player παρτιτούρας</div>
+              <div style={{ color: "rgba(255,255,255,0.68)", fontSize: 13, marginTop: 3 }}>
+                Η προεπισκόπηση χρησιμοποιεί το αποθηκευμένο MusicXML/MXL αρχείο. Αποθήκευσε αλλαγές στο asset για να
+                φορτωθεί νέο αρχείο.
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              icon={PencilRuler}
+              onClick={() => router.push(notationEditorHref)}
+              disabled={busy}
+            >
+              Επεξεργασία παρτιτούρας
+            </Button>
+          </div>
+
+          <ScorePlayerClient fileUrl={assetFileUrl(asset)} title={asset.title || "Παρτιτούρα"} />
+        </section>
+      ) : normalizeAssetType(asset?.type) === "SCORE" ? (
+        <section
+          style={{
+            marginTop: 18,
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 10,
+            background: "#0f0f0f",
+            padding: 14,
+            color: "rgba(255,255,255,0.72)",
+          }}
+        >
+          <div style={{ fontWeight: 900, color: "#fff", marginBottom: 4 }}>Player παρτιτούρας</div>
+          Ο Player είναι διαθέσιμος όταν η παρτιτούρα είναι αποθηκευμένη ως MusicXML ή MXL.
+        </section>
+      ) : null}
     </div>
   );
 }

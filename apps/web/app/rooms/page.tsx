@@ -6,10 +6,5 @@ export const metadata = {
 };
 
 export default function RoomsPage() {
-  return (
-    <>
-      <link rel="stylesheet" href="/rooms/repertorio-rooms.css" />
-      <RoomsPageClient />
-    </>
-  );
+  return <RoomsPageClient />;
 }

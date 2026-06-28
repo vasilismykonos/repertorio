@@ -2,13 +2,16 @@
 "use client";
 
 import React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { History, LogIn, LogOut, Trash2 } from "lucide-react";
 import { useRooms } from "@/app/components/RoomsProvider";
 import { A } from "@/app/components/buttons";
 
 type BaseRoom = {
   room: string;
   userCount: number;
+  uniqueUsers?: number;
+  sessions?: number;
   hasPassword: boolean;
 };
 
@@ -21,6 +24,8 @@ type RoomUser = {
 type RoomFromStatus = {
   room: string;
   userCount?: number;
+  uniqueUsers?: number;
+  sessions?: number;
   hasPassword: boolean;
   users?: RoomUser[];
 
@@ -33,6 +38,19 @@ type RoomFromStatus = {
 
   last_sync_timestamp?: number | null;
   last_sync_username?: string | null;
+  song_history?: RoomSongHistoryItem[];
+};
+
+type RoomSongHistoryItem = {
+  syncId?: number | null;
+  requestId?: string | null;
+  songId?: number | null;
+  title?: string | null;
+  url?: string | null;
+  selectedTonicity?: string | null;
+  sentAt?: number | null;
+  userId?: number | null;
+  username?: string | null;
 };
 
 
@@ -44,7 +62,7 @@ type StatusResponse = {
 type RoomsClientProps = {
   initialRooms: BaseRoom[];
   isLoggedIn: boolean;
-  isAdmin: boolean; // δεν χρησιμοποιείται εδώ (admin πήγε στο /rooms/settings)
+  isAdmin: boolean;
   initialCurrentRoom: string | null;
 };
 
@@ -68,33 +86,95 @@ function formatTimeFromTimestamp(ts: number | undefined | null): string {
 }
 
 function safeUsersCount(room: RoomFromStatus): number {
-  const usersArr = Array.isArray(room.users) ? room.users : [];
+  if (typeof room.uniqueUsers === "number" && Number.isFinite(room.uniqueUsers)) {
+    return room.uniqueUsers;
+  }
+
+  const usersArr = uniqueRoomUsers(room.users);
+  if (usersArr.length > 0) return usersArr.length;
+
   if (typeof room.userCount === "number") return room.userCount;
-  return usersArr.length || 0;
+  return 0;
+}
+
+function safeSessionsCount(room: RoomFromStatus): number {
+  if (typeof room.sessions === "number" && Number.isFinite(room.sessions)) {
+    return room.sessions;
+  }
+
+  const usersArr = Array.isArray(room.users) ? room.users : [];
+  return usersArr.length || safeUsersCount(room);
+}
+
+function roomUserKey(user: RoomUser, index: number, nameToUserKey?: Map<string, string>): string {
+  const username = String(user.username || "").trim();
+  const normalizedName = username ? username.toLocaleLowerCase("el-GR") : "";
+  if (normalizedName && nameToUserKey?.has(normalizedName)) {
+    return nameToUserKey.get(normalizedName) as string;
+  }
+  if (typeof user.user_id === "number" && Number.isFinite(user.user_id)) {
+    return `u:${user.user_id}`;
+  }
+  if (normalizedName) return `n:${normalizedName}`;
+  const deviceId = String(user.device_id || "").trim();
+  if (deviceId) return `d:${deviceId}`;
+  return `row:${index}`;
+}
+
+function roomUserLabel(user: RoomUser): string {
+  const username = String(user.username || "").trim();
+  if (username) return "@" + username;
+  if (typeof user.user_id === "number") return `User #${user.user_id}`;
+  const shortId = String(user.device_id || "").slice(0, 8).trim();
+  return shortId || "unknown";
+}
+
+function uniqueRoomUsers(users: RoomUser[] | undefined): Array<RoomUser & { sessionCount: number }> {
+  const out = new Map<string, RoomUser & { sessionCount: number }>();
+  const list = Array.isArray(users) ? users : [];
+  const nameToUserKey = new Map<string, string>();
+
+  list.forEach((user) => {
+    const username = String(user.username || "").trim();
+    if (username && typeof user.user_id === "number" && Number.isFinite(user.user_id)) {
+      nameToUserKey.set(username.toLocaleLowerCase("el-GR"), `u:${user.user_id}`);
+    }
+  });
+
+  list.forEach((user, index) => {
+    const key = roomUserKey(user, index, nameToUserKey);
+    const existing = out.get(key);
+    if (existing) {
+      existing.sessionCount += 1;
+      if (!existing.username && user.username) existing.username = user.username;
+      if (typeof existing.user_id !== "number" && typeof user.user_id === "number") {
+        existing.user_id = user.user_id;
+      }
+      return;
+    }
+    out.set(key, { ...user, sessionCount: 1 });
+  });
+  return Array.from(out.values());
 }
 
 function renderUsersString(room: RoomFromStatus): string {
-  const usersArr = Array.isArray(room.users) ? room.users : [];
+  const usersArr = uniqueRoomUsers(room.users);
   const count = safeUsersCount(room);
+  const sessions = safeSessionsCount(room);
 
   if (usersArr.length > 0) {
     return usersArr
       .map((u) => {
-        const uname = (u.username || "").trim();
-        if (uname) return "@" + uname;
-        if (typeof u.user_id === "number") return `User #${u.user_id}`;
-        const shortId = ((u.device_id || "").slice(0, 8) || "unknown").trim();
-        return shortId || "unknown";
+        const label = roomUserLabel(u);
+        return u.sessionCount > 1 ? `${label} (${u.sessionCount})` : label;
       })
       .join(", ");
   }
 
   if (count > 0) {
-    return `${count} ${
-      count === 1
-        ? "χρήστης (χωρίς λεπτομέρειες)"
-        : "χρήστες (χωρίς λεπτομέρειες)"
-    }`;
+    const userWord = count === 1 ? "χρήστης" : "χρήστες";
+    const sessionSuffix = sessions > count ? `, ${sessions} συσκευές` : "";
+    return `${count} ${userWord}${sessionSuffix} (χωρίς λεπτομέρειες)`;
   }
 
   return "κανένας χρήστης";
@@ -102,6 +182,18 @@ function renderUsersString(room: RoomFromStatus): string {
 
 function normalizeQuery(s: string): string {
   return (s || "").trim().replace(/\s+/g, " ");
+}
+
+function formatHistoryDate(ts: number | undefined | null): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("el-GR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** Local “A-like” button (safe: no routing / no notFound). */
@@ -127,6 +219,10 @@ function ALikeButton(props: {
     opacity: disabled ? 0.55 : 1,
     userSelect: "none",
     whiteSpace: "nowrap",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
   };
 
   const style: React.CSSProperties =
@@ -158,14 +254,18 @@ function ALikeButton(props: {
 export default function RoomsClient({
   initialRooms,
   isLoggedIn,
+  isAdmin,
   initialCurrentRoom,
 }: RoomsClientProps) {
   const { currentRoom, switchRoom } = useRooms();
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   const [rooms, setRooms] = useState<RoomFromStatus[]>(() =>
     (initialRooms || []).map((r) => ({
       room: r.room,
       userCount: r.userCount,
+      uniqueUsers: r.uniqueUsers,
+      sessions: r.sessions,
       hasPassword: r.hasPassword,
     }))
   );
@@ -182,13 +282,8 @@ export default function RoomsClient({
   const [usersModalOpen, setUsersModalOpen] = useState(false);
   const [usersModalRoom, setUsersModalRoom] = useState<string | null>(null);
   const [usersModalUsers, setUsersModalUsers] = useState<RoomUser[]>([]);
-  const [usersModalLastSyncUrl, setUsersModalLastSyncUrl] = useState<
-    string | null
-  >(null);
-  const [usersModalLastSyncTimestamp, setUsersModalLastSyncTimestamp] =
-    useState<number | null>(null);
-  const [usersModalLastSyncUsername, setUsersModalLastSyncUsername] =
-    useState<string | null>(null);
+  const [usersModalHistory, setUsersModalHistory] = useState<RoomSongHistoryItem[]>([]);
+  const [usersModalFocus, setUsersModalFocus] = useState<"users" | "history">("users");
 
   const loadRooms = useCallback(async () => {
     setLoading(true);
@@ -333,13 +428,39 @@ export default function RoomsClient({
     }
   };
 
-  const openUsersModalForRoom = (room: RoomFromStatus) => {
+  const handleDeleteRoom = async (roomName: string) => {
+    if (!isAdmin) return;
+    const ok = window.confirm(`Να διαγραφεί οριστικά το room "${roomName}";`);
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomName)}`, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.message || `HTTP ${res.status}`);
+      }
+
+      if (currentRoom === roomName) {
+        switchRoom(null);
+        window.localStorage.removeItem(STORAGE_KEY_ROOM);
+        window.localStorage.removeItem(STORAGE_KEY_ROOM_PWD);
+      }
+
+      await loadRooms();
+    } catch (err: any) {
+      alert("Δεν διαγράφηκε το room: " + (err?.message || "Άγνωστο σφάλμα."));
+    }
+  };
+
+  const openUsersModalForRoom = (room: RoomFromStatus, focus: "users" | "history" = "users") => {
     const users = Array.isArray(room.users) ? room.users : [];
     setUsersModalRoom(room.room);
     setUsersModalUsers(users);
-    setUsersModalLastSyncUrl(room.last_sync_url || null);
-    setUsersModalLastSyncTimestamp(room.last_sync_timestamp || null);
-    setUsersModalLastSyncUsername(room.last_sync_username || null);
+    setUsersModalHistory(Array.isArray(room.song_history) ? room.song_history : []);
+    setUsersModalFocus(focus);
     setUsersModalOpen(true);
   };
 
@@ -357,9 +478,11 @@ export default function RoomsClient({
   const sortedAndFilteredRooms = useMemo(() => {
     const q = normalizeQuery(searchQuery).toLowerCase();
 
+    const activeRooms = rooms.filter((room) => safeUsersCount(room) > 0);
+
     const base = !q
-      ? rooms
-      : rooms.filter((room) => {
+      ? activeRooms
+      : activeRooms.filter((room) => {
           const usersArr = Array.isArray(room.users) ? room.users : [];
           const text = [
             room.room,
@@ -414,52 +537,59 @@ export default function RoomsClient({
         </div>
 
 
-        {/* Search */}
-        <div
+        <form
+          ref={formRef}
+          onSubmit={(event) => {
+            event.preventDefault();
+            applySearch();
+          }}
           style={{
             display: "flex",
-            gap: 8,
-            alignItems: "center",
-            flexWrap: "wrap",
+            flexDirection: "column",
+            gap: "0.5rem",
+            marginBottom: "1rem",
           }}
         >
-          <input
-            type="text"
-            id="roomSearch"
-            placeholder="🔍 Αναζήτηση room / χρήστη / link"
-            maxLength={80}
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") applySearch();
-              if (e.key === "Escape") clearSearch();
-            }}
-            style={{
-              flex: "1 1 240px",
-              height: 40,
-              padding: "0 12px",
-              borderRadius: 999,
-              border: "1px solid rgba(0,0,0,0.18)",
-              background: "#ffffff",
-              color: "#000000",
-              outline: "none",
-            }}
-          />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
+            <input
+              type="text"
+              id="roomSearch"
+              name="search"
+              placeholder="Αναζήτηση room / χρήστη / link..."
+              maxLength={80}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") clearSearch();
+              }}
+              style={{
+                flex: "1 1 220px",
+                maxWidth: "400px",
+                minWidth: "180px",
+                padding: "8px 12px",
+                borderRadius: 16,
+                border: "1px solid rgba(255,255,255,0.30)",
+                background: "#ffffff",
+                color: "#000000",
+                fontSize: 16,
+                outline: "none",
+              }}
+            />
 
-          {/* ✅ Κεντρικό κουμπί τύπου A */}
-          {A.search({
-            onClick: applySearch,
-            disabled: !hasTypedQuery,
-            title: "Αναζήτηση",
-            label: "Αναζήτηση",
-          })}
+            {A.search({
+              label: "Αναζήτηση",
+              onClick: () => formRef.current?.requestSubmit(),
+              disabled: !hasTypedQuery,
+              title: "Αναζήτηση",
+            })}
 
-          {hasAppliedQuery && (
-            <ALikeButton onClick={clearSearch} variant="ghost" title="Καθαρισμός">
-              Καθαρισμός
-            </ALikeButton>
-          )}
-        </div>
+            {hasAppliedQuery && (
+              <ALikeButton onClick={clearSearch} variant="ghost" title="Καθαρισμός">
+                Καθαρισμός
+              </ALikeButton>
+            )}
+          </div>
+        </form>
 
         {errorMessage && (
           <div
@@ -491,6 +621,7 @@ export default function RoomsClient({
           >
             {sortedAndFilteredRooms.map((room) => {
               const count = safeUsersCount(room);
+              const sessions = safeSessionsCount(room);
               const isCurrent = !!currentRoom && currentRoom === room.room;
 
               const lockIcon = room.hasPassword ? (
@@ -520,17 +651,19 @@ export default function RoomsClient({
                     borderRadius: 14,
                     border: "1px solid rgba(255,255,255,0.10)",
                     background: isCurrent
-                      ? "rgba(255,255,255,0.08)"
+                      ? "rgba(124, 58, 237, 0.26)"
                       : "rgba(255,255,255,0.04)",
                     padding: "12px 12px",
                     display: "flex",
                     gap: 12,
                     alignItems: "stretch",
                     justifyContent: "space-between",
+                    minWidth: 0,
                   }}
                 >
                   <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                     <div
+                      className="room-row-head"
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -549,7 +682,7 @@ export default function RoomsClient({
                         {lockIcon}
                         <button
                           type="button"
-                          onClick={() => openUsersModalForRoom(room)}
+                          onClick={() => openUsersModalForRoom(room, "users")}
                           title="Δες τους χρήστες του room"
                           style={{
                             border: "none",
@@ -572,6 +705,7 @@ export default function RoomsClient({
                       </div>
 
                       <span
+                        className="room-count-pill"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -590,8 +724,30 @@ export default function RoomsClient({
                         {count}
                       </span>
 
+                      {sessions > count && (
+                        <span
+                          className="room-sessions-pill"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            height: 22,
+                            padding: "0 8px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 800,
+                            color: "#ddd",
+                            background: "rgba(255,255,255,0.08)",
+                          }}
+                          title="Ανοιχτές συσκευές/καρτέλες"
+                        >
+                          {sessions} συσκ.
+                        </span>
+                      )}
+
                       {isCurrent && (
                         <span
+                          className="room-current-pill"
                           style={{
                             display: "inline-flex",
                             alignItems: "center",
@@ -602,21 +758,21 @@ export default function RoomsClient({
                             fontSize: 12,
                             fontWeight: 900,
                             color: "#fff",
-                            background: "rgba(231, 76, 60, 0.35)",
-                            border: "1px solid rgba(231, 76, 60, 0.35)",
+                            background: "rgba(124, 58, 237, 0.35)",
+                            border: "1px solid rgba(167, 139, 250, 0.45)",
                           }}
                         >
-                          ✅ Τρέχον
+                          Τρέχον
                         </span>
                       )}
                     </div>
 
-                    <div style={{ marginTop: 6, color: "#ddd", fontSize: 13 }}>
+                    <div className="room-users-line" style={{ marginTop: 6, color: "#ddd", fontSize: 13 }}>
                       <span style={{ color: "#aaa" }}>👥 </span>
                       {usersStr}
                     </div>
 
-                    <div style={{ marginTop: 6, fontSize: 13 }}>
+                    <div className="room-last-line" style={{ marginTop: 6, fontSize: 13 }}>
                       {lastUrl ? (
                         <div style={{ color: "#cfcfcf" }}>
                           <span style={{ color: "#aaa" }}>🎵 </span>
@@ -640,16 +796,21 @@ export default function RoomsClient({
                   </div>
 
                   <div
+                    className="room-actions"
                     style={{
                       display: "flex",
+                      gap: 8,
                       alignItems: "center",
                       justifyContent: "flex-end",
                       flex: "0 0 auto",
                     }}
                   >
                     {isCurrent ? (
-                      <ALikeButton onClick={handleDisconnectRoom}>
-                        Αποσύνδεση
+                      <ALikeButton onClick={handleDisconnectRoom} title="Αποσύνδεση από το room">
+                        <span className="room-action-icon" aria-hidden="true">
+                          <LogOut size={17} />
+                        </span>
+                        <span className="room-action-text">Αποσύνδεση</span>
                       </ALikeButton>
                     ) : (
                       <ALikeButton
@@ -663,8 +824,43 @@ export default function RoomsClient({
                             : "Πρέπει να κάνεις login για να συνδεθείς."
                         }
                       >
-                        Σύνδεση
+                        <span className="room-action-icon" aria-hidden="true">
+                          <LogIn size={17} />
+                        </span>
+                        <span className="room-action-text">Σύνδεση</span>
                       </ALikeButton>
+                    )}
+                    <ALikeButton
+                      onClick={() => openUsersModalForRoom(room, "history")}
+                      variant="ghost"
+                      title="Ιστορικό τραγουδιών"
+                    >
+                      <span className="room-action-icon" aria-hidden="true">
+                        <History size={17} />
+                      </span>
+                      <span className="room-action-text">Ιστορικό</span>
+                    </ALikeButton>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRoom(room.room)}
+                        aria-label={`Διαγραφή room ${room.room}`}
+                        title="Διαγραφή room"
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 999,
+                          border: "1px solid rgba(255,255,255,0.16)",
+                          background: "transparent",
+                          color: "#fff",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <Trash2 size={18} />
+                      </button>
                     )}
                   </div>
                 </div>
@@ -729,61 +925,147 @@ export default function RoomsClient({
               {`🎧 Room: ${usersModalRoom || ""}`}
             </h3>
 
-            <div style={{ margin: "8px 0", fontSize: 14, color: "#bbb" }}>
-              {usersModalLastSyncUrl ? (
-                <p style={{ marginTop: 10, fontSize: 13 }}>
-                  🎵 Τελευταίο τραγούδι:
-                  <br />
-                  <a
-                    href={usersModalLastSyncUrl}
-
-                    rel="noopener noreferrer"
-                    style={{ color: "#4af" }}
-                  >
-                    {usersModalLastSyncUrl}
-                  </a>
-                  {usersModalLastSyncTimestamp != null && (
-                    <>
-                      {" "}
-                      ({formatTimeFromTimestamp(usersModalLastSyncTimestamp)} —{" "}
-                      {usersModalLastSyncUsername || "Άγνωστος χρήστης"})
-                    </>
-                  )}
-                </p>
-              ) : (
-                <p style={{ fontSize: 13, color: "#aaa" }}>
-                  Δεν υπάρχει πρόσφατο sync.
-                </p>
-              )}
-            </div>
-
             <hr style={{ border: "none", borderTop: "1px solid #444" }} />
+
+            {usersModalFocus === "history" && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontWeight: 900, marginBottom: 8 }}>Ιστορικό τραγουδιών</div>
+                {usersModalHistory.length === 0 ? (
+                  <div style={{ color: "#aaa", fontSize: 13 }}>Δεν υπάρχει ιστορικό.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {usersModalHistory.slice(0, 10).map((item, idx) => {
+                      const title = String(item.title || item.url || "Τραγούδι").trim();
+                      const url = String(item.url || "").trim();
+                      const by = String(item.username || "").trim();
+                      const when = formatHistoryDate(item.sentAt || null);
+                      return (
+                        <div
+                          key={`${item.requestId || item.syncId || idx}`}
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.10)",
+                            borderRadius: 10,
+                            padding: "8px 10px",
+                            background: "rgba(255,255,255,0.04)",
+                            fontSize: 13,
+                          }}
+                        >
+                          {url ? (
+                            <a href={url} style={{ color: "#7db7ff", fontWeight: 800 }}>
+                              {title}
+                            </a>
+                          ) : (
+                            <span style={{ fontWeight: 800 }}>{title}</span>
+                          )}
+                          <div style={{ color: "#aaa", marginTop: 3 }}>
+                            {[when, by].filter(Boolean).join(" · ")}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <hr style={{ border: "none", borderTop: "1px solid #444", marginTop: 14 }} />
+              </div>
+            )}
 
             <div style={{ marginTop: 10, fontSize: 15 }}>
               {usersModalUsers.length === 0 ? (
                 <p style={{ color: "#aaa" }}>Κανένας ενεργός χρήστης.</p>
               ) : (
-                usersModalUsers.map((u, idx) => {
-                  const idShort = (u.device_id || "").slice(0, 8) || "unknown";
-                  const uname = (u.username || "").trim();
-                  const name =
-                    uname
-                      ? `@${uname}`
-                      : typeof u.user_id === "number"
-                      ? `User #${u.user_id}`
-                      : idShort;
-
-                  return (
-                    <div key={idx}>
-                      • <span className="userTag">{name}</span>
-                    </div>
-                  );
-                })
+                uniqueRoomUsers(usersModalUsers).map((u, idx) => (
+                  <div key={`${roomUserKey(u, idx)}:${idx}`}>
+                    • <span className="userTag">{roomUserLabel(u)}</span>
+                    {u.sessionCount > 1 && (
+                      <span style={{ color: "#aaa" }}> ({u.sessionCount})</span>
+                    )}
+                  </div>
+                ))
               )}
             </div>
+
+
           </div>
         </div>
       )}
+      <style jsx>{`
+        .room-action-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        @media (max-width: 640px) {
+          #rooms-list {
+            gap: 6px !important;
+          }
+
+          .room-row {
+            padding: 8px 9px !important;
+            border-radius: 10px !important;
+            gap: 8px !important;
+            align-items: center !important;
+          }
+
+          .room-row.current-room-row {
+            background: rgba(124, 58, 237, 0.38) !important;
+            border-color: rgba(167, 139, 250, 0.72) !important;
+            box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.18) inset;
+          }
+
+          .room-row-head {
+            gap: 6px !important;
+            flex-wrap: nowrap !important;
+            min-width: 0;
+          }
+
+          .room-row-head button {
+            font-size: 15px !important;
+            min-width: 0;
+          }
+
+          .room-count-pill,
+          .room-sessions-pill,
+          .room-current-pill {
+            height: 20px !important;
+            padding: 0 6px !important;
+            font-size: 11px !important;
+            flex: 0 0 auto;
+          }
+
+          .room-current-pill {
+            display: none !important;
+          }
+
+          .room-users-line {
+            margin-top: 3px !important;
+            font-size: 12px !important;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+
+          .room-last-line {
+            display: none;
+          }
+
+          .room-actions {
+            gap: 5px !important;
+            align-items: center !important;
+          }
+
+          .room-actions button {
+            width: 34px !important;
+            height: 34px !important;
+            padding: 0 !important;
+            border-radius: 999px !important;
+          }
+
+          .room-action-text {
+            display: none;
+          }
+        }
+      `}</style>
     </>
   );
 }

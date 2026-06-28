@@ -134,3 +134,53 @@
   /* και αν χρειάζεται: */
   /* background: inherit !important; */
 }
+
+/* Modern button polish */
+.btn {
+  border-radius: 10px;
+  letter-spacing: 0;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 120ms ease,
+    opacity 120ms ease;
+}
+
+.btn:not(:disabled):not(.btn--disabled):hover {
+  transform: translateY(-1px);
+}
+
+.btn--primary {
+  background: linear-gradient(180deg, #168bff, #006be6);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 20px rgba(0, 112, 243, 0.26);
+}
+
+.btn--secondary,
+.btn--outline {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.btn--danger {
+  background: linear-gradient(180deg, #d33848, #9d1429);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 20px rgba(176, 0, 32, 0.22);
+}
+
+.btn--ghost,
+.btn--link {
+  color: #66b2ff;
+}
+
+.btn[data-action="save"] {
+  background: linear-gradient(180deg, #22b573, #14844f);
+  box-shadow: 0 8px 20px rgba(25, 135, 84, 0.24);
+}
+
+.btn[data-action="room"] {
+  background: linear-gradient(180deg, #8257d6, #6335b2);
+  box-shadow: 0 8px 20px rgba(111, 66, 193, 0.28);
+}

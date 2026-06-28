@@ -28,6 +28,7 @@ class RoomManager {
     this.clients = new Map(); // room -> Set<WebSocket>
     this.clientInfo = new Map(); // ws -> { room, deviceId, userId, username }
     this.lastSync = new Map(); // room -> { syncId, payload, userId, username }
+    this.songHistory = new Map(); // room -> recent sync entries[]
     this.syncReceipts = new Map(); // room -> identityKey -> { lastSyncId, requestIds[] }
 
     this.loadMeta();
@@ -164,6 +165,7 @@ class RoomManager {
 
     this.metaData.delete(clean);
     this.lastSync.delete(clean);
+    this.songHistory.delete(clean);
     this.syncReceipts.delete(clean);
     this.saveMeta();
   }
@@ -174,11 +176,12 @@ class RoomManager {
   getRoomsList() {
     const result = [];
     for (const [room, meta] of this.metaData.entries()) {
-      const set = this.clients.get(room);
-      const userCount = set ? set.size : 0;
+      const counts = this.getPresenceCounts(room);
       result.push({
         room,
-        userCount,
+        userCount: counts.uniqueUsers,
+        uniqueUsers: counts.uniqueUsers,
+        sessions: counts.sessions,
         hasPassword: !!meta.hasPassword,
       });
     }
@@ -192,7 +195,8 @@ class RoomManager {
    *
    * Επιστρέφει για κάθε room:
    *   - room
-   *   - userCount
+   *   - userCount (unique logged-in users / guest identities)
+   *   - sessions (open devices/tabs)
    *   - hasPassword
    *   - users[]: { device_id, user_id, username }
    *   - last_sync_url
@@ -229,6 +233,7 @@ class RoomManager {
       let last_sync_song_id = null;
       let last_sync_tonicity = null;
       let last_sync_request_id = null;
+      const song_history = this.getSongHistory(item.room);
 
       if (
         lastSync &&
@@ -277,6 +282,7 @@ class RoomManager {
         last_sync_song_id,
         last_sync_tonicity,
         last_sync_request_id,
+        song_history,
       };
     });
   }
@@ -403,11 +409,31 @@ class RoomManager {
     const set = this.clients.get(clean);
     if (!set) return { uniqueUsers: 0, sessions: 0 };
 
+    const nameToUserKey = new Map();
+    for (const ws of set) {
+      const info = this.getClientInfo(ws);
+      const name =
+        typeof info.username === "string" && info.username.trim()
+          ? info.username.trim().toLocaleLowerCase("el-GR")
+          : null;
+      if (name && typeof info.userId === "number" && Number.isFinite(info.userId)) {
+        nameToUserKey.set(name, `u:${info.userId}`);
+      }
+    }
+
     const unique = new Set();
     for (const ws of set) {
       const info = this.getClientInfo(ws);
-      if (typeof info.userId === "number" && Number.isFinite(info.userId)) {
+      const name =
+        typeof info.username === "string" && info.username.trim()
+          ? info.username.trim().toLocaleLowerCase("el-GR")
+          : null;
+      if (name && nameToUserKey.has(name)) {
+        unique.add(nameToUserKey.get(name));
+      } else if (typeof info.userId === "number" && Number.isFinite(info.userId)) {
         unique.add(`u:${info.userId}`);
+      } else if (name) {
+        unique.add(`n:${name}`);
       } else if (info.clientId) {
         unique.add(`c:${info.clientId}`);
       } else if (info.deviceId) {
@@ -483,7 +509,64 @@ class RoomManager {
     const clean = String(room || "").trim();
     if (!clean) return;
     this.lastSync.set(clean, payload);
+    this.addSongHistory(clean, payload);
     this.markSyncReceived(clean, payload, payload?.requestId, payload?.syncId);
+  }
+
+  addSongHistory(room, entry) {
+    const clean = String(room || "").trim();
+    if (!clean || !entry || typeof entry !== "object") return;
+
+    const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : {};
+    const requestId = typeof entry.requestId === "string" ? entry.requestId.trim() : "";
+    const syncId = Number(entry.syncId || 0);
+    const songId = Number(payload.songId || 0);
+    const title = typeof payload.title === "string" ? payload.title.trim() : "";
+    const url = typeof payload.url === "string" ? payload.url.trim() : "";
+    if (!requestId && !Number.isFinite(syncId) && !url && !title) return;
+
+    const item = {
+      syncId: Number.isFinite(syncId) && syncId > 0 ? Math.trunc(syncId) : null,
+      requestId: requestId || null,
+      songId: Number.isFinite(songId) && songId > 0 ? Math.trunc(songId) : null,
+      title: title || null,
+      url: url || null,
+      selectedTonicity:
+        typeof payload.selectedTonicity === "string" && payload.selectedTonicity.trim()
+          ? payload.selectedTonicity.trim()
+          : null,
+      sentAt:
+        typeof payload.sentAt === "number" && Number.isFinite(payload.sentAt)
+          ? payload.sentAt
+          : Date.now(),
+      userId:
+        typeof entry.userId === "number" && Number.isFinite(entry.userId)
+          ? Math.trunc(entry.userId)
+          : null,
+      username:
+        typeof entry.username === "string" && entry.username.trim()
+          ? entry.username.trim()
+          : null,
+    };
+
+    const current = this.songHistory.get(clean) || [];
+    const next = [
+      item,
+      ...current.filter((existing) => {
+        if (item.requestId && existing.requestId) return item.requestId !== existing.requestId;
+        if (item.syncId && existing.syncId) return item.syncId !== existing.syncId;
+        return true;
+      }),
+    ].slice(0, 20);
+
+    this.songHistory.set(clean, next);
+  }
+
+  getSongHistory(room) {
+    const clean = String(room || "").trim();
+    if (!clean) return [];
+    const history = this.songHistory.get(clean);
+    return Array.isArray(history) ? history.slice(0, 20) : [];
   }
 
   getLastSync(room) {

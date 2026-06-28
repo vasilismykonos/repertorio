@@ -11,6 +11,7 @@ import React, {
   useState,
 } from "react";
 import { useSession } from "next-auth/react";
+import { useOfflineIdentity } from "@/lib/useOfflineIdentity";
 
 type SongSyncPayload = {
   songId?: number | null;
@@ -218,6 +219,7 @@ function markHandledSync(room: string, syncId: number, requestId: string | null)
 
 export function RoomsProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession();
+  const identity = useOfflineIdentity();
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<number | null>(null);
@@ -237,11 +239,20 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
   const getUserMeta = useCallback(() => {
     const anySession: any = session as any;
     const user = anySession?.user || null;
+    const identityUser: any = identity.user || null;
     return {
-      userId: user?.id ?? null,
-      username: user?.displayName || user?.name || user?.email || null,
+      userId: identity.userId ?? user?.id ?? null,
+      username:
+        identity.userName ||
+        identityUser?.displayName ||
+        identityUser?.name ||
+        user?.displayName ||
+        user?.name ||
+        identity.userEmail ||
+        user?.email ||
+        null,
     };
-  }, [session]);
+  }, [identity.user, identity.userEmail, identity.userId, identity.userName, session]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -438,7 +449,13 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
             pendingJoinKeyRef.current = null;
           }
           if (typeof (data as any).clientId === "string") clientIdRef.current = (data as any).clientId;
-          setPresence(normalizePresenceCounts(data));
+          const counts = normalizePresenceCounts(data);
+          setPresence(counts);
+          window.dispatchEvent(
+            new CustomEvent(PRESENCE_COUNTS_EVENT, {
+              detail: { ...counts, room },
+            }),
+          );
           return;
         }
 
@@ -615,6 +632,7 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
       }
 
       const clean = room.trim();
+      setPresence(null);
       setCurrentRoom(clean);
       saveStoredRoom(clean);
       if (wsConnected) sendJoin(clean, password);

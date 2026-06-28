@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ListMusic,
+  type LucideIcon,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -41,6 +42,7 @@ const GuidedTour = dynamic(
 );
 
 const ROOM_SENT_FLASH_MS = 1200;
+const PANEL_ICON_HAS_CONTENT = "#22c55e";
 
 type PanelsOpen = {
   info: boolean;
@@ -205,6 +207,13 @@ function computeInitialPanels(
     scores: defaults?.scores ?? hasScores,
     assets: defaults?.assets ?? false,
   };
+}
+
+function panelIcon(Icon: LucideIcon, hasContent: boolean): LucideIcon {
+  function PanelIcon(props: any) {
+    return <Icon {...props} color={hasContent ? PANEL_ICON_HAS_CONTENT : props.color} />;
+  }
+  return PanelIcon as LucideIcon;
 }
 
 async function readJson(res: Response) {
@@ -574,6 +583,22 @@ function songIsOrganicForClient(song: SongDetail): boolean {
     .split(",")
     .map((item) => item.trim().toLocaleLowerCase("el-GR"))
     .some((item) => item === "οργανικό");
+}
+
+function extractRoadFromCharacteristics(value: string | null | undefined): string {
+  const parts = String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const direct = parts.find((item) => /^(μακάμ|μακαμ|δρόμος|δρομος)\s*:/i.test(item));
+  return direct ? direct.replace(/^(μακάμ|μακαμ|δρόμος|δρομος)\s*:/i, "").trim() : "";
+}
+
+function songHeaderMeta(song: SongDetail): string {
+  const parts = [song.rythmTitle, extractRoadFromCharacteristics(song.characteristics)]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  return parts.join(" · ");
 }
 
 function finalLyricsForSong(song: SongDetail): string {
@@ -1363,11 +1388,9 @@ export default function SongPageClient(props: Props) {
 
     setPanels((prev) => {
       if (pref === "CHORDS") {
-        if (!hasChords) return prev;
         return prev.chords ? prev : { ...prev, chords: true };
       }
       if (pref === "SCORE") {
-        if (!hasScores) return prev;
         return prev.scores ? prev : { ...prev, scores: true };
       }
       if (pref === "ASSETS") {
@@ -2201,7 +2224,7 @@ export default function SongPageClient(props: Props) {
               {viewSong.title}
             </h1>
 
-            {viewSong.rythmTitle ? (
+            {songHeaderMeta(viewSong) ? (
               <div
                 style={{
                   marginTop: 4,
@@ -2210,7 +2233,7 @@ export default function SongPageClient(props: Props) {
                   color: "#aaa",
                 }}
               >
-                {viewSong.rythmTitle}
+                {songHeaderMeta(viewSong)}
               </div>
             ) : null}
           </div>
@@ -2283,7 +2306,7 @@ export default function SongPageClient(props: Props) {
               onClick={noop}
               title={panels.singerTunes ? "Απόκρυψη τονικοτήτων" : "Εμφάνιση τονικοτήτων"}
               aria-pressed={panels.singerTunes}
-              icon={Mic}
+              icon={panelIcon(Mic, true)}
             >
               Tunes
             </Button>
@@ -2296,7 +2319,7 @@ export default function SongPageClient(props: Props) {
               onClick={noop}
               title={panels.info ? "Απόκρυψη πληροφοριών" : "Εμφάνιση πληροφοριών"}
               aria-pressed={panels.info}
-              icon={Info}
+              icon={panelIcon(Info, true)}
             >
               Info
             </Button>
@@ -2308,15 +2331,14 @@ export default function SongPageClient(props: Props) {
               variant={panels.chords ? "primary" : "secondary"}
               onClick={noop}
               title={
-                !viewHasChords
-                  ? "Δεν υπάρχουν ακόρντα για αυτό το τραγούδι"
-                  : panels.chords
+                panels.chords
                     ? "Απόκρυψη ακόρντων"
-                    : "Εμφάνιση ακόρντων"
+                    : viewHasChords
+                      ? "Εμφάνιση ακόρντων"
+                      : "Άνοιγμα συγχορδιών για προσθήκη/επεξεργασία"
               }
               aria-pressed={panels.chords}
-              icon={Guitar}
-              disabled={!viewHasChords}
+              icon={panelIcon(Guitar, viewHasChords)}
             >
               Chords
             </Button>
@@ -2328,15 +2350,14 @@ export default function SongPageClient(props: Props) {
               variant={panels.scores ? "primary" : "secondary"}
               onClick={noop}
               title={
-                !viewHasScores
-                  ? "Δεν υπάρχει παρτιτούρα MXL για αυτό το τραγούδι"
-                  : panels.scores
+                panels.scores
                     ? "Απόκρυψη παρτιτούρας"
-                    : "Εμφάνιση παρτιτούρας"
+                    : viewHasScores
+                      ? "Εμφάνιση παρτιτούρας"
+                      : "Άνοιγμα παρτιτούρας"
               }
               aria-pressed={panels.scores}
-              icon={Music}
-              disabled={!viewHasScores}
+              icon={panelIcon(Music, viewHasScores)}
             >
               Scores
             </Button>
@@ -2408,11 +2429,13 @@ export default function SongPageClient(props: Props) {
           initialAuthRequired={viewSong.id === song.id ? Boolean(initialSingerTunesAuthRequired) : false}
         />
 
-        {viewHasChords && panels.chords ? (
+        {panels.chords ? (
           <section style={{ marginTop: 0, marginBottom: 0 }}>
             <SongChordsClient
               songId={viewSong.id}
               chords={viewSong.chords}
+              canEdit={canEdit}
+              characteristics={viewSong.characteristics}
               originalKey={viewSong.originalKey}
               originalKeySign={viewSong.originalKeySign}
               urlTonicity={viewSelectedTonicity}
@@ -2582,7 +2605,7 @@ export default function SongPageClient(props: Props) {
             {song.title}
           </h1>
 
-          {song.rythmTitle ? (
+          {songHeaderMeta(song) ? (
             <div
               style={{
                 marginTop: 4,
@@ -2591,7 +2614,7 @@ export default function SongPageClient(props: Props) {
                 color: "#aaa",
               }}
             >
-              {song.rythmTitle}
+              {songHeaderMeta(song)}
             </div>
           ) : null}
         </div>
@@ -2700,7 +2723,7 @@ export default function SongPageClient(props: Props) {
             onClick={() => togglePanel("singerTunes")}
             title={panels.singerTunes ? "Απόκρυψη τονικοτήτων" : "Εμφάνιση τονικοτήτων"}
             aria-pressed={panels.singerTunes}
-            icon={Mic}
+            icon={panelIcon(Mic, true)}
           >
             Tunes
           </Button>
@@ -2713,7 +2736,7 @@ export default function SongPageClient(props: Props) {
             onClick={() => togglePanel("info")}
             title={panels.info ? "Απόκρυψη πληροφοριών" : "Εμφάνιση πληροφοριών"}
             aria-pressed={panels.info}
-            icon={Info}
+            icon={panelIcon(Info, true)}
           >
             Info
           </Button>
@@ -2725,15 +2748,14 @@ export default function SongPageClient(props: Props) {
             variant={panels.chords ? "primary" : "secondary"}
             onClick={() => togglePanel("chords")}
             title={
-              !hasChords
-                ? "Δεν υπάρχουν ακόρντα για αυτό το τραγούδι"
-                : panels.chords
+              panels.chords
                   ? "Απόκρυψη ακόρντων"
-                  : "Εμφάνιση ακόρντων"
+                  : hasChords
+                    ? "Εμφάνιση ακόρντων"
+                    : "Άνοιγμα συγχορδιών για προσθήκη/επεξεργασία"
             }
             aria-pressed={panels.chords}
-            icon={Guitar}
-            disabled={!hasChords}
+            icon={panelIcon(Guitar, hasChords)}
           >
             Chords
           </Button>
@@ -2745,15 +2767,14 @@ export default function SongPageClient(props: Props) {
             variant={panels.scores ? "primary" : "secondary"}
             onClick={() => togglePanel("scores")}
             title={
-              !hasScores
-                ? "Δεν υπάρχει παρτιτούρα MXL για αυτό το τραγούδι"
-                : panels.scores
+              panels.scores
                   ? "Απόκρυψη παρτιτούρας"
-                  : "Εμφάνιση παρτιτούρας"
+                  : hasScores
+                    ? "Εμφάνιση παρτιτούρας"
+                    : "Άνοιγμα παρτιτούρας"
             }
             aria-pressed={panels.scores}
-            icon={Music}
-            disabled={!hasScores}
+            icon={panelIcon(Music, hasScores)}
           >
             Scores
           </Button>
@@ -2825,11 +2846,13 @@ export default function SongPageClient(props: Props) {
         initialAuthRequired={Boolean(initialSingerTunesAuthRequired)}
       />
 
-      {hasChords && panels.chords ? (
+      {panels.chords ? (
         <section id="song-chords" style={{ marginTop: 0, marginBottom: 0 }}>
           <SongChordsClient
             songId={song.id}
             chords={song.chords}
+            canEdit={canEdit}
+            characteristics={song.characteristics}
             originalKey={song.originalKey}
             originalKeySign={song.originalKeySign}
             urlTonicity={effectiveUrlTonicity}

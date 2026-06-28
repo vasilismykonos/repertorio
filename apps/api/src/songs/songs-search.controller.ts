@@ -95,7 +95,20 @@ export class SongsSearchController {
     const categoryIds = this.parseIdList(categoryIdStr);
     const rythmIds = this.parseIdList(rythmIdStr);
 
-    const lyricsNullOnly = lyricsStr != null && String(lyricsStr) === 'null';
+    const lyricsValues = String(lyricsStr || '')
+      .split(',')
+      .map((x) => x.trim().toLowerCase())
+      .filter(Boolean);
+    const lyricsNullOnly =
+      lyricsStr != null &&
+      (String(lyricsStr) === 'null' || lyricsValues.includes('0') || lyricsValues.includes('false'));
+    const lyricsWithOnly = lyricsValues.includes('1') || lyricsValues.includes('true');
+    const lyricsInstrumentalOnly =
+      lyricsValues.includes('instrumental') ||
+      lyricsValues.includes('organiko') ||
+      lyricsValues.includes('organika') ||
+      lyricsValues.includes('οργανικο') ||
+      lyricsValues.includes('οργανικα');
     const sortByPopular = popular === '1';
 
     const must: any[] = [];
@@ -145,8 +158,14 @@ export class SongsSearchController {
       });
     }
 
-    if (lyricsNullOnly) {
-      filter.push({ bool: { must_not: [{ exists: { field: 'lyrics' } }] } });
+    if (lyricsInstrumentalOnly) {
+      filter.push({ term: { isInstrumental: true } });
+    } else if (lyricsWithOnly) {
+      filter.push({ term: { hasLyrics: true } });
+      filter.push({ bool: { must_not: [{ term: { isInstrumental: true } }] } });
+    } else if (lyricsNullOnly) {
+      filter.push({ term: { hasLyrics: false } });
+      filter.push({ bool: { must_not: [{ term: { isInstrumental: true } }] } });
     }
 
     if (status && status.trim() !== '') {

@@ -142,6 +142,43 @@ type AiSearchState = {
   error: string | null;
 };
 
+type PersonalizedRecommendation = {
+  id: number;
+  title: string;
+  firstLyrics?: string | null;
+  categoryTitle?: string | null;
+  rythmTitle?: string | null;
+  originalKey?: string | null;
+  originalKeySign?: "+" | "-" | null;
+  views?: number | null;
+  hasChords?: boolean;
+  hasScore?: boolean;
+  isInstrumental?: boolean;
+  tags?: string[];
+  reasons?: string[];
+};
+
+type PersonalizedRecommendationsState = {
+  loading: boolean;
+  loaded: boolean;
+  items: PersonalizedRecommendation[];
+  profile: {
+    sourceSongCount: number;
+    recentSongCount?: number;
+    listSongCount?: number;
+    searchTerms?: string[];
+    categoryTitles: string[];
+    rythmTitles: string[];
+    tagTitles: string[];
+  } | null;
+  suggestions: Array<{
+    label: string;
+    description?: string;
+    filters: Record<string, string>;
+  }>;
+  error: string | null;
+};
+
 type CategoryDto = {
   id: number;
   title: number | string;
@@ -1055,11 +1092,11 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [filtersReady, setFiltersReady] = useState(false);
-  const [aiSearch, setAiSearch] = useState<AiSearchState>({
+  const [personalRecommendations, setPersonalRecommendations] = useState<PersonalizedRecommendationsState>({
     loading: false,
-    query: "",
-    reply: "",
-    links: [],
+    loaded: false,
+    items: [],
+    profile: null,
     suggestions: [],
     error: null,
   });
@@ -1281,133 +1318,41 @@ export default function SongsSearchClient({ searchParams }: Props) {
     return buildUrlQueryFromFilters(filters, base);
   }, [filters, pickerMode, returnTo, listId]);
 
-  const aiQuestion = useMemo(() => {
-    const manual = aiSearch.query.trim();
-    if (manual) {
-      return [
-        `Μετάφρασε σε χρήσιμη αναζήτηση Repertorio: ${manual}`,
-        "Απάντησε σύντομα, με βάση τα πραγματικά αποτελέσματα/φίλτρα που σου δίνονται.",
-        "Αν προτείνεις συγκεκριμένα τραγούδια, γράψε κάθε τραγούδι σε γραμμή με μορφή #id: τίτλος.",
-      ].join(" ");
-    }
-
-    const parts: string[] = [];
-    const q = filters.q.trim();
-    if (q) parts.push(`Αξιολόγησε τα εμφανιζόμενα αποτελέσματα για: ${q}`);
-    else parts.push("Αξιολόγησε τα εμφανιζόμενα αποτελέσματα με βάση τα τρέχοντα φίλτρα αναζήτησης.");
-
-    if (filters.category_id) parts.push(`Κατηγορία: ${filters.category_id}`);
-    if (filters.rythm_id) parts.push(`Ρυθμός: ${filters.rythm_id}`);
-    if (filters.chords === "1") parts.push("μόνο με συγχορδίες");
-    if (filters.partiture === "1") parts.push("μόνο με παρτιτούρα");
-    if (filters.lyrics) parts.push(`στίχοι: ${lyricsSummary(filters.lyrics)}`);
-    if (filters.popular === "1") parts.push("δώσε προτεραιότητα σε δημοφιλή αποτελέσματα");
-    parts.push("Πρότεινε μόνο τραγούδια από τη λίστα αποτελεσμάτων που σου στέλνω.");
-
-    return parts.join(". ");
-  }, [filters, aiSearch.query]);
-
-  const aiSuggestions = useMemo(
-    () =>
-      buildAiSearchSuggestions(aiSearch.query, filters, {
-        categoryOptions,
-        rythmOptions,
-        tagOptions,
-        composerOptions,
-        lyricistOptions,
-        singerFrontOptions,
-        singerBackOptions,
-      }),
-    [
-      aiSearch.query,
-      filters,
-      categoryOptions,
-      rythmOptions,
-      tagOptions,
-      composerOptions,
-      lyricistOptions,
-      singerFrontOptions,
-      singerBackOptions,
-    ],
-  );
-
-  function applyAiSuggestion(suggestion: AiSearchSuggestion) {
-    patchFilters(suggestion.filters);
-    setAiSearch((prev) => ({
-      ...prev,
-      reply: `Εφαρμόστηκε: ${suggestion.description}`,
-      suggestions: aiSuggestions,
-      error: null,
-    }));
-  }
-
-  const runAiSearch = async () => {
-    if (aiSearch.loading) return;
-    const localSuggestions = aiSuggestions;
-
+  const loadPersonalizedRecommendations = async () => {
+    if (personalRecommendations.loading) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setAiSearch({
+      setPersonalRecommendations((prev) => ({
+        ...prev,
         loading: false,
-        query: aiSearch.query,
-        reply: "",
-        links: [],
-        suggestions: [],
-        error: "Το AI χρειάζεται σύνδεση Internet. Η κανονική offline αναζήτηση παραμένει διαθέσιμη.",
-      });
+        loaded: true,
+        error: "Οι προσωποποιημένες προτάσεις χρειάζονται σύνδεση για ενημέρωση.",
+      }));
       return;
     }
 
-    setAiSearch((prev) => ({ ...prev, loading: true, error: null }));
+    setPersonalRecommendations((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      const hasManualQuery = aiSearch.query.trim().length > 0;
-      const res = await fetch(hasManualQuery ? "/api/ai/repertorio/search" : "/api/ai/repertorio/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(
-          hasManualQuery
-            ? { message: aiSearch.query, filters }
-            : {
-                message: aiQuestion,
-                pageContext: {
-                  source: "songs-search",
-                  total,
-                  filters,
-                  items: songs.map(compactSongForAi).filter(Boolean).slice(0, 12),
-                },
-              },
-        ),
+      const res = await fetch("/api/ai/repertorio/recommendations?take=8", {
+        headers: { Accept: "application/json" },
         cache: "no-store",
       });
       const payload = await parseJsonSafe<any>(res);
-      if (!res.ok) throw new Error(String(payload?.error || payload?.message || "AI request failed"));
-
-      const reply = String(payload?.reply || "").trim();
-      const payloadLinks = Array.isArray(payload?.results)
-        ? payload.results
-            .map((item: any) => ({
-              id: Number(item?.id),
-              title: String(item?.title || "").trim(),
-            }))
-            .filter((item: AiSearchLink) => Number.isFinite(item.id) && item.id > 0 && item.title)
-            .slice(0, 12)
-        : extractAiSongLinks(reply);
-      setAiSearch({
+      if (!res.ok) throw new Error(String(payload?.error || payload?.message || "Recommendations failed"));
+      setPersonalRecommendations({
         loading: false,
-        query: aiSearch.query,
-        reply: reply || "Δεν πήρα καθαρή απάντηση από το Repertorio AI.",
-        links: payloadLinks,
-        suggestions: localSuggestions,
+        loaded: true,
+        items: Array.isArray(payload?.items) ? payload.items : [],
+        profile: payload?.profile || null,
+        suggestions: Array.isArray(payload?.suggestions) ? payload.suggestions : [],
         error: null,
       });
     } catch (err: any) {
-      setAiSearch({
+      setPersonalRecommendations((prev) => ({
+        ...prev,
         loading: false,
-        query: aiSearch.query,
-        reply: "",
-        links: [],
-        suggestions: localSuggestions,
-        error: String(err?.message || err || "Δεν μπόρεσα να μιλήσω με το Repertorio AI."),
-      });
+        loaded: true,
+        error: String(err?.message || err || "Δεν μπόρεσα να φέρω προτάσεις."),
+      }));
     }
   };
 
@@ -1933,8 +1878,8 @@ export default function SongsSearchClient({ searchParams }: Props) {
 
             <button
               type="button"
-              onClick={() => handleQuickFilter({ tagIds: toggleIdInCsv(filters.tagIds, "3") })}
-              style={quickFilterButtonStyle(selectedTagIdSet.has("3"))}
+              onClick={() => handleQuickFilter({ lyrics: filters.lyrics === "instrumental" ? "" : "instrumental" })}
+              style={quickFilterButtonStyle(filters.lyrics === "instrumental")}
             >
               Οργανικά
             </button>
@@ -1989,69 +1934,31 @@ export default function SongsSearchClient({ searchParams }: Props) {
                 <FiltersModal {...(sharedFiltersProps as any)} />
               </div>
 
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void runAiSearch();
-                }}
+              <button
+                type="button"
+                onClick={() => void loadPersonalizedRecommendations()}
+                disabled={personalRecommendations.loading}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  minWidth: 0,
-                  flex: "1 1 260px",
-                  maxWidth: 520,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #2f7cff",
+                  background: personalRecommendations.loading ? "#1b1b1b" : "#0d6efd",
+                  color: "#fff",
+                  cursor: personalRecommendations.loading ? "wait" : "pointer",
+                  fontSize: 13,
+                  fontWeight: 800,
+                  height: 38,
+                  whiteSpace: "nowrap",
+                  boxShadow: personalRecommendations.loading ? "none" : "0 8px 22px rgba(13,110,253,0.22)",
                 }}
+                title="Προτάσεις τραγουδιών από τις λίστες και τις συνήθειές σου"
               >
-                <input
-                  value={aiSearch.query}
-                  onChange={(event) =>
-                    setAiSearch((prev) => ({
-                      ...prev,
-                      query: event.target.value,
-                      suggestions: [],
-                      error: null,
-                    }))
-                  }
-                  placeholder="AI: π.χ. ζεϊμπέκικα με συγχορδίες"
-                  aria-label="AI αναζήτηση"
-                  style={{
-                    height: 38,
-                    minWidth: 0,
-                    flex: "1 1 auto",
-                    borderRadius: 999,
-                    border: "1px solid #2f7cff",
-                    background: "#fff",
-                    color: "#111",
-                    padding: "0 12px",
-                    fontSize: 14,
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={aiSearch.loading}
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: 8,
-                    border: "1px solid #2f7cff",
-                    background: aiSearch.loading ? "#1b1b1b" : "#0d6efd",
-                    color: "#fff",
-                    cursor: aiSearch.loading ? "wait" : "pointer",
-                    fontSize: 13,
-                    fontWeight: 800,
-                    height: 38,
-                    whiteSpace: "nowrap",
-                    boxShadow: aiSearch.loading ? "none" : "0 8px 22px rgba(13,110,253,0.22)",
-                  }}
-                  title="Μετάφραση φυσικής γλώσσας σε φίλτρα αναζήτησης"
-                >
-                  {aiSearch.loading ? "AI..." : "AI"}
-                </button>
-              </form>
+                {personalRecommendations.loading ? "Προτάσεις..." : "Προτάσεις για εσένα"}
+              </button>
             </div>
           </div>
 
-          {(aiSearch.loading || aiSearch.reply || aiSearch.error || aiSearch.suggestions.length > 0) && (
+          {(personalRecommendations.loading || personalRecommendations.loaded) && (
             <section
               aria-live="polite"
               style={{
@@ -2070,13 +1977,29 @@ export default function SongsSearchClient({ searchParams }: Props) {
                   gap: 10,
                   alignItems: "center",
                   justifyContent: "space-between",
-                  marginBottom: aiSearch.loading || aiSearch.reply || aiSearch.error ? 8 : 0,
+                  marginBottom: 8,
                 }}
               >
-                <strong style={{ fontSize: 14 }}>AI αναζήτηση</strong>
+                <div style={{ minWidth: 0 }}>
+                  <strong style={{ fontSize: 14 }}>Προτάσεις για εσένα</strong>
+                  {personalRecommendations.profile?.sourceSongCount ? (
+                    <div style={{ opacity: 0.78, fontSize: 12, marginTop: 2 }}>
+                      Με βάση {personalRecommendations.profile.sourceSongCount} τραγούδια από τις λίστες σου.
+                    </div>
+                  ) : null}
+                </div>
                 <button
                   type="button"
-                  onClick={() => setAiSearch({ loading: false, query: "", reply: "", links: [], suggestions: [], error: null })}
+                  onClick={() =>
+                    setPersonalRecommendations({
+                      loading: false,
+                      loaded: false,
+                      items: [],
+                      profile: null,
+                      suggestions: [],
+                      error: null,
+                    })
+                  }
                   style={{
                     border: "1px solid #35527a",
                     background: "#0b1628",
@@ -2091,86 +2014,106 @@ export default function SongsSearchClient({ searchParams }: Props) {
                 </button>
               </div>
 
-              {aiSearch.loading ? (
-                <div style={{ opacity: 0.9, fontSize: 14 }}>Το Repertorio AI διαβάζει την αναζήτηση...</div>
-              ) : aiSearch.error ? (
-                <div style={{ color: "#ffb4b4", fontSize: 14 }}>{aiSearch.error}</div>
+              {personalRecommendations.loading ? (
+                <div style={{ opacity: 0.9, fontSize: 14 }}>Διαβάζω τις λίστες και τις πρόσφατες προτιμήσεις σου...</div>
+              ) : personalRecommendations.error ? (
+                <div style={{ color: "#ffb4b4", fontSize: 14 }}>{personalRecommendations.error}</div>
+              ) : personalRecommendations.items.length === 0 ? (
+                <div style={{ opacity: 0.9, fontSize: 14 }}>
+                  Δεν υπάρχουν αρκετά δεδομένα ακόμα. Όσο χρησιμοποιείς λίστες, οι προτάσεις θα γίνονται πιο χρήσιμες.
+                </div>
               ) : (
-                <>
-                  <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.45, fontSize: 14 }}>{aiSearch.reply}</div>
-                  {aiSearch.suggestions.length > 0 && (
-                    <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                      {aiSearch.suggestions.map((suggestion, index) => (
-                        <div
+                <div style={{ display: "grid", gap: 8 }}>
+                  {personalRecommendations.profile && (
+                    <div style={{ opacity: 0.82, fontSize: 12, lineHeight: 1.4 }}>
+                      {(() => {
+                        const profileBits = [
+                          ...personalRecommendations.profile.categoryTitles.slice(0, 2),
+                          ...personalRecommendations.profile.rythmTitles.slice(0, 2),
+                          ...personalRecommendations.profile.tagTitles.slice(0, 2),
+                          ...(personalRecommendations.profile.searchTerms || []).slice(0, 2),
+                        ].filter(Boolean);
+                        const recent = personalRecommendations.profile.recentSongCount || 0;
+                        const listBased = personalRecommendations.profile.listSongCount || 0;
+                        const basis = [
+                          recent ? `${recent} πρόσφατες προβολές` : "",
+                          listBased ? `${listBased} τραγούδια από λίστες` : "",
+                        ].filter(Boolean);
+                        if (!profileBits.length && !basis.length) return "Πρώτες προτάσεις από δημοφιλή τραγούδια.";
+                        return `${basis.length ? `Με βάση ${basis.join(" και ")}. ` : ""}${profileBits.length ? `Ταιριάζει με: ${profileBits.join(" · ")}` : ""}`;
+                      })()}
+                    </div>
+                  )}
+                  {personalRecommendations.suggestions.length > 0 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {personalRecommendations.suggestions.map((suggestion, index) => (
+                        <button
                           key={`${suggestion.label}-${index}`}
+                          type="button"
+                          onClick={() => {
+                            const mappedFilters: Partial<FiltersState> = {};
+                            for (const [key, value] of Object.entries(suggestion.filters || {})) {
+                              if (key === "search_term") mappedFilters.q = value;
+                              else (mappedFilters as any)[key] = value;
+                            }
+                            patchFilters(mappedFilters);
+                          }}
                           style={{
                             border: "1px solid #35527a",
                             background: "#0b1628",
-                            borderRadius: 10,
-                            padding: 10,
-                            display: "flex",
-                            gap: 10,
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            flexWrap: "wrap",
+                            color: "#fff",
+                            borderRadius: 999,
+                            padding: "5px 9px",
+                            cursor: "pointer",
+                            fontSize: 12,
+                            fontWeight: 800,
                           }}
+                          title={suggestion.description || suggestion.label}
                         >
-                          <div style={{ minWidth: 0, flex: "1 1 220px" }}>
-                            <div style={{ fontWeight: 800, fontSize: 14 }}>{suggestion.label}</div>
-                            <div style={{ opacity: 0.86, fontSize: 13, marginTop: 2 }}>{suggestion.description}</div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => applyAiSuggestion(suggestion)}
-                            style={{
-                              border: "1px solid #2f7cff",
-                              background: "#0d6efd",
-                              color: "#fff",
-                              borderRadius: 8,
-                              padding: "7px 10px",
-                              cursor: "pointer",
-                              fontWeight: 800,
-                              fontSize: 13,
-                            }}
-                          >
-                            Εφαρμογή
-                          </button>
-                        </div>
+                          {suggestion.label}
+                        </button>
                       ))}
                     </div>
                   )}
-                  {aiSearch.links.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-                      {aiSearch.links.map((link) => {
-                        const href = `/songs/${link.id}?${currentSongsQuery}`;
-                        return (
-                          <Link
-                            key={link.id}
-                            href={href}
-                            prefetch={false}
-                            onClick={(event) => navigateDocumentWhenOffline(event, href)}
-                            style={{
-                              color: "#fff",
-                              textDecoration: "none",
-                              border: "1px solid #456fa8",
-                              background: "#102644",
-                              borderRadius: 999,
-                              padding: "6px 10px",
-                              fontSize: 13,
-                              maxWidth: "100%",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                            title={link.title}
-                          >
-                            #{link.id} {link.title}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
+                  {personalRecommendations.items.map((item) => {
+                    const href = `/songs/${item.id}?${currentSongsQuery}`;
+                    const meta = [item.categoryTitle, item.rythmTitle, item.hasChords ? "συγχορδίες" : "", item.hasScore ? "παρτιτούρα" : ""]
+                      .filter(Boolean)
+                      .join(" · ");
+                    return (
+                      <Link
+                        key={item.id}
+                        href={href}
+                        prefetch={false}
+                        onClick={(event) => navigateDocumentWhenOffline(event, href)}
+                        style={{
+                          color: "#fff",
+                          textDecoration: "none",
+                          border: "1px solid #35527a",
+                          background: "#0b1628",
+                          borderRadius: 10,
+                          padding: 10,
+                          display: "block",
+                          minWidth: 0,
+                        }}
+                        title={item.title}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+                          <strong style={{ fontSize: 14, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {item.title}
+                          </strong>
+                          {item.views != null && <span style={{ opacity: 0.7, fontSize: 12 }}>{item.views} views</span>}
+                        </div>
+                        {meta && <div style={{ opacity: 0.78, fontSize: 12, marginTop: 3 }}>{meta}</div>}
+                        {Array.isArray(item.reasons) && item.reasons.length > 0 && (
+                          <div style={{ opacity: 0.92, fontSize: 12, marginTop: 5 }}>
+                            {item.reasons.join(" · ")}
+                          </div>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
               )}
             </section>
           )}

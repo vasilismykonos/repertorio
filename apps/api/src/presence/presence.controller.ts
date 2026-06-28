@@ -48,9 +48,17 @@ export class PresenceController {
   }
 
   @Post("ping")
-  async ping(@Query("userId") userId?: string) {
+  async ping(
+    @Query("userId") userId?: string,
+    @Query("guestId") guestId?: string,
+    @Query("guestLabel") guestLabel?: string,
+  ) {
     const id = Number(userId);
-    if (!id) throw new BadRequestException("Missing userId");
-    return this.presence.ping(id);
+    if (id) return this.presence.ping(id);
+
+    const guest = String(guestId ?? "").trim();
+    if (guest) return this.presence.pingGuest(guest, guestLabel);
+
+    throw new BadRequestException("Missing userId or guestId");
   }
 }

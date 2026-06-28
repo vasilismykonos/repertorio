@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="el">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Repertorio Notation Editor</title>
+    <link href="./styles/bravura-font-codes.css" rel="stylesheet" />
+    <link href="./styles/bootstrap.css" rel="stylesheet" />
+    <link href="./styles/fonts.css" type="text/css" rel="stylesheet" />
+    <link href="./styles/media.css" rel="stylesheet" />
+    <link href="./styles/ribbon.css" rel="stylesheet" />
+    <link href="./styles/dialogs.css" rel="stylesheet" />
+    <link href="./styles/menus.css" rel="stylesheet" />
+    <link href="./styles/piano.css" rel="stylesheet" />
+    <link href="./styles/general.css" rel="stylesheet" />
+    <link href="./styles/tree.css" rel="stylesheet" />
+    <link href="./repertorio-editor.css" rel="stylesheet" />
+    <script src="./jquery.slim.min.js"></script>
+    <script src="./jszip.js"></script>
+    <script src="./smoosic.js"></script>
+    <script src="./repertorio-editor.js"></script>
+  </head>
+  <body>
+    <div class="rep-editor-shell">
+      <div class="rep-editor-toolbar">
+        <div class="rep-editor-title">
+          <strong id="repAssetTitle">Παρτιτούρα</strong>
+          <span id="repAssetMeta"></span>
+        </div>
+        <div class="rep-editor-actions">
+          <span id="repEditorStatus" class="rep-editor-status">Φόρτωση...</span>
+          <button id="repReloadBtn" type="button">Επαναφόρτωση</button>
+          <button id="repSaveBtn" type="button" class="primary" disabled>Αποθήκευση στο Repertorio</button>
+        </div>
+      </div>
+      <div id="smoo" class="rep-smoosic-root"></div>
+    </div>
+  </body>
+</html>

@@ -68,6 +68,21 @@ function hasNotificationApi() {
   return typeof window !== "undefined" && "Notification" in window;
 }
 
+async function savePushSubscription(subscription: PushSubscription) {
+  const saveRes = await fetch("/api/notifications/push", {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ subscription: subscription.toJSON() }),
+  });
+  const saveData = await saveRes.json().catch(() => null);
+  if (!saveRes.ok || !saveData?.ok) throw new Error(saveData?.error || "push subscribe failed");
+  return saveData;
+}
+
 function notifyItem(item: NotificationItem) {
   if (!hasNotificationApi() || window.Notification.permission !== "granted") return;
 
@@ -226,6 +241,9 @@ export function useNotifications({
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
       setPushSubscribed(Boolean(subscription));
+      if (subscription && window.Notification.permission === "granted") {
+        await savePushSubscription(subscription).catch(() => null);
+      }
     } catch {
       setPushSubscribed(false);
     }
@@ -278,17 +296,7 @@ export function useNotifications({
         });
       }
 
-      const saveRes = await fetch("/api/notifications/push", {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ subscription: subscription.toJSON() }),
-      });
-      const saveData = await saveRes.json().catch(() => null);
-      if (!saveRes.ok || !saveData?.ok) throw new Error(saveData?.error || "push subscribe failed");
+      await savePushSubscription(subscription);
 
       setPushSubscribed(true);
       return true;

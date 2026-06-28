@@ -715,29 +715,35 @@ export function SongSingerTunesEditorClient({
                   borderRadius: 12,
                   padding: "10px 12px",
                   display: "flex",
-                  justifyContent: "space-between",
                   alignItems: "center",
                   gap: 10,
                 }}
               >
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                   <div style={{ fontWeight: 800 }}>{r.title}</div>
-                  <div style={{ opacity: 0.75 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, opacity: 0.75 }}>
                     {(() => {
                       const t = normalizeTonicity(r.tune);
                       const looksGreek = /^[Α-Ωα-ω]+#?$/.test(t);
                       return looksGreek ? `${t}-` : t;
                     })()}
+                    {A.edit({
+                      onClick: () => openEditModal(r),
+                      disabled: busy,
+                      title: "Επεξεργασία",
+                      label: "Επεξεργασία",
+                      iconOnly: true,
+                      style: {
+                        width: 28,
+                        height: 28,
+                        minWidth: 28,
+                        padding: 0,
+                        borderRadius: 8,
+                        flex: "0 0 auto",
+                      },
+                    })}
                   </div>
                 </div>
-
-                {A.edit({
-                  onClick: () => openEditModal(r),
-                  disabled: busy,
-                  title: "Επεξεργασία",
-                  label: "Επεξεργασία",
-                  style: { whiteSpace: "nowrap" },
-                })}
               </div>
             ))}
           </div>

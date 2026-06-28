@@ -4,6 +4,8 @@ import { PushNotificationsService } from "./push-notifications.service";
 
 const DEFAULT_TAKE = 10;
 const MAX_TAKE = 30;
+const MAX_CONTACT_MESSAGE_LENGTH = 2000;
+const VISIBLE_NOTIFICATION_WHERE = { type: { not: "CHAT_MESSAGE" } } as const;
 
 export type NotificationDto = {
   id: number;
@@ -28,6 +30,17 @@ function normalizeTake(value?: number): number {
     throw new BadRequestException("take must be a positive integer");
   }
   return Math.min(value, MAX_TAKE);
+}
+
+function cleanContactMessage(value: unknown): string {
+  const text = String(value ?? "").replace(/\r\n/g, "\n").trim();
+  if (text.length < 3) {
+    throw new BadRequestException("message is required");
+  }
+  if (text.length > MAX_CONTACT_MESSAGE_LENGTH) {
+    throw new BadRequestException(`message must be at most ${MAX_CONTACT_MESSAGE_LENGTH} characters`);
+  }
+  return text;
 }
 
 @Injectable()
@@ -63,10 +76,10 @@ export class NotificationsService {
 
     const [unreadCount, rows] = await this.prisma.$transaction([
       this.prisma.notification.count({
-        where: { recipientUserId: params.userId, readAt: null },
+        where: { recipientUserId: params.userId, readAt: null, ...VISIBLE_NOTIFICATION_WHERE },
       }),
       this.prisma.notification.findMany({
-        where: { recipientUserId: params.userId },
+        where: { recipientUserId: params.userId, ...VISIBLE_NOTIFICATION_WHERE },
         orderBy: { createdAt: "desc" },
         take,
         include: {
@@ -92,7 +105,7 @@ export class NotificationsService {
 
   async markAllRead(userId: number) {
     await this.prisma.notification.updateMany({
-      where: { recipientUserId: userId, readAt: null },
+      where: { recipientUserId: userId, readAt: null, ...VISIBLE_NOTIFICATION_WHERE },
       data: { readAt: new Date() },
     });
 
@@ -134,5 +147,71 @@ export class NotificationsService {
     }).catch(() => null);
 
     return notification;
+  }
+
+  async notifyAdminsContactMessage(params: { actorUserId: number; message: unknown }) {
+    const message = cleanContactMessage(params.message);
+
+    const actor = await this.prisma.user.findUnique({
+      where: { id: params.actorUserId },
+      select: {
+        id: true,
+        displayName: true,
+        username: true,
+        email: true,
+      },
+    });
+
+    if (!actor) {
+      throw new BadRequestException("sender not found");
+    }
+
+    const admins = await this.prisma.user.findMany({
+      where: {
+        role: "ADMIN",
+      },
+      select: { id: true },
+    });
+
+    const senderLabel = actor.displayName || actor.username || actor.email || `User #${actor.id}`;
+    const preview = message.length > 180 ? `${message.slice(0, 177).trimEnd()}...` : message;
+    const notifications = await Promise.all(
+      admins.map((admin) =>
+        this.prisma.notification.create({
+          data: {
+            recipientUserId: admin.id,
+            actorUserId: actor.id,
+            type: "CONTACT_MESSAGE",
+            title: "Νέο μήνυμα επικοινωνίας",
+            body: `${senderLabel}: ${preview}`,
+            data: {
+              senderUserId: actor.id,
+              senderName: senderLabel,
+              senderEmail: actor.email,
+              message,
+              href: "/settings",
+            },
+          },
+        }),
+      ),
+    );
+
+    await Promise.all(
+      notifications.map((notification) =>
+        this.push
+          .sendToUser(notification.recipientUserId, {
+            notificationId: notification.id,
+            title: notification.title,
+            body: notification.body,
+            href: "/settings",
+          })
+          .catch(() => null),
+      ),
+    );
+
+    return {
+      ok: true,
+      notifiedAdmins: notifications.length,
+    };
   }
 }

@@ -39,6 +39,14 @@ export class NotificationsController {
     return this.notifications.markAllRead(requireUserId(userIdStr));
   }
 
+  @Post("contact-admins")
+  async contactAdmins(@Query("userId") userIdStr: string | undefined, @Body() body: any) {
+    return this.notifications.notifyAdminsContactMessage({
+      actorUserId: requireUserId(userIdStr),
+      message: body?.message,
+    });
+  }
+
   @Get("push/public-key")
   async pushPublicKey() {
     return {

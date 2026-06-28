@@ -22,6 +22,8 @@ import {
   ExternalLink,
   Bell,
   CheckCheck,
+  History,
+  Paperclip,
 } from "lucide-react";
 import type { OfflineRuntimeStatus } from "@/lib/offlineSync";
 import { APP_CHANGELOG, APP_VERSION } from "@/lib/appVersion";
@@ -46,6 +48,7 @@ type Props = {
   // user
   userName?: string | null;
   userEmail?: string | null;
+  userId?: number | null;
   avatarNode: React.ReactNode;
 
   // offline
@@ -117,6 +120,8 @@ type StatusRoomUser = {
 type StatusRoom = {
   room: string;
   userCount?: number;
+  uniqueUsers?: number;
+  sessions?: number;
   hasPassword: boolean;
   users?: StatusRoomUser[];
 };
@@ -133,11 +138,12 @@ type MeResponse = {
 };
 
 type OnlinePresenceUser = {
-  id: number;
+  id: number | string;
   label: string;
   avatarUrl: string | null;
   lastSeenAt: string;
   secondsAgo: number;
+  guest?: boolean;
 };
 
 type OnlinePresenceResponse = {
@@ -149,6 +155,33 @@ type OnlinePresenceResponse = {
   generatedAt?: string;
   error?: string;
 };
+
+function roomPresenceCount(room: StatusRoom): number | null {
+  if (typeof room.uniqueUsers === "number" && Number.isFinite(room.uniqueUsers)) {
+    return room.uniqueUsers;
+  }
+
+  const users = Array.isArray(room.users) ? room.users : [];
+  if (users.length > 0) {
+    const unique = new Set<string>();
+    users.forEach((user, index) => {
+      if (typeof user.user_id === "number" && Number.isFinite(user.user_id)) {
+        unique.add(`u:${user.user_id}`);
+      } else if (user.device_id) {
+        unique.add(`d:${user.device_id}`);
+      } else {
+        unique.add(`row:${index}`);
+      }
+    });
+    return unique.size;
+  }
+
+  if (typeof room.userCount === "number" && Number.isFinite(room.userCount)) {
+    return room.userCount;
+  }
+
+  return null;
+}
 
 function formatOnlineAgo(secondsAgo: number): string {
   const seconds = Number(secondsAgo);
@@ -168,6 +201,7 @@ export default function SideMenu(props: Props) {
     onSignOut,
     userName,
     userEmail,
+    userId,
     avatarNode,
     offlineStatus,
     offlineActionBusy = false,
@@ -198,6 +232,7 @@ export default function SideMenu(props: Props) {
   const displayName = userName || userEmail || "Επισκέπτης";
   const statusText = isLoggedIn ? "Συνδεδεμένος" : "Επισκέπτης";
   const displayVersion = appVersion || APP_VERSION;
+  const mySongsHref = isLoggedIn && userId ? `/songs?createdByUserId=${encodeURIComponent(String(userId))}` : "/songs";
   const progress = offlineStatus?.progress || null;
   const progressPercent = progress
     ? Math.max(
@@ -225,6 +260,12 @@ export default function SideMenu(props: Props) {
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+  const [contactMessage, setContactMessage] = useState("");
+  const [contactSending, setContactSending] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
+  const [contactSent, setContactSent] = useState(false);
+  const [contactNotification, setContactNotification] = useState<NotificationItem | null>(null);
 
   useEffect(() => {
     if (!isOpen) setSourcesOpen(false);
@@ -232,6 +273,14 @@ export default function SideMenu(props: Props) {
 
   useEffect(() => {
     if (!isOpen) setNotificationsOpen(false);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) setContactOpen(false);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) setContactNotification(null);
   }, [isOpen]);
 
   useEffect(() => {
@@ -318,9 +367,7 @@ export default function SideMenu(props: Props) {
           return;
         }
 
-        const usersArr = Array.isArray(match.users) ? match.users : [];
-        const count = typeof match.userCount === "number" ? match.userCount : usersArr.length;
-        setRoomUserCountLocal(Number.isFinite(count) ? count : null);
+        setRoomUserCountLocal(roomPresenceCount(match));
       } catch {
         if (!cancelled) setRoomUserCountLocal(null);
       } finally {
@@ -341,7 +388,7 @@ export default function SideMenu(props: Props) {
     if (typeof window === "undefined") return;
     if (!isOpen) return;
 
-    if (!isLoggedIn || offlineStatus?.online === false) {
+    if (offlineStatus?.online === false) {
       setOnlineCount(null);
       setOnlineUsers([]);
       setOnlineLoading(false);
@@ -397,7 +444,7 @@ export default function SideMenu(props: Props) {
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [isOpen, isLoggedIn, offlineStatus?.online]);
+  }, [isOpen, offlineStatus?.online]);
 
   // Canonical admin detection μέσω /users/me (+ self-heal)
   const [isAdminResolved, setIsAdminResolved] = useState<boolean>(false);
@@ -487,6 +534,49 @@ export default function SideMenu(props: Props) {
   const effectiveIsAdmin =
     typeof isAdminProp === "boolean" ? isAdminProp : isAdminResolved;
 
+  const submitContactMessage = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (contactSending) return;
+
+    const message = contactMessage.trim();
+    setContactError(null);
+    setContactSent(false);
+
+    if (!isLoggedIn) {
+      setContactError("Χρειάζεται σύνδεση για να στείλεις μήνυμα στους διαχειριστές.");
+      return;
+    }
+
+    if (message.length < 3) {
+      setContactError("Γράψε ένα σύντομο μήνυμα.");
+      return;
+    }
+
+    try {
+      setContactSending(true);
+      const res = await fetch("/api/contact-admins", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || data?.message || "Δεν στάλθηκε το μήνυμα.");
+      }
+
+      setContactMessage("");
+      setContactSent(true);
+      onRefreshNotifications?.();
+    } catch (err: any) {
+      setContactError(err?.message || "Δεν στάλθηκε το μήνυμα.");
+    } finally {
+      setContactSending(false);
+    }
+  };
+
   type Tile = {
     key: string;
     href?: string;
@@ -520,8 +610,10 @@ export default function SideMenu(props: Props) {
           onNewSong();
         },
       },
-      { key: "songs", href: "/songs", label: "Τραγούδια", Icon: Music2, as: "link" },
+      { key: "songs", href: mySongsHref, label: "Τραγούδια μου", Icon: Music2, as: "link" },
       { key: "lists", href: "/lists", label: "Λίστες", Icon: ListMusic, as: "link" },
+      { key: "assets", href: "/assets", label: "Υλικά", Icon: Paperclip, as: "link" },
+      { key: "history", href: "/me/history", label: "Ιστορικό", Icon: History, as: "link" },
       {
         key: "notifications",
         label: "Ενημερώσεις",
@@ -556,12 +648,20 @@ export default function SideMenu(props: Props) {
         key: "contact",
         label: "Επικοινωνία",
         Icon: Mail,
-        as: "a",
-        aHref: "mailto:repertorio.net@gmail.com",
-        onClick: () => onClose(),
+        as: "button",
+        onClick: () => {
+          setSourcesOpen(false);
+          setVersionHistoryOpen(false);
+          setNotificationsOpen(false);
+          setContactError(null);
+          setContactSent(false);
+          setContactOpen(true);
+        },
       },
     ];
   }, [
+    mySongsHref,
+    isLoggedIn,
     isInRoomLocal,
     roomUserCountLocal,
     roomLoadingLocal,
@@ -916,9 +1016,7 @@ export default function SideMenu(props: Props) {
                 </span>
               </div>
 
-              {!isLoggedIn ? (
-                <span className="smh-online-note">Η λίστα εμφανίζεται μετά τη σύνδεση.</span>
-              ) : offlineStatus?.online === false ? (
+              {offlineStatus?.online === false ? (
                 <span className="smh-online-note">Εκτός σύνδεσης.</span>
               ) : onlineError ? (
                 <span className="smh-online-note">{onlineError}</span>
@@ -1037,6 +1135,7 @@ export default function SideMenu(props: Props) {
                 <div className="smh-notification-list">
                   {notifications.map((item) => {
                     const href = notificationHref(item);
+                    const isContactMessage = item.type === "CONTACT_MESSAGE";
                     const content = (
                       <>
                         <span className="smh-notification-title">
@@ -1047,6 +1146,22 @@ export default function SideMenu(props: Props) {
                         <span className="smh-notification-time">{formatNotificationDate(item.createdAt)}</span>
                       </>
                     );
+
+                    if (isContactMessage) {
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={cx("smh-notification", "as-button", !item.readAt && "unread")}
+                          onClick={() => {
+                            if (!item.readAt) onMarkNotificationsRead?.();
+                            setContactNotification(item);
+                          }}
+                        >
+                          {content}
+                        </button>
+                      );
+                    }
 
                     return href ? (
                       <Link
@@ -1069,6 +1184,143 @@ export default function SideMenu(props: Props) {
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        ) : null}
+
+        {contactOpen ? (
+          <div className="smh-contact-backdrop" onClick={() => setContactOpen(false)}>
+            <form
+              className="smh-contact"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Επικοινωνία με διαχειριστές"
+              onClick={(event) => event.stopPropagation()}
+              onSubmit={submitContactMessage}
+            >
+              <div className="smh-contact-head">
+                <div className="smh-contact-title">
+                  <Mail size={18} />
+                  <strong>Επικοινωνία</strong>
+                </div>
+                <button
+                  type="button"
+                  className="smh-contact-close"
+                  onClick={() => setContactOpen(false)}
+                  aria-label="Κλείσιμο επικοινωνίας"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="smh-contact-copy">
+                Στείλε μήνυμα στους διαχειριστές του Repertorio.
+              </div>
+
+              {!isLoggedIn ? (
+                <div className="smh-contact-warning">
+                  Χρειάζεται σύνδεση για να στείλεις μήνυμα.
+                </div>
+              ) : null}
+
+              <label className="smh-contact-field">
+                <span>Μήνυμα</span>
+                <textarea
+                  value={contactMessage}
+                  onChange={(event) => {
+                    setContactMessage(event.target.value.slice(0, 2000));
+                    setContactError(null);
+                    setContactSent(false);
+                  }}
+                  placeholder="Γράψε εδώ το μήνυμά σου..."
+                  rows={6}
+                  maxLength={2000}
+                  disabled={!isLoggedIn || contactSending}
+                />
+              </label>
+
+              <div className="smh-contact-meta">
+                <span>{contactMessage.length} / 2000</span>
+                {contactSent ? <span className="smh-contact-ok">Το μήνυμα στάλθηκε.</span> : null}
+                {contactError ? <span className="smh-contact-error">{contactError}</span> : null}
+              </div>
+
+              <div className="smh-contact-actions">
+                <button
+                  type="button"
+                  className="smh-contact-btn"
+                  onClick={() => setContactOpen(false)}
+                  disabled={contactSending}
+                >
+                  Άκυρο
+                </button>
+                <button
+                  type="submit"
+                  className="smh-contact-btn primary"
+                  disabled={!isLoggedIn || contactSending || contactMessage.trim().length < 3}
+                >
+                  {contactSending ? "Αποστολή..." : "Αποστολή"}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
+
+        {contactNotification ? (
+          <div className="smh-contact-backdrop" onClick={() => setContactNotification(null)}>
+            <div
+              className="smh-contact smh-contact-message"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Μήνυμα επικοινωνίας"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="smh-contact-head">
+                <div className="smh-contact-title">
+                  <Mail size={18} />
+                  <strong>Μήνυμα επικοινωνίας</strong>
+                </div>
+                <button
+                  type="button"
+                  className="smh-contact-close"
+                  onClick={() => setContactNotification(null)}
+                  aria-label="Κλείσιμο μηνύματος"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="smh-admin-message-meta">
+                <span>
+                  Από:{" "}
+                  <strong>
+                    {contactNotification.data?.senderName ||
+                      contactNotification.actor?.displayName ||
+                      contactNotification.actor?.username ||
+                      contactNotification.actor?.email ||
+                      "Άγνωστος χρήστης"}
+                  </strong>
+                </span>
+                {contactNotification.data?.senderEmail || contactNotification.actor?.email ? (
+                  <span>{contactNotification.data?.senderEmail || contactNotification.actor?.email}</span>
+                ) : null}
+                <span>{formatNotificationDate(contactNotification.createdAt)}</span>
+              </div>
+
+              <div className="smh-admin-message-body">
+                {String(contactNotification.data?.message || contactNotification.body || "").trim() ||
+                  "Δεν υπάρχει κείμενο μηνύματος."}
+              </div>
+
+              <div className="smh-contact-actions">
+                <button
+                  type="button"
+                  className="smh-contact-btn primary"
+                  onClick={() => setContactNotification(null)}
+                >
+                  Κλείσιμο
+                </button>
+              </div>
             </div>
           </div>
         ) : null}
@@ -1706,6 +1958,199 @@ export default function SideMenu(props: Props) {
             cursor: not-allowed;
           }
 
+          .smh-contact-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 2147483647;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.48);
+          }
+
+          .smh-contact {
+            width: min(440px, calc(100vw - 28px));
+            max-height: min(78vh, 560px);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(18, 18, 18, 0.98);
+            border-radius: 16px;
+            padding: 12px;
+            color: rgba(255, 255, 255, 0.88);
+            display: grid;
+            gap: 10px;
+            box-shadow: 0 22px 55px rgba(0, 0, 0, 0.42);
+            overflow: auto;
+          }
+
+          .smh-contact-head,
+          .smh-contact-actions,
+          .smh-contact-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            min-width: 0;
+          }
+
+          .smh-contact-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+          }
+
+          .smh-contact-title strong {
+            color: #fff;
+            font-size: 13px;
+            line-height: 1.2;
+          }
+
+          .smh-contact-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            color: #fff;
+            cursor: pointer;
+            font-size: 22px;
+            line-height: 1;
+            flex: 0 0 auto;
+          }
+
+          .smh-contact-copy,
+          .smh-contact-warning,
+          .smh-contact-meta {
+            color: rgba(255, 255, 255, 0.65);
+            font-size: 12px;
+            line-height: 1.35;
+          }
+
+          .smh-contact-warning {
+            border: 1px solid rgba(251, 191, 36, 0.35);
+            background: rgba(251, 191, 36, 0.12);
+            color: #fde68a;
+            border-radius: 12px;
+            padding: 9px 10px;
+          }
+
+          .smh-contact-field {
+            display: grid;
+            gap: 6px;
+            min-width: 0;
+          }
+
+          .smh-contact-field span {
+            color: #fff;
+            font-size: 12px;
+            font-weight: 900;
+          }
+
+          .smh-contact-field textarea {
+            width: 100%;
+            min-height: 132px;
+            resize: vertical;
+            box-sizing: border-box;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            padding: 10px;
+            font: inherit;
+            font-size: 13px;
+            line-height: 1.4;
+            outline: none;
+          }
+
+          .smh-contact-field textarea:focus {
+            border-color: rgba(59, 130, 246, 0.75);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+          }
+
+          .smh-contact-field textarea:disabled {
+            opacity: 0.62;
+            cursor: not-allowed;
+          }
+
+          .smh-contact-meta {
+            align-items: flex-start;
+            flex-wrap: wrap;
+          }
+
+          .smh-contact-ok {
+            color: #86efac;
+            font-weight: 800;
+          }
+
+          .smh-contact-error {
+            color: #fecaca;
+            font-weight: 800;
+          }
+
+          .smh-contact-actions {
+            justify-content: flex-end;
+          }
+
+          .smh-contact-btn {
+            min-height: 34px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            padding: 7px 12px;
+            font-size: 12px;
+            line-height: 16px;
+            font-weight: 900;
+            cursor: pointer;
+            white-space: nowrap;
+          }
+
+          .smh-contact-btn.primary {
+            background: rgba(37, 99, 235, 0.94);
+            border-color: rgba(96, 165, 250, 0.55);
+          }
+
+          .smh-contact-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+          }
+
+          .smh-contact-message {
+            gap: 12px;
+          }
+
+          .smh-admin-message-meta {
+            display: grid;
+            gap: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 10px;
+            color: rgba(255, 255, 255, 0.68);
+            font-size: 12px;
+            line-height: 1.35;
+            min-width: 0;
+          }
+
+          .smh-admin-message-meta strong {
+            color: #fff;
+          }
+
+          .smh-admin-message-body {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            padding: 12px;
+            font-size: 13px;
+            line-height: 1.45;
+            max-height: min(42vh, 320px);
+            overflow: auto;
+          }
+
           .smh-notification-note {
             color: rgba(255, 255, 255, 0.65);
             font-size: 12px;
@@ -1723,6 +2168,29 @@ export default function SideMenu(props: Props) {
           .smh-notification {
             text-decoration: none;
             color: rgba(255, 255, 255, 0.78);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.045);
+            border-radius: 12px;
+            padding: 9px 10px;
+            display: grid;
+            gap: 4px;
+            text-align: left;
+            width: 100%;
+            box-sizing: border-box;
+            cursor: pointer;
+          }
+
+          .smh-notification.as-button {
+            font: inherit;
+          }
+
+          .smh-notification:hover {
+            background: rgba(255, 255, 255, 0.075);
+          }
+
+          .smh-notification.unread {
+            border-color: rgba(59, 130, 246, 0.35);
+            background: rgba(59, 130, 246, 0.12);
             border: 1px solid rgba(255, 255, 255, 0.1);
             background: rgba(0, 0, 0, 0.16);
             border-radius: 12px;

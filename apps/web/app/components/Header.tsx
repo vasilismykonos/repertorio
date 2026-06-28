@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, CloudOff, Mic, Recycle, RefreshCw, Search } from "lucide-react";
+import { Bell, CloudOff, LayoutGrid, Mic, Recycle, RefreshCw, Search } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { signIn, signOut } from "next-auth/react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/offlineSync";
 import { useOfflineIdentity } from "@/lib/useOfflineIdentity";
 import { OPEN_NOTIFICATIONS_EVENT, useNotifications } from "@/app/hooks/useNotifications";
+import { useRooms } from "./RoomsProvider";
 
 type HeaderProps = {
   appVersion?: string;
@@ -28,6 +29,8 @@ export default function Header(props: HeaderProps) {
 
 const STORAGE_KEY_ROOM = "repertorio_current_room";
 const ROOM_CHANGED_EVENT = "repertorio_current_room_changed";
+const PRESENCE_COUNTS_EVENT = "rep_presence_counts";
+const ROOMS_UPDATE_COUNT_EVENT = "rep_rooms_update_count";
 const ROOMS_API_BASE = "/rooms-api";
 
 type StatusRoomUser = {
@@ -39,6 +42,8 @@ type StatusRoomUser = {
 type StatusRoom = {
   room: string;
   userCount?: number;
+  uniqueUsers?: number;
+  sessions?: number;
   hasPassword: boolean;
   users?: StatusRoomUser[];
 };
@@ -47,6 +52,38 @@ type StatusResponse = {
   ok: boolean;
   rooms?: StatusRoom[];
 };
+
+function roomPresenceCount(room: StatusRoom): number | null {
+  if (typeof room.uniqueUsers === "number" && Number.isFinite(room.uniqueUsers)) {
+    return room.uniqueUsers;
+  }
+
+  const users = Array.isArray(room.users) ? room.users : [];
+  if (users.length > 0) {
+    const unique = new Set<string>();
+    users.forEach((user, index) => {
+      if (typeof user.user_id === "number" && Number.isFinite(user.user_id)) {
+        unique.add(`u:${user.user_id}`);
+      } else if (user.device_id) {
+        unique.add(`d:${user.device_id}`);
+      } else {
+        unique.add(`row:${index}`);
+      }
+    });
+    return unique.size;
+  }
+
+  if (typeof room.userCount === "number" && Number.isFinite(room.userCount)) {
+    return room.userCount;
+  }
+
+  return null;
+}
+
+function positiveRoomCount(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 function HeaderInner({ appVersion }: HeaderProps) {
   const pathname = usePathname();
@@ -69,10 +106,15 @@ function HeaderInner({ appVersion }: HeaderProps) {
   });
 
   const avatarUrl = identity.userImage || undefined;
+  const roomsRuntime = useRooms();
 
   const [currentRoomName, setCurrentRoomName] = useState<string | null>(null);
   const [roomUserCount, setRoomUserCount] = useState<number | null>(null);
   const [roomLoading, setRoomLoading] = useState(false);
+  const providerRoomName = roomsRuntime.currentRoom;
+  const effectiveCurrentRoomName = providerRoomName || currentRoomName;
+  const providerRoomUserCount = positiveRoomCount(roomsRuntime.presence?.uniqueUsers);
+  const displayedRoomUserCount = providerRoomUserCount ?? roomUserCount ?? (providerRoomName ? 1 : null);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -184,7 +226,12 @@ function HeaderInner({ appVersion }: HeaderProps) {
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn || identity.isOfflineAuthenticated || !currentRoomName) {
+    setRoomUserCount(null);
+    setRoomLoading(false);
+  }, [effectiveCurrentRoomName]);
+
+  useEffect(() => {
+    if (!isLoggedIn || identity.isOfflineAuthenticated || !effectiveCurrentRoomName) {
       setRoomUserCount(null);
       setRoomLoading(false);
       return;
@@ -208,19 +255,15 @@ function HeaderInner({ appVersion }: HeaderProps) {
         }
 
         const match = data.rooms.find(
-          (r) => r.room && r.room.toLowerCase() === currentRoomName.toLowerCase(),
+          (r) => r.room && r.room.toLowerCase() === effectiveCurrentRoomName.toLowerCase(),
         );
 
         if (!match) {
-          setRoomUserCount(0);
+          setRoomUserCount(null);
           return;
         }
 
-        const usersArr = Array.isArray(match.users) ? match.users : [];
-        const count =
-          typeof match.userCount === "number" ? match.userCount : usersArr.length;
-
-        setRoomUserCount(Number.isFinite(count) ? count : null);
+        setRoomUserCount(positiveRoomCount(roomPresenceCount(match)));
       } catch {
         if (!cancelled) setRoomUserCount(null);
       } finally {
@@ -235,7 +278,46 @@ function HeaderInner({ appVersion }: HeaderProps) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [isLoggedIn, identity.isOfflineAuthenticated, currentRoomName]);
+  }, [isLoggedIn, identity.isOfflineAuthenticated, effectiveCurrentRoomName]);
+
+  useEffect(() => {
+    if (providerRoomUserCount != null) {
+      setRoomUserCount(providerRoomUserCount);
+      setRoomLoading(false);
+    }
+  }, [providerRoomUserCount]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isLoggedIn || identity.isOfflineAuthenticated || !effectiveCurrentRoomName) return;
+
+    const onPresence = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      const eventRoom = String(detail.room || "").trim();
+      if (!eventRoom || eventRoom.toLowerCase() !== effectiveCurrentRoomName.toLowerCase()) return;
+
+      const count = positiveRoomCount(detail.uniqueUsers ?? detail.userCount ?? detail.onlineUsers);
+      setRoomUserCount(count);
+      setRoomLoading(false);
+    };
+
+    const onUpdateCount = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      const eventRoom = String(detail.room || "").trim();
+      if (!eventRoom || eventRoom.toLowerCase() !== effectiveCurrentRoomName.toLowerCase()) return;
+
+      const count = positiveRoomCount(detail.uniqueUsers ?? detail.userCount);
+      setRoomUserCount(count);
+      setRoomLoading(false);
+    };
+
+    window.addEventListener(PRESENCE_COUNTS_EVENT, onPresence as EventListener);
+    window.addEventListener(ROOMS_UPDATE_COUNT_EVENT, onUpdateCount as EventListener);
+    return () => {
+      window.removeEventListener(PRESENCE_COUNTS_EVENT, onPresence as EventListener);
+      window.removeEventListener(ROOMS_UPDATE_COUNT_EVENT, onUpdateCount as EventListener);
+    };
+  }, [isLoggedIn, identity.isOfflineAuthenticated, effectiveCurrentRoomName]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -355,7 +437,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
     </span>
   );
 
-  const isInRoom = isLoggedIn && !identity.isOfflineAuthenticated && !!currentRoomName;
+  const isInRoom = isLoggedIn && !identity.isOfflineAuthenticated && !!effectiveCurrentRoomName;
 
   return (
     <>
@@ -391,24 +473,9 @@ function HeaderInner({ appVersion }: HeaderProps) {
                 width: "100%",
               }}
             >
-              <div className="menu-button-wrapper" style={{ display: "inline-block" }}>
-                <Link href="/categories">
-                  <button
-                    type="button"
-                    className="button"
-                    title="Κατηγορίες"
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      fontSize: "1.6em",
-                      color: "#000",
-                    }}
-                  >
-                    ☰
-                  </button>
-                </Link>
-              </div>
+              <Link href="/categories" className="header-categories-button" title="Κατηγορίες" aria-label="Κατηγορίες">
+                <LayoutGrid size={22} strokeWidth={2.2} />
+              </Link>
 
               <form
                 ref={formRef}
@@ -504,7 +571,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 6,
+                  gap: offlineStatus.syncing ? 0 : 6,
                   color: offlineStatus.online ? "rgba(255,255,255,0.82)" : "#facc15",
                   fontWeight: 800,
                   fontSize: 12,
@@ -513,14 +580,14 @@ function HeaderInner({ appVersion }: HeaderProps) {
                 }}
               >
                 {offlineStatus.syncing ? <RefreshCw size={17} aria-hidden="true" /> : <CloudOff size={17} aria-hidden="true" />}
-                <span>{offlineStatus.syncing ? "Sync" : "Offline"}</span>
+                {!offlineStatus.syncing ? <span>Offline</span> : null}
               </span>
             ) : null}
 
             <Link
               href="/rooms"
               className="rooms-button"
-              title={currentRoomName ? `Rooms: ${currentRoomName}` : "Rooms"}
+              title={effectiveCurrentRoomName ? `Rooms: ${effectiveCurrentRoomName}` : "Rooms"}
             >
               <span
                 className="rooms-icon"
@@ -534,11 +601,11 @@ function HeaderInner({ appVersion }: HeaderProps) {
               >
                 <Recycle size={32} strokeWidth={2.6} />
 
-                {isInRoom && typeof roomUserCount === "number" ? (
-                  <span style={{ fontSize: 22, lineHeight: 1 }}>{roomUserCount}</span>
+                {isInRoom && typeof displayedRoomUserCount === "number" ? (
+                  <span style={{ fontSize: 22, lineHeight: 1 }}>{displayedRoomUserCount}</span>
                 ) : null}
 
-                {isInRoom && roomUserCount == null && roomLoading ? (
+                {isInRoom && displayedRoomUserCount == null && roomLoading ? (
                   <span style={{ fontSize: 22, lineHeight: 1 }}>…</span>
                 ) : null}
               </span>
@@ -654,6 +721,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
         onSignOut={doSignOut}
         userName={identity.userName}
         userEmail={userEmail}
+        userId={identity.userId}
         avatarNode={avatarNode}
         offlineStatus={offlineStatus}
         offlineActionBusy={offlineActionBusy}
@@ -661,8 +729,8 @@ function HeaderInner({ appVersion }: HeaderProps) {
         onSetOfflineSyncEnabled={handleSetOfflineSyncEnabled}
         onClearOfflineData={handleClearOfflineData}
         isInRoom={isInRoom}
-        currentRoomName={currentRoomName}
-        roomUserCount={roomUserCount}
+        currentRoomName={effectiveCurrentRoomName}
+        roomUserCount={displayedRoomUserCount}
         roomLoading={roomLoading}
         appVersion={appVersion}
         notificationsUnread={notifications.unreadCount}

@@ -33,7 +33,11 @@ type TrafficStats = {
     requests: number;
     pageViews: number;
     uniqueVisitors: number;
+    rawUniqueIps: number;
     botRequests: number;
+    internalRequests: number;
+    scannerRequests: number;
+    suspiciousRequests: number;
     errorRequests: number;
     errorRate: number;
   };
@@ -48,6 +52,8 @@ type TrafficStats = {
     uniqueVisitors: number;
     requests: number;
     botRequests: number;
+    internalRequests: number;
+    scannerRequests: number;
     errorRequests: number;
   }>;
   userStats: null | {
@@ -208,6 +214,8 @@ function DailyTrafficTable({ rows }: { rows: NonNullable<TrafficStats["dailyTraf
                 <th style={{ textAlign: "left", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555" }}>Ημέρα</th>
                 <th style={{ textAlign: "left", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555", minWidth: 180 }}>Προβολές</th>
                 <th style={{ textAlign: "right", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555" }}>Επισκέπτες</th>
+                <th style={{ textAlign: "right", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555" }}>Bots/scans</th>
+                <th style={{ textAlign: "right", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555" }}>Εσωτερικά</th>
                 <th style={{ textAlign: "right", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555" }}>Requests</th>
                 <th style={{ textAlign: "right", padding: "9px 12px", borderBottom: "1px solid #eee", color: "#555" }}>Σφάλματα</th>
               </tr>
@@ -233,6 +241,12 @@ function DailyTrafficTable({ rows }: { rows: NonNullable<TrafficStats["dailyTraf
                       </td>
                       <td style={{ textAlign: "right", padding: "9px 12px", borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1" }}>
                         {formatNumber(row.uniqueVisitors)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "9px 12px", borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1" }}>
+                        {formatNumber((row.botRequests || 0) + (row.scannerRequests || 0))}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "9px 12px", borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1" }}>
+                        {formatNumber(row.internalRequests || 0)}
                       </td>
                       <td style={{ textAlign: "right", padding: "9px 12px", borderBottom: index === rows.length - 1 ? "none" : "1px solid #f1f1f1" }}>
                         {formatNumber(row.requests)}
@@ -306,7 +320,7 @@ export default function TrafficTab() {
         <div>
           <h2 style={{ margin: 0, color: "#111" }}>Επισκεψιμότητα</h2>
           <div style={{ marginTop: 6, color: "#555", fontSize: 13 }}>
-            Ελαφριά σύνοψη από access logs και από το υπάρχον heartbeat συνδεδεμένων χρηστών.
+            Ελαφριά σύνοψη που ξεχωρίζει πραγματικές προβολές, γνωστούς χρήστες, εσωτερικά requests και bots/scanners.
           </div>
           {stats ? (
             <div style={{ marginTop: 6, color: "#666", fontSize: 12 }}>
@@ -342,10 +356,11 @@ export default function TrafficTab() {
       {stats ? (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
-            <StatCard label="Προβολές σελίδων" value={formatNumber(stats.totals.pageViews)} />
-            <StatCard label="Μοναδικοί επισκέπτες" value={formatNumber(stats.totals.uniqueVisitors)} />
-            <StatCard label="Requests" value={formatNumber(stats.totals.requests)} />
-            <StatCard label="Bots / scripts" value={formatNumber(stats.totals.botRequests)} />
+            <StatCard label="Πραγματικές προβολές" value={formatNumber(stats.totals.pageViews)} note="σελίδες, χωρίς API/assets/bots" />
+            <StatCard label="Πιθανοί επισκέπτες" value={formatNumber(stats.totals.uniqueVisitors)} note="IP μόνο από πραγματικές προβολές" />
+            <StatCard label="Ωμά IPs" value={formatNumber(stats.totals.rawUniqueIps || stats.totals.uniqueVisitors)} note="διαγνωστικό, όχι άνθρωποι" />
+            <StatCard label="Εσωτερικά requests" value={formatNumber(stats.totals.internalRequests || 0)} note="API, rooms, assets, scripts" />
+            <StatCard label="Bots / scans" value={formatNumber(stats.totals.suspiciousRequests || stats.totals.botRequests)} note={`${formatNumber(stats.totals.botRequests)} bots · ${formatNumber(stats.totals.scannerRequests || 0)} scans`} />
             <StatCard label="Σφάλματα" value={formatNumber(stats.totals.errorRequests)} note={`${stats.totals.errorRate}%`} />
           </div>
 

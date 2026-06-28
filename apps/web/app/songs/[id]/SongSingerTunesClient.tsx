@@ -261,10 +261,17 @@ export default function SongSingerTunesClient(props: {
           {(status === "authenticated" || hasInitialRows) && !usingOfflineUser
             ? A.editLink({
                 href: `/songs/${songId}/singer-tunes`,
-                title: "Διαχείριση τονικοτήτων",
-                label: "Επεξεργασία",
-                iconOnly: true,
-              })
+	                title: "Διαχείριση τονικοτήτων",
+	                label: "Επεξεργασία",
+	                iconOnly: true,
+	                style: {
+	                  width: 32,
+	                  height: 32,
+	                  minWidth: 32,
+	                  padding: 0,
+	                  borderRadius: 8,
+	                },
+	              })
             : null}
         </div>
 

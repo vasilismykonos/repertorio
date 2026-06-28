@@ -1,5 +1,6 @@
 // apps/web/app/api/rooms/[room]/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUserFromApi } from "@/lib/currentUser";
 
 type ApiResponse = {
   success: boolean;
@@ -17,9 +18,20 @@ function getRoomsBaseUrl(): string {
 
 // DELETE /api/rooms/[room] – διαγραφή room (π.χ. μόνο για admin)
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: { room: string } }
 ) {
+  const user = await getCurrentUserFromApi(req).catch(() => null);
+  if (String(user?.role || "").toUpperCase() !== "ADMIN") {
+    return NextResponse.json<ApiResponse>(
+      {
+        success: false,
+        message: "Δεν έχεις δικαίωμα διαγραφής room.",
+      },
+      { status: 403 },
+    );
+  }
+
   const roomParam = context.params.room;
   if (!roomParam) {
     return NextResponse.json<ApiResponse>(
@@ -35,7 +47,7 @@ export async function DELETE(
 
   try {
     const res = await fetch(upstream, {
-      method: "DELETE",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ room: decodeURIComponent(roomParam) }),
     });

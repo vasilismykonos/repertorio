@@ -120,6 +120,42 @@ type SongDetailDto = {
   versions: SongVersionDto[];
 };
 
+type RecommendedSongDto = {
+  id: number;
+  title: string;
+  firstLyrics: string | null;
+  categoryId: number | null;
+  categoryTitle: string | null;
+  rythmId: number | null;
+  rythmTitle: string | null;
+  originalKey: string | null;
+  originalKeySign: '+' | '-' | null;
+  views: number | null;
+  hasChords: boolean;
+  hasScore: boolean;
+  isInstrumental: boolean;
+  tags: string[];
+  reasons: string[];
+};
+
+type SongRecommendationsResponse = {
+  items: RecommendedSongDto[];
+  profile: {
+    sourceSongCount: number;
+    recentSongCount: number;
+    listSongCount: number;
+    searchTerms: string[];
+    categoryTitles: string[];
+    rythmTitles: string[];
+    tagTitles: string[];
+  };
+  suggestions: Array<{
+    label: string;
+    description: string;
+    filters: Record<string, string>;
+  }>;
+};
+
 type OfflineSongChangesDto = {
   serverTime: string;
   items: any[];
@@ -693,6 +729,318 @@ export class SongsService {
       removedIds: [],
       hasMore: rows.length > take,
       nextSince,
+    };
+  }
+
+  async recommendForUser(userId: number, takeRaw?: string): Promise<SongRecommendationsResponse> {
+    const take = Math.min(Math.max(Number(takeRaw) || 8, 1), 12);
+    const since = new Date(Date.now() - 1000 * 60 * 60 * 24 * 90);
+
+    const [sourceItems, historyEvents] = await Promise.all([
+      this.prisma.listItem.findMany({
+        where: {
+          songId: { not: null },
+          list: {
+            members: { some: { userId } },
+          },
+        },
+        orderBy: [
+          { list: { updatedAt: 'desc' } },
+          { sortId: 'asc' },
+          { id: 'desc' },
+        ],
+        take: 120,
+        include: {
+          song: {
+            include: {
+              category: true,
+              rythm: true,
+              SongTag: { include: { Tag: true } },
+            },
+          },
+        },
+      }),
+      (this.prisma as any).userHistoryEvent.findMany({
+        where: { userId, occurredAt: { gte: since } },
+        orderBy: { occurredAt: 'desc' },
+        take: 180,
+        include: {
+          song: {
+            include: {
+              category: true,
+              rythm: true,
+              SongTag: { include: { Tag: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const listSongs = sourceItems.map((item) => item.song).filter(Boolean);
+    const recentSongRows = historyEvents.filter((event: any) => event.type === 'SONG_VIEW' && event.song);
+    const searchRows = historyEvents.filter((event: any) => event.type === 'SONG_SEARCH' && event.searchTerm);
+
+    const normalizeText = (value: unknown) =>
+      String(value ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('el-GR')
+        .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const searchTermScores = new Map<string, { label: string; score: number }>();
+    for (const [index, row] of searchRows.entries()) {
+      const label = String(row.searchTerm || '').trim().slice(0, 80);
+      const term = normalizeText(label);
+      if (term.length < 3) continue;
+      const recency = index < 12 ? 4 : index < 40 ? 2 : 1;
+      const prev = searchTermScores.get(term);
+      searchTermScores.set(term, { label: prev?.label || label, score: (prev?.score || 0) + recency });
+    }
+
+    const searchTerms = Array.from(searchTermScores.entries())
+      .sort((a, b) => b[1].score - a[1].score || a[1].label.localeCompare(b[1].label, 'el-GR'))
+      .slice(0, 5)
+      .map(([, data]) => data.label);
+
+    const sourceSongWeights = new Map<number, { song: any; weight: number; fromList: boolean; fromHistory: boolean }>();
+    const addSourceSong = (song: any, weight: number, source: 'list' | 'history') => {
+      if (!song?.id) return;
+      const prev = sourceSongWeights.get(song.id);
+      sourceSongWeights.set(song.id, {
+        song: prev?.song || song,
+        weight: (prev?.weight || 0) + weight,
+        fromList: Boolean(prev?.fromList || source === 'list'),
+        fromHistory: Boolean(prev?.fromHistory || source === 'history'),
+      });
+    };
+
+    listSongs.forEach((song, index) => addSourceSong(song, index < 20 ? 2 : index < 60 ? 1.3 : 0.8, 'list'));
+    recentSongRows.forEach((row: any, index: number) => addSourceSong(row.song, index < 12 ? 4 : index < 45 ? 2.5 : 1.2, 'history'));
+
+    const sourceSongs = Array.from(sourceSongWeights.values()).map((entry) => entry.song);
+
+    if (!sourceSongs.length) {
+      const popular = await this.prisma.song.findMany({
+        where: { status: SongStatus.PUBLISHED },
+        orderBy: [
+          { views: 'desc' },
+          { updatedAt: 'desc' },
+          { id: 'asc' },
+        ],
+        take,
+        include: {
+          category: true,
+          rythm: true,
+          SongTag: { include: { Tag: true } },
+        },
+      });
+
+      return {
+        items: popular.map((song) => this.recommendationSongToDto(song, ['Δημοφιλές τραγούδι'])),
+        profile: {
+          sourceSongCount: 0,
+          recentSongCount: 0,
+          listSongCount: 0,
+          searchTerms,
+          categoryTitles: [],
+          rythmTitles: [],
+          tagTitles: [],
+        },
+        suggestions: searchTerms.slice(0, 3).map((term) => ({
+          label: `Συνέχισε: ${term}`,
+          description: 'Πρόσφατη αναζήτηση',
+          filters: { search_term: term },
+        })),
+      };
+    }
+
+    const sourceSongIds = new Set<number>();
+    const categoryScores = new Map<number, { title: string; score: number }>();
+    const rythmScores = new Map<number, { title: string; score: number }>();
+    const tagScores = new Map<number, { title: string; score: number }>();
+
+    const bump = (
+      map: Map<number, { title: string; score: number }>,
+      id: number | null | undefined,
+      title: string | null | undefined,
+      amount: number,
+    ) => {
+      if (!id || !title) return;
+      const prev = map.get(id);
+      map.set(id, { title, score: (prev?.score || 0) + amount });
+    };
+
+    sourceSongs.forEach((song, index) => {
+      if (!song?.id) return;
+      sourceSongIds.add(song.id);
+      const sourceWeight = sourceSongWeights.get(song.id)?.weight || (index < 20 ? 3 : index < 60 ? 2 : 1);
+      bump(categoryScores, song.categoryId, song.category?.title, sourceWeight);
+      bump(rythmScores, song.rythmId, song.rythm?.title, sourceWeight);
+      for (const st of song.SongTag || []) {
+        bump(tagScores, st.tagId, st.Tag?.title, sourceWeight);
+      }
+    });
+
+    const topIds = (
+      map: Map<number, { title: string; score: number }>,
+      limit: number,
+    ) =>
+      Array.from(map.entries())
+        .sort((a, b) => b[1].score - a[1].score || a[1].title.localeCompare(b[1].title))
+        .slice(0, limit)
+        .map(([id]) => id);
+
+    const categoryIds = topIds(categoryScores, 4);
+    const rythmIds = topIds(rythmScores, 4);
+    const tagIds = topIds(tagScores, 6);
+    const candidateSearchTerms = searchTerms
+      .map((term) => term.trim())
+      .filter((term) => term.length >= 3)
+      .slice(0, 4);
+
+    const where: Prisma.SongWhereInput = {
+      status: SongStatus.PUBLISHED,
+      id: { notIn: Array.from(sourceSongIds) },
+      OR: [
+        ...(categoryIds.length ? [{ categoryId: { in: categoryIds } }] : []),
+        ...(rythmIds.length ? [{ rythmId: { in: rythmIds } }] : []),
+        ...(tagIds.length ? [{ SongTag: { some: { tagId: { in: tagIds } } } }] : []),
+        ...candidateSearchTerms.flatMap((term) => [
+          { title: { contains: term, mode: 'insensitive' as const } },
+          { firstLyrics: { contains: term, mode: 'insensitive' as const } },
+        ]),
+      ],
+    };
+
+    if (!where.OR?.length) {
+      delete where.OR;
+    }
+
+    const recommendations = await this.prisma.song.findMany({
+      where,
+      orderBy: [
+        { views: 'desc' },
+        { updatedAt: 'desc' },
+        { id: 'asc' },
+      ],
+      take: take * 5,
+      include: {
+        category: true,
+        rythm: true,
+        SongTag: { include: { Tag: true } },
+      },
+    });
+
+    const ranked = recommendations
+      .map((song) => {
+        const reasons: string[] = [];
+        const categoryScore = song.categoryId ? categoryScores.get(song.categoryId)?.score || 0 : 0;
+        const rythmScore = song.rythmId ? rythmScores.get(song.rythmId)?.score || 0 : 0;
+        if (categoryScore) reasons.push(`Σου ταιριάζει στην κατηγορία: ${song.category?.title || ''}`.trim());
+        if (rythmScore) reasons.push(`Σου ταιριάζει στον ρυθμό: ${song.rythm?.title || ''}`.trim());
+        const matchingTags = (song.SongTag || [])
+          .filter((st) => tagScores.has(st.tagId))
+          .map((st) => st.Tag?.title)
+          .filter(Boolean)
+          .slice(0, 2);
+        if (matchingTags.length) reasons.push(`Κοινά χαρακτηριστικά: ${matchingTags.join(', ')}`);
+        const normalizedTitle = normalizeText(song.title);
+        const normalizedFirstLyrics = normalizeText(song.firstLyrics);
+        const normalizedTags = normalizeText((song.SongTag || []).map((st) => st.Tag?.title).filter(Boolean).join(' '));
+        const matchingSearchTerms = candidateSearchTerms.filter((term) => {
+          const normalizedTerm = normalizeText(term);
+          return (
+            normalizedTerm.length >= 3 &&
+            (normalizedTitle.includes(normalizedTerm) ||
+              normalizedFirstLyrics.includes(normalizedTerm) ||
+              normalizedTags.includes(normalizedTerm))
+          );
+        });
+        if (matchingSearchTerms.length) reasons.push(`Σχετικό με αναζήτηση: ${matchingSearchTerms.slice(0, 2).join(', ')}`);
+        if (!reasons.length) reasons.push('Συγγενικό με τις πρόσφατες επιλογές σου');
+        const score =
+          categoryScore * 1.3 +
+          rythmScore * 1.2 +
+          (song.SongTag || []).reduce((sum, st) => sum + (tagScores.get(st.tagId)?.score || 0), 0) +
+          matchingSearchTerms.reduce((sum, term) => sum + (searchTermScores.get(normalizeText(term))?.score || 1) * 2.2, 0) +
+          Math.log10((song.views || 0) + 1);
+        return { song, reasons, score };
+      })
+      .sort((a, b) => b.score - a.score || (b.song.views || 0) - (a.song.views || 0))
+      .slice(0, take);
+
+    const topTitles = (
+      map: Map<number, { title: string; score: number }>,
+      limit: number,
+    ) =>
+      Array.from(map.values())
+        .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
+        .slice(0, limit)
+        .map((x) => x.title);
+
+    const profileCategoryTitles = topTitles(categoryScores, 4);
+    const profileRythmTitles = topTitles(rythmScores, 4);
+    const profileTagTitles = topTitles(tagScores, 6);
+    const suggestions = [
+      ...Array.from(categoryScores.entries())
+        .sort((a, b) => b[1].score - a[1].score)
+        .slice(0, 2)
+        .map(([id, data]) => ({
+          label: data.title,
+          description: 'Κατηγορία που εμφανίζεται συχνά στις επιλογές σου',
+          filters: { category_id: String(id) },
+        })),
+      ...Array.from(rythmScores.entries())
+        .sort((a, b) => b[1].score - a[1].score)
+        .slice(0, 2)
+        .map(([id, data]) => ({
+          label: data.title,
+          description: 'Ρυθμός που εμφανίζεται συχνά στις επιλογές σου',
+          filters: { rythm_id: String(id) },
+        })),
+      ...searchTerms.slice(0, 2).map((term) => ({
+        label: term,
+        description: 'Πρόσφατη αναζήτηση',
+        filters: { search_term: term },
+      })),
+    ].slice(0, 5);
+
+    return {
+      items: ranked.map(({ song, reasons }) => this.recommendationSongToDto(song, reasons)),
+      profile: {
+        sourceSongCount: sourceSongIds.size,
+        recentSongCount: recentSongRows.length,
+        listSongCount: listSongs.length,
+        searchTerms,
+        categoryTitles: profileCategoryTitles,
+        rythmTitles: profileRythmTitles,
+        tagTitles: profileTagTitles,
+      },
+      suggestions,
+    };
+  }
+
+  private recommendationSongToDto(song: any, reasons: string[]): RecommendedSongDto {
+    return {
+      id: Number(song.id),
+      title: song.title ?? '',
+      firstLyrics: song.firstLyrics ?? null,
+      categoryId: song.categoryId ?? null,
+      categoryTitle: song.category?.title ?? null,
+      rythmId: song.rythmId ?? null,
+      rythmTitle: song.rythm?.title ?? null,
+      originalKey: song.originalKey ?? null,
+      originalKeySign: song.originalKeySign === '+' || song.originalKeySign === '-' ? song.originalKeySign : null,
+      views: typeof song.views === 'number' ? song.views : null,
+      hasChords: typeof song.chords === 'string' && song.chords.trim().length > 0,
+      hasScore: Boolean(song.hasScore || song.scoreFile),
+      isInstrumental: Boolean(song.isInstrumental),
+      tags: Array.isArray(song.SongTag)
+        ? song.SongTag.map((st: any) => st.Tag?.title).filter(Boolean).slice(0, 6)
+        : [],
+      reasons: reasons.filter(Boolean).slice(0, 3),
     };
   }
 

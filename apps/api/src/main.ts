@@ -2,6 +2,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 
 function parseOrigins(): string[] {
   const raw = process.env.CORS_ALLOW_ORIGINS?.trim();
@@ -22,7 +23,7 @@ function parseOrigins(): string[] {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // trust proxy (Express)
   // INestApplication δεν έχει app.set(), οπότε πάμε στο underlying express instance.
@@ -31,6 +32,8 @@ async function bootstrap() {
   if (instance?.set) {
     instance.set('trust proxy', 1);
   }
+  app.useBodyParser('json', { limit: '12mb' });
+  app.useBodyParser('urlencoded', { limit: '12mb', extended: true });
 
   app.setGlobalPrefix('api/v1');
 

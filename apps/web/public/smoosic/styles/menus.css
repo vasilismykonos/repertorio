@@ -1,0 +1,83 @@
+
+
+.control-menu-message {
+    display:none;
+}
+body.slash-menu .control-menu-message {
+    display:block;
+	position:absolute;
+	/* right:10px; */
+	top:350px;
+	background:#fff;
+	z-index: 6;
+	padding:5px;
+	border:solid #8d8 2px;
+	border-radius:3px;
+}
+.menuElement {
+	position:absolute;
+	list-style:none;
+  z-index: 13;
+  background: #fff;
+	padding:0;
+  max-height: calc(100% - 80px);
+  overflow-y: auto;
+}
+.menuContainer .menuElement .menuOption {
+  display: flex;
+  flex-flow: row;
+}
+.menuContainer .menuElement .menuOption a.dropdown-item {
+  display: flex;
+}
+.menuContainer .menuElement .menuOption a.dropdown-item span {
+  margin-right: 10px;
+}
+.menuOption .menuText {
+    display:block;
+    flex:3;
+}
+
+.menuOption .icon {
+    display:block;
+    flex:1;
+}
+
+.menuOption .menuKey {
+    flex:1;
+    display:block;
+}
+.menuElement 	.menuOption button:focus-within {
+	background:#ccf;
+	border:2px green solid;
+	font-weight: bold;
+}
+
+.menuElement .menuOption button {
+	width: 100%;
+  height: 100%;
+  display:flex;
+  flex-flow:row;
+  padding: 8px 5px;
+}
+.separator {
+	width:15px;
+	/* text-align: center; */
+	display: inline-block;
+	font-weight: bold;
+	text-justify:center;
+}
+
+body.modal .overlay,body.showAttributeDialog .overlay {
+	display:block;
+	position:absolute;
+	width:100%;
+	height:100%;
+	z-index:2;
+    opacity: 0.2;
+	background: #333;
+}
+
+body.showAttributeDialog.textEditor .overlay {
+	display:none;
+}

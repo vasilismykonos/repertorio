@@ -3,13 +3,14 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 
 export type OnlinePresenceUserDto = {
-  id: number;
+  id: number | string;
   label: string;
   username: string | null;
   displayName: string | null;
   avatarUrl: string | null;
   lastSeenAt: string;
   secondsAgo: number;
+  guest?: boolean;
 };
 
 type PresenceUserRow = {
@@ -27,6 +28,13 @@ type PresenceUserRow = {
     avatarUrl: string | null;
     role?: string | null;
   };
+};
+
+type GuestPresence = {
+  id: string;
+  label: string;
+  firstSeenAt: Date;
+  lastSeenAt: Date;
 };
 
 const DEFAULT_WINDOW_SEC = 180;
@@ -63,6 +71,12 @@ function displayLabel(user: {
   );
 }
 
+function sanitizeGuestLabel(value: unknown): string {
+  const label = String(value ?? "").trim();
+  if (!label) return "Επισκέπτης";
+  return label.slice(0, 40);
+}
+
 function mapUserStats(row: PresenceUserRow, now: Date) {
   const user = row.user;
   return {
@@ -84,6 +98,8 @@ function mapUserStats(row: PresenceUserRow, now: Date) {
 
 @Injectable()
 export class PresenceService {
+  private readonly guestPresence = new Map<string, GuestPresence>();
+
   constructor(private readonly prisma: PrismaService) {}
 
   async ping(userId: number) {
@@ -121,15 +137,53 @@ export class PresenceService {
     return { ok: true, lastSeenAt: now.toISOString() };
   }
 
+  async pingGuest(guestId: string, guestLabel?: string) {
+    const id = guestId.trim().slice(0, 120);
+    const now = new Date();
+    const existing = this.guestPresence.get(id);
+
+    this.guestPresence.set(id, {
+      id,
+      label: sanitizeGuestLabel(guestLabel),
+      firstSeenAt: existing?.firstSeenAt ?? now,
+      lastSeenAt: now,
+    });
+
+    return { ok: true, guest: true, lastSeenAt: now.toISOString() };
+  }
+
+  private activeGuests(since: Date, take?: number, now = new Date()): OnlinePresenceUserDto[] {
+    const staleBefore = new Date(now.getTime() - MAX_WINDOW_SEC * 1000);
+    for (const [id, guest] of this.guestPresence.entries()) {
+      if (guest.lastSeenAt < staleBefore) this.guestPresence.delete(id);
+    }
+
+    return Array.from(this.guestPresence.values())
+      .filter((guest) => guest.lastSeenAt >= since)
+      .sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime())
+      .map((guest, index) => ({
+        id: `guest:${guest.id}`,
+        label: index === 0 ? guest.label : `${guest.label} ${index + 1}`,
+        username: null,
+        displayName: guest.label,
+        avatarUrl: null,
+        lastSeenAt: guest.lastSeenAt.toISOString(),
+        secondsAgo: Math.max(0, Math.round((now.getTime() - guest.lastSeenAt.getTime()) / 1000)),
+        guest: true,
+      }));
+  }
+
   async onlineCount(windowSec: number) {
     const n = normalizeWindowSec(windowSec);
     const since = new Date(Date.now() - n * 1000);
 
-    const count = await this.prisma.userPresence.count({
+    const userCount = await this.prisma.userPresence.count({
       where: { lastSeenAt: { gte: since } },
     });
+    const guestCount = this.activeGuests(since).length;
+    const count = userCount + guestCount;
 
-    return { windowSec: n, onlineCount: count, count };
+    return { windowSec: n, onlineCount: count, count, userCount, guestCount };
   }
 
   async onlineUsers(params: { windowSec?: number; take?: number } = {}) {
@@ -138,7 +192,7 @@ export class PresenceService {
     const now = new Date();
     const since = new Date(now.getTime() - windowSec * 1000);
 
-    const [count, rows] = await Promise.all([
+    const [userCount, rows] = await Promise.all([
       this.prisma.userPresence.count({
         where: { lastSeenAt: { gte: since } },
       }),
@@ -175,15 +229,27 @@ export class PresenceService {
         avatarUrl: user.avatarUrl ?? null,
         lastSeenAt: row.lastSeenAt.toISOString(),
         secondsAgo,
+        guest: false,
       };
     });
+    const guests = this.activeGuests(since, undefined, now);
+    const mergedUsers = [...users, ...guests]
+      .sort(
+        (a, b) =>
+          new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime(),
+      )
+      .slice(0, take);
+    const guestCount = guests.length;
+    const count = userCount + guestCount;
 
     return {
       ok: true,
       windowSec,
       count,
       onlineCount: count,
-      users,
+      userCount,
+      guestCount,
+      users: mergedUsers,
       generatedAt: now.toISOString(),
     };
   }

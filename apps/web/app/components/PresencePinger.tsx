@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 
 const HEARTBEAT_MS = 60_000;
 const MIN_PING_GAP_MS = 25_000;
+const GUEST_ID_KEY = "rep_presence_guest_id";
 
 function browserOnline() {
   if (typeof navigator === "undefined") return true;
@@ -16,13 +17,32 @@ function visibleTab() {
   return document.visibilityState === "visible";
 }
 
+function getGuestId(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const existing = window.localStorage.getItem(GUEST_ID_KEY);
+    if (existing && existing.trim()) return existing.trim();
+
+    const randomPart =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2);
+    const value = `guest_${randomPart}`;
+    window.localStorage.setItem(GUEST_ID_KEY, value);
+    return value;
+  } catch {
+    return null;
+  }
+}
+
 export default function PresencePinger() {
   const { status } = useSession();
   const lastPingAtRef = useRef(0);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (status !== "authenticated") return;
+    if (status === "loading") return;
 
     let stopped = false;
 
@@ -36,7 +56,12 @@ export default function PresencePinger() {
       lastPingAtRef.current = now;
 
       try {
-        await fetch("/api/presence/ping", {
+        const guestId = status === "authenticated" ? null : getGuestId();
+        const url = guestId
+          ? `/api/presence/ping?guestId=${encodeURIComponent(guestId)}&guestLabel=${encodeURIComponent("Επισκέπτης")}`
+          : "/api/presence/ping";
+
+        await fetch(url, {
           method: "POST",
           cache: "no-store",
           keepalive: true,

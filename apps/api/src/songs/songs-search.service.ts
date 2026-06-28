@@ -14,7 +14,7 @@ export type SearchParams = {
   categoryIds?: number[];
   rythmIds?: number[];
   characteristics?: string;
-  lyricsFlag?: string; // "null" => μόνο χωρίς στίχους
+  lyricsFlag?: string; // "null"/"0" => χωρίς στίχους, "1" => με στίχους, "instrumental" => οργανικά
   status?: string; // SongStatus
   popular?: string; // "1" => sort by views desc
 };
@@ -123,7 +123,29 @@ export class SongsSearchService {
       };
     }
 
-    if (lyricsFlag === 'null') {
+    const lyricsValues = String(lyricsFlag || '')
+      .split(',')
+      .map((x) => x.trim().toLowerCase())
+      .filter(Boolean);
+    const wantsInstrumental =
+      lyricsValues.includes('instrumental') ||
+      lyricsValues.includes('organiko') ||
+      lyricsValues.includes('organika') ||
+      lyricsValues.includes('οργανικο') ||
+      lyricsValues.includes('οργανικα');
+    const wantsLyrics = lyricsValues.includes('1') || lyricsValues.includes('true');
+    const wantsNoLyrics =
+      lyricsFlag === 'null' ||
+      lyricsValues.includes('0') ||
+      lyricsValues.includes('false');
+
+    if (wantsInstrumental) {
+      where.isInstrumental = true;
+    } else if (wantsLyrics) {
+      where.isInstrumental = false;
+      where.lyrics = { not: null };
+    } else if (wantsNoLyrics) {
+      where.isInstrumental = false;
       where.lyrics = null;
     }
 

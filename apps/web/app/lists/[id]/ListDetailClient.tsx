@@ -221,10 +221,8 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             : null;
         const tonicityLabel = selectedTonicity ? `${selectedTonicity}${selectedTonicitySign}` : null;
         const selection = selectedSingerTuneTitle
-          ? `Φωνή: ${selectedSingerTuneTitle}${tonicityLabel ? ` · ${tonicityLabel}` : ""}`
-          : tonicityLabel
-            ? `Τόνος: ${tonicityLabel}`
-            : null;
+          ? `${selectedSingerTuneTitle}${tonicityLabel ? ` · ${tonicityLabel}` : ""}`
+          : tonicityLabel;
 
         return {
           number: sortId ? `${sortId}.` : `${index + 1}.`,
@@ -440,7 +438,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
   const itemLineHeight = "24px";
 
   return (
-    <section style={{ padding: "1rem" }}>
+    <section style={{ padding: "1rem", maxWidth: "100%", overflowX: "hidden", boxSizing: "border-box" }}>
       <ActionBar
         left={A.backLink({ href: "/lists", label: "Πίσω" })}
         title={
@@ -506,7 +504,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
                 border: "1px solid rgba(255,255,255,0.28)",
                 background: "rgba(255,255,255,0.08)",
                 color: "#fff",
-                fontWeight: 850,
+                fontWeight: 900,
                 cursor: "pointer",
                 whiteSpace: "nowrap",
               }}
@@ -528,7 +526,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
                 border: "1px solid rgba(255,255,255,0.28)",
                 background: "rgba(255,255,255,0.08)",
                 color: "#fff",
-                fontWeight: 850,
+                fontWeight: 900,
                 cursor: "pointer",
                 whiteSpace: "nowrap",
               }}
@@ -615,7 +613,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
           Η λίστα δεν περιέχει τραγούδια.
         </p>
       ) : (
-        <ul style={{ listStyleType: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+        <ul style={{ listStyleType: "none", padding: 0, margin: 0, display: "grid", gap: 8, maxWidth: "100%", minWidth: 0 }}>
           {items.map((item: any) => {
             const listItemId = Number(item.listItemId);
             const sortId = item.sortId ?? "";
@@ -627,13 +625,10 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             const selectedTonicityLabel = info?.selectedTonicity
               ? `${info.selectedTonicity}${info.selectedTonicitySign ?? ""}`
               : null;
-            const selectionLabel = info?.selectedSingerTuneTitle
-              ? `Φωνή: ${info.selectedSingerTuneTitle}${
-                  selectedTonicityLabel ? ` · ${selectedTonicityLabel}` : ""
-                }`
-              : selectedTonicityLabel
-                ? `Τόνος: ${selectedTonicityLabel}`
-                : null;
+            const selectedSingerLabel = info?.selectedSingerTuneTitle || null;
+            const selectionLabel = selectedSingerLabel
+              ? `${selectedSingerLabel}${selectedTonicityLabel ? ` · ${selectedTonicityLabel}` : ""}`
+              : selectedTonicityLabel;
 
             const rowStyle: React.CSSProperties = {
               border: "1px solid rgba(255,255,255,0.22)",
@@ -641,6 +636,10 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
               borderRadius: 16,
               padding: "10px 12px",
               boxShadow: "0 6px 18px rgba(0,0,0,0.22)",
+              maxWidth: "100%",
+              minWidth: 0,
+              boxSizing: "border-box",
+              overflow: "hidden",
             };
 
             const contentStyle: React.CSSProperties = {
@@ -651,6 +650,9 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
               display: "flex",
               gap: 10,
               alignItems: "baseline",
+              maxWidth: "100%",
+              minWidth: 0,
+              boxSizing: "border-box",
             };
 
             const numberStyle: React.CSSProperties = {
@@ -664,8 +666,44 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
 
             const titleStyle: React.CSSProperties = {
               flex: "1 1 auto",
-              wordBreak: "break-word",
+              minWidth: 0,
+              maxWidth: "100%",
+              overflow: "hidden",
+              whiteSpace: "nowrap",
+              textOverflow: "ellipsis",
               textShadow: "0 1px 2px rgba(0,0,0,0.35)",
+            };
+
+            const titleTextStyle: React.CSSProperties = {
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontWeight: 900,
+            };
+
+            const selectionStyle: React.CSSProperties = {
+              flex: "0 0 auto",
+              minWidth: 0,
+              maxWidth: "52%",
+              color: "rgba(255,255,255,0.68)",
+              fontSize: 13,
+              fontWeight: 400,
+              lineHeight: "17px",
+              textShadow: "none",
+            };
+
+            const singerSelectionStyle: React.CSSProperties = {
+              flex: "1 1 auto",
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            };
+
+            const tonicitySelectionStyle: React.CSSProperties = {
+              flex: "0 0 auto",
+              whiteSpace: "nowrap",
             };
 
             return (
@@ -679,21 +717,26 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
                       style={{ ...contentStyle, textDecoration: "none" }}
                     >
                       <span style={numberStyle}>{sortId ? `${sortId}.` : "•"}</span>
-                      <span style={titleStyle}>
-                        <span>{titleText}</span>
+                      <span
+                        className="list-song-line"
+                        style={{ ...titleStyle, display: "flex", alignItems: "baseline", gap: 8 }}
+                      >
+                        <span style={titleTextStyle}>{titleText}</span>
                         {selectionLabel ? (
-                          <span
-                            style={{
-                              display: "block",
-                              marginTop: 3,
-                              color: "rgba(255,255,255,0.66)",
-                              fontSize: 13,
-                              fontWeight: 700,
-                              lineHeight: "17px",
-                              textShadow: "none",
-                            }}
-                          >
-                            {selectionLabel}
+                          <span className="list-song-selection" style={selectionStyle} title={selectionLabel}>
+                            {selectedSingerLabel ? (
+                              <>
+                                <span style={singerSelectionStyle}>{selectedSingerLabel}</span>
+                                {selectedTonicityLabel ? (
+                                  <>
+                                    <span aria-hidden="true"> · </span>
+                                    <span style={tonicitySelectionStyle}>{selectedTonicityLabel}</span>
+                                  </>
+                                ) : null}
+                              </>
+                            ) : (
+                              <span style={tonicitySelectionStyle}>{selectedTonicityLabel}</span>
+                            )}
                           </span>
                         ) : null}
                       </span>
@@ -826,6 +869,12 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
           padding: 7px;
         }
 
+        .list-song-selection {
+          display: inline-flex;
+          align-items: baseline;
+          gap: 0;
+        }
+
         .list-print-preview {
           margin: 18px auto;
           width: min(760px, calc(100% - 24px));
@@ -912,6 +961,19 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
         }
 
         @media (max-width: 640px) {
+          .list-song-line {
+            flex-direction: column;
+            align-items: flex-start !important;
+            gap: 2px !important;
+            white-space: normal !important;
+          }
+
+          .list-song-selection {
+            max-width: 100% !important;
+            width: 100%;
+            min-width: 0;
+          }
+
           .list-print-modal {
             padding: 0;
             align-items: stretch;

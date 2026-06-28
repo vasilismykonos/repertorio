@@ -25,6 +25,8 @@ import { SongSingerTunesService } from './song-singer-tunes.service';
 
 import { SongSingerTuneAccessService } from './SongSingerTuneAccess.service';
 import { SongSingerTuneAccessController } from './SongSingerTuneAccess.controller';
+import { SongRoadVotesController } from './song-road-votes.controller';
+import { SongRoadVotesService } from './song-road-votes.service';
 
 @Module({
   controllers: [
@@ -33,6 +35,7 @@ import { SongSingerTuneAccessController } from './SongSingerTuneAccess.controlle
     SongsController,
     SongSingerTunesController,
     SongSingerTuneAccessController,
+    SongRoadVotesController,
   ],
   providers: [
     PrismaService,
@@ -43,6 +46,7 @@ import { SongSingerTuneAccessController } from './SongSingerTuneAccess.controlle
     ElasticsearchSongsSyncService,
     SongSingerTunesService,
     SongSingerTuneAccessService,
+    SongRoadVotesService,
   ],
 })
 export class SongsModule {}
