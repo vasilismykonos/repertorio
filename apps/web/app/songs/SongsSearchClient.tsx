@@ -1804,7 +1804,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
   ]);
 
   return (
-    <section style={{ padding: "16px 24px" }}>
+    <section className="songs-index-page">
       <h1 style={{ fontSize: "1.6rem", marginBottom: 8 }}>
         {pickerMode ? "Επιλογή τραγουδιού" : "Αναζήτηση τραγουδιών"}
       </h1>

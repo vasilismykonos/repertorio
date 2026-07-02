@@ -1,4 +1,4 @@
-// apps/web/app/songs/[id]/edit/SongEditForm.tsx
+﻿// apps/web/app/songs/[id]/edit/SongEditForm.tsx
 "use client";
 
 import Link from "next/link";
@@ -31,6 +31,16 @@ type SongVersionDto = {
   singerFrontIds: number[] | null;
   singerBackIds: number[] | null;
   solistIds: number[] | null;
+};
+
+type LyricsSearchCandidate = {
+  source: string;
+  sourceLabel: string;
+  title: string;
+  url: string;
+  lyrics: string;
+  confidence: number;
+  preview?: string;
 };
 
 export type SongForEdit = {
@@ -231,6 +241,14 @@ const MAKAM_OPTIONS = [
   "Χουσεϊνί",
 ] as const;
 
+type SongEditTab = "song" | "music" | "info";
+
+const SONG_EDIT_TABS: Array<{ id: SongEditTab; label: string }> = [
+  { id: "song", label: "Τραγούδι" },
+  { id: "music", label: "Μουσική" },
+  { id: "info", label: "Πληροφορίες" },
+];
+
 function splitCharacteristics(value: string | null | undefined): string[] {
   return String(value ?? "")
     .split(",")
@@ -272,9 +290,14 @@ export default function SongEditForm({
   canChangeStatus,
 }: Props) {
   const isCreate = !!createMode;
+  const [activeEditTab, setActiveEditTab] = useState<SongEditTab>("song");
   const [statusValue, setStatusValue] = useState(song.status ?? "PENDING_APPROVAL");
   const [titleLive, setTitleLive] = useState(song.title ?? "");
   const [lyricsLive, setLyricsLive] = useState(song.lyrics ?? "");
+  const [lyricsSearchOpen, setLyricsSearchOpen] = useState(false);
+  const [lyricsSearchLoading, setLyricsSearchLoading] = useState(false);
+  const [lyricsSearchError, setLyricsSearchError] = useState<string | null>(null);
+  const [lyricsSearchResults, setLyricsSearchResults] = useState<LyricsSearchCandidate[]>([]);
   const [isInstrumental, setIsInstrumental] = useState(Boolean(song.isInstrumental));
   const [makamLive, setMakamLive] = useState(extractMakamFromCharacteristics(song.characteristics));
   const [makamSearchOpen, setMakamSearchOpen] = useState(false);
@@ -473,6 +496,57 @@ export default function SongEditForm({
   function requestSaveSubmit() {
     const form = document.getElementById("song-edit-form") as HTMLFormElement | null;
     form?.requestSubmit();
+  }
+
+  async function handleLyricsSearch() {
+    const title = titleLive.trim();
+    if (title.length < 2) {
+      setLyricsSearchOpen(true);
+      setLyricsSearchError("Συμπλήρωσε πρώτα τίτλο τραγουδιού.");
+      setLyricsSearchResults([]);
+      return;
+    }
+
+    setLyricsSearchOpen(true);
+    setLyricsSearchLoading(true);
+    setLyricsSearchError(null);
+
+    try {
+      const res = await fetch(`/api/songs/lyrics-search?title=${encodeURIComponent(title)}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(json?.message || "Αποτυχία αναζήτησης στίχων.");
+      }
+
+      const items = Array.isArray(json?.items) ? json.items : [];
+      setLyricsSearchResults(items);
+      if (items.length === 0) {
+        setLyricsSearchError("Δεν βρέθηκαν αξιόπιστα αποτελέσματα. Δοκίμασε πιο ακριβή τίτλο.");
+      }
+    } catch (err: any) {
+      setLyricsSearchResults([]);
+      setLyricsSearchError(err?.message || "Αποτυχία αναζήτησης στίχων.");
+    } finally {
+      setLyricsSearchLoading(false);
+    }
+  }
+
+  function applyLyricsCandidate(candidate: LyricsSearchCandidate) {
+    if (lyricsLive.trim()) {
+      const ok = window.confirm(
+        `Να αντικατασταθούν οι υπάρχοντες στίχοι με το αποτέλεσμα από ${candidate.sourceLabel};`,
+      );
+      if (!ok) return;
+    }
+
+    setLyricsLive(candidate.lyrics);
+    setIsInstrumental(false);
+    setLyricsSearchOpen(false);
+    setLyricsSearchError(null);
   }
 
   function buildSaveErrorMessage(status: number, statusText: string, responseText: string) {
@@ -805,365 +879,482 @@ export default function SongEditForm({
             readOnly
           />
 
-          <div className="song-edit-section song-edit-section-main">
-            <h2 className="song-edit-section-title">Βασικές πληροφορίες</h2>
-
-            <div className="song-edit-compact-grid">
-            <div className="song-edit-field">
-              <label htmlFor="title">Τίτλος *</label>
-              <input
-                type="text"
-                id="title"
-                name="title"
-                value={titleLive}
-                onChange={(e) => setTitleLive(e.currentTarget.value)}
-                required
-                className="song-edit-input-light"
-              />
-            </div>
-
-            {isCreate ? (
-              <SongDuplicateWarning
-                status={duplicateStatus}
-                candidates={duplicateCandidates}
-                allowCreateAnyway={allowLikelyDuplicate}
-                onAllowCreateAnyway={() => setAllowLikelyDuplicate(true)}
-              />
-            ) : null}
-
-            <div className="song-edit-field">
-              <label htmlFor="status">Κατάσταση</label>
-
-              {canChangeStatus ? (
-                <select
-                  id="status"
-                  name="status"
-                  value={statusValue}
-                  onChange={(e) => setStatusValue(e.currentTarget.value)}
-                  className="song-edit-input-light"
+          <div className="song-edit-tabs" role="tablist" aria-label="Ενότητες επεξεργασίας τραγουδιού">
+            {SONG_EDIT_TABS.map((tab) => {
+              const selected = activeEditTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  id={`song-edit-tab-${tab.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={`song-edit-panel-${tab.id}`}
+                  className={`song-edit-tab${selected ? " is-active" : ""}`}
+                  onClick={() => setActiveEditTab(tab.id)}
                 >
-                  <option value="DRAFT">Πρόχειρο</option>
-                  <option value="PENDING_APPROVAL">Σε αναμονή</option>
-                  <option value="PUBLISHED">Δημοσιευμένο</option>
-                  <option value="ARCHIVED">Αρχειοθετημένο</option>
-                </select>
-              ) : (
-                <>
-                  <input type="hidden" name="status" value={statusValue} readOnly />
-                  <input
-                    type="text"
-                    value={statusValue}
-                    disabled
-                    readOnly
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <section
+            id="song-edit-panel-song"
+            role="tabpanel"
+            aria-labelledby="song-edit-tab-song"
+            hidden={activeEditTab !== "song"}
+            className="song-edit-tab-panel"
+          >
+            <div className="song-edit-section song-edit-section-main">
+              <h2 className="song-edit-section-title">Τραγούδι</h2>
+
+              <div className="song-edit-field">
+                <label htmlFor="title">Τίτλος *</label>
+                <input
+                  type="text"
+                  id="title"
+                  name="title"
+                  value={titleLive}
+                  onChange={(e) => setTitleLive(e.currentTarget.value)}
+                  required
+                  className="song-edit-input-light"
+                />
+              </div>
+
+              {isCreate ? (
+                <SongDuplicateWarning
+                  status={duplicateStatus}
+                  candidates={duplicateCandidates}
+                  allowCreateAnyway={allowLikelyDuplicate}
+                  onAllowCreateAnyway={() => setAllowLikelyDuplicate(true)}
+                />
+              ) : null}
+
+              <div className="song-edit-subsection song-edit-subsection-lyrics">
+                <div className="song-edit-field song-edit-field-lyrics">
+                  <div className="song-edit-field-heading">
+                    <label htmlFor="lyrics">Στίχοι</label>
+                    <button
+                      type="button"
+                      className="song-edit-lyrics-search-button"
+                      onClick={() => void handleLyricsSearch()}
+                      disabled={lyricsSearchLoading}
+                      title="Αναζήτηση στίχων στο stixoi.info"
+                    >
+                      {lyricsSearchLoading ? "Ψάχνω..." : "Εύρεση στίχων"}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsInstrumental((value) => !value)}
+                    aria-pressed={isInstrumental}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      width: "fit-content",
+                      margin: "0 0 8px",
+                      padding: "7px 12px",
+                      borderRadius: 8,
+                      border: isInstrumental ? "1px solid #00bcd4" : "1px solid #333",
+                      background: isInstrumental ? "#073843" : "#111",
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontWeight: 750,
+                    }}
+                    title="Όταν είναι ενεργό, το τραγούδι αποθηκεύεται ως οργανικό και οι στίχοι απενεργοποιούνται."
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 999,
+                        background: isInstrumental ? "#00d4e6" : "#666",
+                        boxShadow: isInstrumental ? "0 0 0 3px rgba(0,212,230,0.18)" : "none",
+                      }}
+                    />
+                    {isInstrumental ? "Οργανικό ενεργό" : "Οργανικό τραγούδι"}
+                  </button>
+                  {isInstrumental && (
+                    <div style={{ margin: "0 0 8px", opacity: 0.8, fontSize: 13 }}>
+                      Οι στίχοι είναι απενεργοποιημένοι και θα αποθηκευτούν κενοί.
+                    </div>
+                  )}
+                  <textarea
+                    id="lyrics"
+                    name="lyrics"
+                    rows={10}
+                    value={lyricsLive}
+                    onChange={(e) => setLyricsLive(e.currentTarget.value)}
+                    disabled={isInstrumental}
+                    className="song-edit-input-light"
+                    style={isInstrumental ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+                  />
+
+                  {lyricsSearchOpen ? (
+                    <div className="song-edit-lyrics-search-results" aria-live="polite">
+                      <div className="song-edit-lyrics-search-head">
+                        <strong>Υποψήφιοι στίχοι</strong>
+                        <button
+                          type="button"
+                          onClick={() => setLyricsSearchOpen(false)}
+                          aria-label="Κλείσιμο αποτελεσμάτων στίχων"
+                        >
+                          Κλείσιμο
+                        </button>
+                      </div>
+
+                      {lyricsSearchLoading ? (
+                        <p>Αναζήτηση στο stixoi.info...</p>
+                      ) : lyricsSearchError ? (
+                        <p className="song-edit-lyrics-search-error">{lyricsSearchError}</p>
+                      ) : null}
+
+                      {lyricsSearchResults.length > 0 ? (
+                        <div className="song-edit-lyrics-search-list">
+                          {lyricsSearchResults.map((candidate) => (
+                            <article key={`${candidate.source}-${candidate.url}`} className="song-edit-lyrics-search-item">
+                              <div className="song-edit-lyrics-search-title">
+                                <strong>{candidate.title}</strong>
+                                <span>{candidate.sourceLabel} · {candidate.confidence}%</span>
+                              </div>
+                              {candidate.preview ? <pre>{candidate.preview}</pre> : null}
+                              <div className="song-edit-lyrics-search-actions">
+                                <button type="button" onClick={() => applyLyricsCandidate(candidate)}>
+                                  Χρήση στίχων
+                                </button>
+                                <a href={candidate.url} target="_blank" rel="noreferrer">
+                                  Άνοιγμα πηγής
+                                </a>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section
+            id="song-edit-panel-music"
+            role="tabpanel"
+            aria-labelledby="song-edit-tab-music"
+            hidden={activeEditTab !== "music"}
+            className="song-edit-tab-panel"
+          >
+            <div className="song-edit-section song-edit-section-main">
+              <h2 className="song-edit-section-title">Μουσική</h2>
+
+              <div className="song-edit-subsection">
+                <div className="song-edit-subsection-head">
+                  <h3>Συγχορδίες και δρόμος</h3>
+                </div>
+
+                <div className="song-edit-field song-edit-field-chords">
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <label htmlFor="chords" style={{ margin: 0 }}>
+                      Συγχορδίες
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => setOriginalKeyPickerOpen(true)}
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        border: "1px solid #333",
+                        background: "#111",
+                        color: "#fff",
+                        fontSize: 12,
+                        lineHeight: "18px",
+                        opacity: 0.95,
+                        whiteSpace: "nowrap",
+                        cursor: "pointer",
+                        fontWeight: 650,
+                      }}
+                      title="Επιλογή τονικότητας τραγουδιού"
+                    >
+                      {effectiveBaseChord ? (
+                        <>
+                          {originalKeySourceLabel}:{" "}
+                          <strong>
+                            {effectiveBaseChord}
+                            {effectiveOriginalKeySign ?? ""}
+                          </strong>
+                        </>
+                      ) : (
+                        "Επιλογή τονικότητας"
+                      )}
+                    </button>
+                  </div>
+
+                  <SongOriginalKeyPicker
+                    open={originalKeyPickerOpen}
+                    value={{
+                      originalKey: selectedOriginalKey,
+                      originalKeySign: selectedOriginalKeySign,
+                    }}
+                    detected={{
+                      originalKey: computedForSave.originalKey,
+                      originalKeySign: normalizeOriginalKeySign(
+                        computedForSave.originalKeySign,
+                      ),
+                    }}
+                    onClose={() => setOriginalKeyPickerOpen(false)}
+                    onSave={(nextValue) => {
+                      setSelectedOriginalKey(nextValue.originalKey);
+                      setSelectedOriginalKeySign(
+                        normalizeOriginalKeySign(nextValue.originalKeySign) ?? "+",
+                      );
+                      setOriginalKeyPickerOpen(false);
+                    }}
+                  />
+
+                  <textarea
+                    id="chords"
+                    name="chords"
+                    rows={6}
+                    value={chordsLive}
+                    onChange={(e) => setChordsLive(e.currentTarget.value)}
                     className="song-edit-input-light"
                   />
-                </>
-              )}
-            </div>
-            </div>
 
-            <div className="song-edit-subsection">
-              <div className="song-edit-subsection-head">
-                <h3>Μουσικά στοιχεία</h3>
-              </div>
-
-            <div className="song-edit-field song-edit-field-chords">
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <label htmlFor="chords" style={{ margin: 0 }}>
-                  Συγχορδίες
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => setOriginalKeyPickerOpen(true)}
-                  style={{
-                    padding: "2px 8px",
-                    borderRadius: 999,
-                    border: "1px solid #333",
-                    background: "#111",
-                    color: "#fff",
-                    fontSize: 12,
-                    lineHeight: "18px",
-                    opacity: 0.95,
-                    whiteSpace: "nowrap",
-                    cursor: "pointer",
-                    fontWeight: 650,
-                  }}
-                  title="Επιλογή τονικότητας τραγουδιού"
-                >
-                  {effectiveBaseChord ? (
-                    <>
-                      {originalKeySourceLabel}:{" "}
-                      <strong>
-                        {effectiveBaseChord}
-                        {effectiveOriginalKeySign ?? ""}
-                      </strong>
-                    </>
-                  ) : (
-                    "Επιλογή τονικότητας"
+                  {!chordsLive.trim() && (
+                    <div style={{ marginTop: 6, opacity: 0.75, fontSize: 13 }} />
                   )}
-                </button>
-              </div>
+                </div>
 
-              <SongOriginalKeyPicker
-                open={originalKeyPickerOpen}
-                value={{
-                  originalKey: selectedOriginalKey,
-                  originalKeySign: selectedOriginalKeySign,
-                }}
-                detected={{
-                  originalKey: computedForSave.originalKey,
-                  originalKeySign: normalizeOriginalKeySign(
-                    computedForSave.originalKeySign,
-                  ),
-                }}
-                onClose={() => setOriginalKeyPickerOpen(false)}
-                onSave={(nextValue) => {
-                  setSelectedOriginalKey(nextValue.originalKey);
-                  setSelectedOriginalKeySign(
-                    normalizeOriginalKeySign(nextValue.originalKeySign) ?? "+",
-                  );
-                  setOriginalKeyPickerOpen(false);
-                }}
-              />
-
-              <textarea
-                id="chords"
-                name="chords"
-                rows={6}
-                value={chordsLive}
-                onChange={(e) => setChordsLive(e.currentTarget.value)}
-                className="song-edit-input-light"
-              />
-
-              {!chordsLive.trim() && (
-                <div style={{ marginTop: 6, opacity: 0.75, fontSize: 13 }} />
-              )}
-            </div>
-
-            <div className="song-edit-field song-edit-field-makam">
-              <label htmlFor="makamRoad">Δρόμος / Μακάμ</label>
-              <div ref={makamPickerRef} className="song-edit-makam-picker">
-                <button
-                  id="makamRoad"
-                  type="button"
-                  className="song-edit-makam-trigger"
-                  aria-haspopup="listbox"
-                  aria-expanded={makamSearchOpen}
-                  onClick={() => {
-                    setMakamQuery(makamLive);
-                    setMakamSearchOpen((value) => !value);
-                  }}
-                >
-                  <span>{makamLive.trim() || "Επιλογή δρόμου / μακάμ"}</span>
-                  <b aria-hidden="true">⌄</b>
-                </button>
-                {makamSearchOpen ? (
-                  <div className="song-edit-makam-dropdown">
-                    <input
-                      value={makamQuery}
-                      onChange={(e) => setMakamQuery(e.currentTarget.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") setMakamSearchOpen(false);
-                        if (e.key === "Enter" && makamQuery.trim()) {
-                          e.preventDefault();
-                          setMakamLive(makamQuery.trim());
-                          setMakamSearchOpen(false);
-                        }
+                <div className="song-edit-field song-edit-field-makam">
+                  <label htmlFor="makamRoad">Δρόμος / Μακάμ</label>
+                  <div ref={makamPickerRef} className="song-edit-makam-picker">
+                    <button
+                      id="makamRoad"
+                      type="button"
+                      className="song-edit-makam-trigger"
+                      aria-haspopup="listbox"
+                      aria-expanded={makamSearchOpen}
+                      onClick={() => {
+                        setMakamQuery(makamLive);
+                        setMakamSearchOpen((value) => !value);
                       }}
-                      className="song-edit-input-light song-edit-makam-search"
-                      placeholder="Αναζήτηση ή νέος δρόμος..."
-                      autoComplete="off"
-                      autoFocus
-                    />
-                    {makamSuggestions.length ? (
-                      <div className="song-edit-makam-options" role="listbox">
-                        {makamSuggestions.map((option) => (
+                    >
+                      <span>{makamLive.trim() || "Επιλογή δρόμου / μακάμ"}</span>
+                      <b aria-hidden="true">⌄</b>
+                    </button>
+                    {makamSearchOpen ? (
+                      <div className="song-edit-makam-dropdown">
+                        <input
+                          value={makamQuery}
+                          onChange={(e) => setMakamQuery(e.currentTarget.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") setMakamSearchOpen(false);
+                            if (e.key === "Enter" && makamQuery.trim()) {
+                              e.preventDefault();
+                              setMakamLive(makamQuery.trim());
+                              setMakamSearchOpen(false);
+                            }
+                          }}
+                          className="song-edit-input-light song-edit-makam-search"
+                          placeholder="Αναζήτηση ή νέος δρόμος..."
+                          autoComplete="off"
+                          autoFocus
+                        />
+                        {makamSuggestions.length ? (
+                          <div className="song-edit-makam-options" role="listbox">
+                            {makamSuggestions.map((option) => (
+                              <button
+                                key={option}
+                                type="button"
+                                role="option"
+                                aria-selected={option === makamLive}
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                  setMakamLive(option);
+                                  setMakamQuery(option);
+                                  setMakamSearchOpen(false);
+                                }}
+                                className={option === makamLive ? "selected" : ""}
+                              >
+                                {option}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="song-edit-makam-empty">
+                            Δεν βρέθηκε υπάρχων δρόμος.
+                          </div>
+                        )}
+                        {makamQuery.trim() && !hasExactMakamSuggestion ? (
                           <button
-                            key={option}
                             type="button"
-                            role="option"
-                            aria-selected={option === makamLive}
+                            className="song-edit-makam-create"
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => {
-                              setMakamLive(option);
-                              setMakamQuery(option);
+                              const next = makamQuery.trim();
+                              setMakamLive(next);
                               setMakamSearchOpen(false);
                             }}
-                            className={option === makamLive ? "selected" : ""}
                           >
-                            {option}
+                            Προσθήκη νέου: <strong>{makamQuery.trim()}</strong>
                           </button>
-                        ))}
+                        ) : null}
+                        {makamLive.trim() ? (
+                          <button
+                            type="button"
+                            className="song-edit-makam-clear"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              setMakamLive("");
+                              setMakamQuery("");
+                              setMakamSearchOpen(false);
+                            }}
+                          >
+                            Καθαρισμός επιλογής
+                          </button>
+                        ) : null}
                       </div>
-                    ) : (
-                      <div className="song-edit-makam-empty">
-                        Δεν βρέθηκε υπάρχων δρόμος.
-                      </div>
-                    )}
-                    {makamQuery.trim() && !hasExactMakamSuggestion ? (
-                      <button
-                        type="button"
-                        className="song-edit-makam-create"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => {
-                          const next = makamQuery.trim();
-                          setMakamLive(next);
-                          setMakamSearchOpen(false);
-                        }}
-                      >
-                        Προσθήκη νέου: <strong>{makamQuery.trim()}</strong>
-                      </button>
-                    ) : null}
-                    {makamLive.trim() ? (
-                      <button
-                        type="button"
-                        className="song-edit-makam-clear"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => {
-                          setMakamLive("");
-                          setMakamQuery("");
-                          setMakamSearchOpen(false);
-                        }}
-                      >
-                        Καθαρισμός επιλογής
-                      </button>
                     ) : null}
                   </div>
-                ) : null}
+                </div>
               </div>
-            </div>
-            </div>
 
-            {canChangeCreator && !isCreate && (
-              <div className="song-edit-creator-row">
-                {!creatorEditOpen ? (
-                  <input type="hidden" name="createdByUserId" value={creatorValue} readOnly />
-                ) : null}
-                <span>
-                  Δημιουργός:{" "}
-                  <strong>
-                    {song.createdByDisplayName?.trim()
-                      ? `${song.createdByDisplayName.trim()} (#${song.createdByUserId ?? "—"})`
-                      : song.createdByUserId != null
-                        ? `#${song.createdByUserId}`
-                        : "—"}
-                  </strong>
-                </span>
-                <button type="button" onClick={() => setCreatorEditOpen((value) => !value)}>
-                  {creatorEditOpen ? "Κλείσιμο" : "Αλλαγή"}
-                </button>
-                {creatorEditOpen ? (
-                  <label className="song-edit-creator-input" htmlFor="createdByUserId">
-                    <span>User ID</span>
-                    <input
-                      type="number"
-                      id="createdByUserId"
-                      name="createdByUserId"
-                      value={creatorValue}
-                      onChange={(e) => setCreatorValue(e.currentTarget.value)}
-                      min={1}
-                      step={1}
-                      inputMode="numeric"
-                      className="song-edit-input-light"
-                      placeholder="π.χ. 4"
-                    />
-                  </label>
-                ) : null}
-              </div>
-            )}
-
-            <div className="song-edit-subsection song-edit-subsection-lyrics">
-            <div className="song-edit-field song-edit-field-lyrics">
-              <label htmlFor="lyrics">Στίχοι</label>
-              <button
-                type="button"
-                onClick={() => setIsInstrumental((value) => !value)}
-                aria-pressed={isInstrumental}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  width: "fit-content",
-                  margin: "0 0 8px",
-                  padding: "7px 12px",
-                  borderRadius: 8,
-                  border: isInstrumental ? "1px solid #00bcd4" : "1px solid #333",
-                  background: isInstrumental ? "#073843" : "#111",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontWeight: 750,
-                }}
-                title="Όταν είναι ενεργό, το τραγούδι αποθηκεύεται ως οργανικό και οι στίχοι απενεργοποιούνται."
-              >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 999,
-                    background: isInstrumental ? "#00d4e6" : "#666",
-                    boxShadow: isInstrumental ? "0 0 0 3px rgba(0,212,230,0.18)" : "none",
-                  }}
+              <div className="song-edit-subsection">
+                <div className="song-edit-subsection-head">
+                  <h3>Παρτιτούρες και υλικό</h3>
+                </div>
+                <SongAssetsEditorClient
+                  songId={song.id}
+                  initialAssets={initialAssets}
+                  hiddenInputId="assetsJson"
                 />
-                {isInstrumental ? "Οργανικό ενεργό" : "Οργανικό τραγούδι"}
-              </button>
-              {isInstrumental && (
-                <div style={{ margin: "0 0 8px", opacity: 0.8, fontSize: 13 }}>
-                  Οι στίχοι είναι απενεργοποιημένοι και θα αποθηκευτούν κενοί.
+              </div>
+            </div>
+          </section>
+
+          <section
+            id="song-edit-panel-info"
+            role="tabpanel"
+            aria-labelledby="song-edit-tab-info"
+            hidden={activeEditTab !== "info"}
+            className="song-edit-tab-panel"
+          >
+            <div className="song-edit-section song-edit-section-main">
+              <h2 className="song-edit-section-title">Πληροφορίες</h2>
+
+              <div className="song-edit-compact-grid">
+                <div className="song-edit-field">
+                  <label htmlFor="status">Κατάσταση</label>
+
+                  {canChangeStatus ? (
+                    <select
+                      id="status"
+                      name="status"
+                      value={statusValue}
+                      onChange={(e) => setStatusValue(e.currentTarget.value)}
+                      className="song-edit-input-light"
+                    >
+                      <option value="DRAFT">Πρόχειρο</option>
+                      <option value="PENDING_APPROVAL">Σε αναμονή</option>
+                      <option value="PUBLISHED">Δημοσιευμένο</option>
+                      <option value="ARCHIVED">Αρχειοθετημένο</option>
+                    </select>
+                  ) : (
+                    <>
+                      <input type="hidden" name="status" value={statusValue} readOnly />
+                      <input
+                        type="text"
+                        value={statusValue}
+                        disabled
+                        readOnly
+                        className="song-edit-input-light"
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {canChangeCreator && !isCreate && (
+                <div className="song-edit-creator-row">
+                  {!creatorEditOpen ? (
+                    <input type="hidden" name="createdByUserId" value={creatorValue} readOnly />
+                  ) : null}
+                  <span>
+                    Δημιουργός:{" "}
+                    <strong>
+                      {song.createdByDisplayName?.trim()
+                        ? `${song.createdByDisplayName.trim()} (#${song.createdByUserId ?? "—"})`
+                        : song.createdByUserId != null
+                          ? `#${song.createdByUserId}`
+                          : "—"}
+                    </strong>
+                  </span>
+                  <button type="button" onClick={() => setCreatorEditOpen((value) => !value)}>
+                    {creatorEditOpen ? "Κλείσιμο" : "Αλλαγή"}
+                  </button>
+                  {creatorEditOpen ? (
+                    <label className="song-edit-creator-input" htmlFor="createdByUserId">
+                      <span>User ID</span>
+                      <input
+                        type="number"
+                        id="createdByUserId"
+                        name="createdByUserId"
+                        value={creatorValue}
+                        onChange={(e) => setCreatorValue(e.currentTarget.value)}
+                        min={1}
+                        step={1}
+                        inputMode="numeric"
+                        className="song-edit-input-light"
+                        placeholder="π.χ. 4"
+                      />
+                    </label>
+                  ) : null}
                 </div>
               )}
-              <textarea
-                id="lyrics"
-                name="lyrics"
-                rows={10}
-                value={lyricsLive}
-                onChange={(e) => setLyricsLive(e.currentTarget.value)}
-                disabled={isInstrumental}
-                className="song-edit-input-light"
-                style={isInstrumental ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+
+              <CategoryRythmPickerClient
+                initialCategoryId={song.categoryId}
+                initialRythmId={song.rythmId}
+                categories={categories}
+                rythms={rythms}
               />
+
+              <div className="song-edit-subsection">
+                <div className="song-edit-subsection-head">
+                  <h3>Συντελεστές</h3>
+                </div>
+                <SongCreditsEditorClient
+                  initialComposerArtistIds={initialComposerArtistIds}
+                  initialLyricistArtistIds={initialLyricistArtistIds}
+                  initialComposerNames={initialComposerNames}
+                  initialLyricistNames={initialLyricistNames}
+                  hiddenInputName="creditsJson"
+                />
+              </div>
+
+              <div className="song-edit-subsection">
+                <div className="song-edit-subsection-head">
+                  <h3>Tags</h3>
+                </div>
+                <TagsEditorClient initialTags={song.tags} hiddenInputId="tagIdsJson" take={25} />
+              </div>
+
+              <div className="song-edit-subsection">
+                <div className="song-edit-subsection-head">
+                  <h3>Δισκογραφίες</h3>
+                </div>
+                <DiscographiesEditorClient
+                  songTitle={titleLive || song.title}
+                  initialVersions={initialVersions}
+                  hiddenInputId="versionsJson"
+                />
+              </div>
             </div>
-            </div>
-
-            <SongAssetsEditorClient
-              songId={song.id}
-              initialAssets={initialAssets}
-              hiddenInputId="assetsJson"
-            />
-          </div>
-
-          <CategoryRythmPickerClient
-            initialCategoryId={song.categoryId}
-            initialRythmId={song.rythmId}
-            categories={categories}
-            rythms={rythms}
-          />
-
-          <div className="song-edit-section">
-            <h2 className="song-edit-section-title">Συντελεστές</h2>
-            <SongCreditsEditorClient
-              initialComposerArtistIds={initialComposerArtistIds}
-              initialLyricistArtistIds={initialLyricistArtistIds}
-              initialComposerNames={initialComposerNames}
-              initialLyricistNames={initialLyricistNames}
-              hiddenInputName="creditsJson"
-            />
-          </div>
-
-          <div className="song-edit-section">
-            <h2 className="song-edit-section-title">Tags</h2>
-            <TagsEditorClient initialTags={song.tags} hiddenInputId="tagIdsJson" take={25} />
-          </div>
-
-          <div className="song-edit-section">
-            <h2 className="song-edit-section-title">Δισκογραφίες</h2>
-            <DiscographiesEditorClient
-              songTitle={titleLive || song.title}
-              initialVersions={initialVersions}
-              hiddenInputId="versionsJson"
-            />
-          </div>
+          </section>
         </form>
       </section>
     </main>

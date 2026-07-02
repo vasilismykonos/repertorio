@@ -1,10 +1,11 @@
 "use client";
 
 import { FormEvent, PointerEvent, useEffect, useRef, useState } from "react";
-import { ArrowLeft, MessageCircle, Search, Send, X } from "lucide-react";
+import { ArrowLeft, Bell, MessageCircle, Search, Send, X } from "lucide-react";
 
 const OPEN_DRAG_PX = 36;
 const PANEL_USERS_TAKE = 5;
+const CHAT_PUSH_PROMPT_DISMISSED_KEY = "repertorio_chat_push_prompt_dismissed";
 
 type OnlineUser = {
   id: number | string;
@@ -78,6 +79,29 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+function urlBase64ToArrayBuffer(value: string): ArrayBuffer {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const output = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i += 1) output[i] = rawData.charCodeAt(i);
+  return output.buffer as ArrayBuffer;
+}
+
+async function savePushSubscription(subscription: PushSubscription) {
+  const res = await fetch("/api/notifications/push", {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ subscription: subscription.toJSON() }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.ok) throw new Error(data?.error || "push subscribe failed");
+}
+
 export default function FloatingChatWidget() {
   const [meId, setMeId] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
@@ -95,6 +119,9 @@ export default function FloatingChatWidget() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pushPromptVisible, setPushPromptVisible] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [dragOffsetX, setDragOffsetX] = useState(0);
@@ -102,6 +129,89 @@ export default function FloatingChatWidget() {
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
   const autoOpenThreadRef = useRef<number | null>(null);
+
+  async function refreshPushPrompt() {
+    if (typeof window === "undefined") return;
+    if (!open || !meId) {
+      setPushPromptVisible(false);
+      return;
+    }
+    if (window.localStorage.getItem(CHAT_PUSH_PROMPT_DISMISSED_KEY) === "1") {
+      setPushPromptVisible(false);
+      return;
+    }
+    const supported = "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
+    if (!supported) {
+      setPushPromptVisible(false);
+      return;
+    }
+    if (window.Notification.permission === "denied") {
+      setPushPromptVisible(false);
+      return;
+    }
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription && window.Notification.permission === "granted") {
+        await savePushSubscription(subscription).catch(() => null);
+        setPushPromptVisible(false);
+        return;
+      }
+      setPushPromptVisible(true);
+    } catch {
+      setPushPromptVisible(true);
+    }
+  }
+
+  async function enableChatPush() {
+    if (typeof window === "undefined" || pushBusy) return;
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+        setPushError("Η συσκευή δεν υποστηρίζει push ειδοποιήσεις.");
+        return;
+      }
+      const permission =
+        window.Notification.permission === "default"
+          ? await window.Notification.requestPermission()
+          : window.Notification.permission;
+      if (permission !== "granted") {
+        setPushError("Δεν δόθηκε άδεια ειδοποιήσεων.");
+        return;
+      }
+      const keyData = await jsonFetch<{ ok: boolean; enabled?: boolean; publicKey?: string }>("/api/notifications/push");
+      const publicKey = String(keyData?.publicKey || "");
+      if (!keyData?.enabled || !publicKey) {
+        setPushError("Οι push ειδοποιήσεις δεν είναι διαθέσιμες στον server.");
+        return;
+      }
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToArrayBuffer(publicKey),
+        });
+      }
+      await savePushSubscription(subscription);
+      window.localStorage.removeItem(CHAT_PUSH_PROMPT_DISMISSED_KEY);
+      setPushPromptVisible(false);
+    } catch {
+      setPushError("Δεν ενεργοποιήθηκαν οι ειδοποιήσεις.");
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  function dismissChatPushPrompt() {
+    try {
+      window.localStorage.setItem(CHAT_PUSH_PROMPT_DISMISSED_KEY, "1");
+    } catch {
+      // ignore
+    }
+    setPushPromptVisible(false);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -154,6 +264,7 @@ export default function FloatingChatWidget() {
     if (!open || !meId) return;
     void loadUsers();
     void loadThreads();
+    void refreshPushPrompt();
     const id = window.setInterval(() => void loadUsers(), 15000);
     return () => window.clearInterval(id);
     // selected intentionally omitted: refresh must not restart while typing.
@@ -564,6 +675,22 @@ export default function FloatingChatWidget() {
                   />
                 </label>
 
+                {pushPromptVisible ? (
+                  <div className="fcw-push-prompt" role="status">
+                    <Bell size={16} aria-hidden="true" />
+                    <div>
+                      <b>Ειδοποιήσεις chat</b>
+                      <small>{pushError || "Ενεργοποίησε push για να βλέπεις νέα μηνύματα όταν η εφαρμογή είναι κλειστή."}</small>
+                    </div>
+                    <button type="button" onClick={() => void enableChatPush()} disabled={pushBusy}>
+                      {pushBusy ? "..." : "Ενεργοποίηση"}
+                    </button>
+                    <button type="button" className="secondary" onClick={dismissChatPushPrompt}>
+                      Όχι τώρα
+                    </button>
+                  </div>
+                ) : null}
+
                 {!searchingUsers && unreadThreads.length ? (
                   <div className="fcw-thread-list fcw-unread" aria-label="Νέα μηνύματα">
                     <strong>Νέα μηνύματα</strong>
@@ -876,6 +1003,66 @@ export default function FloatingChatWidget() {
           color: #fff;
           padding: 9px 0;
           font: inherit;
+        }
+
+        .fcw-push-prompt {
+          flex: 0 0 auto;
+          display: grid;
+          grid-template-columns: 18px minmax(0, 1fr) auto auto;
+          align-items: center;
+          gap: 7px;
+          border: 1px solid rgba(59, 130, 246, 0.34);
+          border-radius: 12px;
+          background: rgba(37, 99, 235, 0.13);
+          color: #fff;
+          padding: 7px 8px;
+          min-width: 0;
+        }
+
+        .fcw-push-prompt > div {
+          display: grid;
+          gap: 1px;
+          min-width: 0;
+        }
+
+        .fcw-push-prompt b,
+        .fcw-push-prompt small {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .fcw-push-prompt b {
+          font-size: 0.82rem;
+          line-height: 1.15;
+        }
+
+        .fcw-push-prompt small {
+          color: #dbeafe;
+          font-size: 0.72rem;
+          line-height: 1.15;
+        }
+
+        .fcw-push-prompt button {
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          border-radius: 999px;
+          background: #2563eb;
+          color: #fff;
+          cursor: pointer;
+          font-size: 0.72rem;
+          font-weight: 900;
+          padding: 5px 8px;
+          white-space: nowrap;
+        }
+
+        .fcw-push-prompt button.secondary {
+          background: transparent;
+          color: #bfdbfe;
+        }
+
+        .fcw-push-prompt button:disabled {
+          opacity: 0.65;
+          cursor: wait;
         }
 
         .fcw-thread-list,

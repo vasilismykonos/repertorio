@@ -1,23 +1,66 @@
 "use client";
 
+import { useEffect, useState, type ReactNode } from "react";
 import Script from "next/script";
 
 type Props = {
   fileUrl: string;
   title: string;
+  toolbarAction?: ReactNode;
 };
 
-export default function ScorePlayerClient({ fileUrl, title }: Props) {
+declare global {
+  interface Window {
+    RepScore?: {
+      initAllScores?: () => void | Promise<void>;
+    };
+  }
+}
+
+export default function ScorePlayerClient({ fileUrl, title, toolbarAction }: Props) {
   const safeFileUrl = fileUrl || "";
+  const [toolsOpen, setToolsOpen] = useState(false);
+
+  function wakeScorePlayer() {
+    if (typeof window === "undefined") return;
+    const initAllScores = window.RepScore?.initAllScores;
+    if (typeof initAllScores === "function") {
+      void initAllScores();
+    }
+  }
+
+  useEffect(() => {
+    const timers = [
+      window.setTimeout(wakeScorePlayer, 0),
+      window.setTimeout(wakeScorePlayer, 250),
+      window.setTimeout(wakeScorePlayer, 900),
+    ];
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [safeFileUrl]);
 
   return (
-    <div className="score-player-embed">
+    <div className={"score-player-embed" + (toolsOpen ? " sp-tools-open" : "")}>
+      <div className="sp-quickbar">
+        <button
+          type="button"
+          className="sp-tools-toggle"
+          aria-expanded={toolsOpen}
+          onClick={() => setToolsOpen((value) => !value)}
+        >
+          {toolsOpen ? "Κλείσιμο εργαλείων" : "Εργαλεία"}
+        </button>
+        {toolbarAction}
+      </div>
       {/* Wrapper του παλιού Repertorio score player */}
       <div className="score-player-wrap">
         {/* Τίτλος όπως στο παλιό plugin */}
         {title && <div className="score-player-title">{title}</div>}
 
         <div
+          key={safeFileUrl}
           className="score-player sp-mode-horizontal"
           data-file={safeFileUrl}
           data-transpose="0"
@@ -164,37 +207,32 @@ export default function ScorePlayerClient({ fileUrl, title }: Props) {
       {/* CSS του player */}
       <link
         rel="stylesheet"
-        href="/score-player/score-player.css?v=voice-filter-20260613c"
+        href="/score-player/score-player.css?v=score-visual-first-20260630j"
       />
 
-      {/* OSMD + Tone + JSZip + modules */}
+      {/* Visual-first load: ο ήχος/JSZip φορτώνονται lazy μόνο όταν χρειαστούν. */}
       <Script
         src="/opensheetmusicdisplay.min.js"
         strategy="afterInteractive"
-      />
-      <Script
-        src="https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.js"
-        strategy="afterInteractive"
-      />
-      <Script
-        src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
-        strategy="afterInteractive"
+        onReady={wakeScorePlayer}
       />
 
-      <Script src="/score-player/sp-constants.js" strategy="afterInteractive" />
-      <Script src="/score-player/score-visual.js" strategy="afterInteractive" />
+      <Script src="/score-player/sp-constants.js" strategy="afterInteractive" onReady={wakeScorePlayer} />
+      <Script src="/score-player/score-visual.js" strategy="afterInteractive" onReady={wakeScorePlayer} />
       <Script
         src="/score-player/score-analysis.js"
         strategy="afterInteractive"
+        onReady={wakeScorePlayer}
       />
       <Script
         src="/score-player/score-transport.js"
         strategy="afterInteractive"
+        onReady={wakeScorePlayer}
       />
-      <Script src="/score-player/score-audio.js" strategy="afterInteractive" />
       <Script
-        src="/score-player/score-player.js?v=voice-filter-20260613c"
+        src="/score-player/score-player.js?v=score-visual-first-20260630f"
         strategy="afterInteractive"
+        onReady={wakeScorePlayer}
       />
 
       {/* Αρχικοποίηση plugin (ξύπνημα μετά το φόρτωμα των scripts) */}

@@ -38,6 +38,16 @@ function isUsableAssetPath(value: string | null | undefined): boolean {
   return s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/");
 }
 
+function scoreApiUrlFromPath(value: string | null | undefined): string | null {
+  const s = String(value ?? "").trim();
+  if (!s) return null;
+
+  const base = baseNameFromPath(s).replace(/\.(mxl|musicxml|xml)$/i, "");
+  if (!base || !/^[A-Za-z0-9._-]+$/.test(base)) return null;
+
+  return `/api/scores/${encodeURIComponent(base)}`;
+}
+
 function resolveScoreFileUrlFromAsset(asset: any): string | null {
   if (!asset) return null;
 
@@ -49,6 +59,8 @@ function resolveScoreFileUrlFromAsset(asset: any): string | null {
   }
 
   const filePath = String(asset.filePath ?? "").trim();
+  const scoreApiUrl = scoreApiUrlFromPath(filePath);
+  if (scoreApiUrl) return scoreApiUrl;
   if (isUsableAssetPath(filePath)) return filePath;
 
   const url = String(asset.url ?? "").trim();
@@ -64,35 +76,14 @@ function baseNameFromPath(p: string): string {
   return parts.length ? parts[parts.length - 1] : "";
 }
 
-function scoreTitleForAsset(asset: any, idx: number): string {
-  const t1 = String(asset?.title ?? "").trim();
-  if (t1) return t1;
-
-  const t2 = String(asset?.label ?? "").trim();
-  if (t2) return t2;
-
-  const fp = String(asset?.filePath ?? "").trim();
-  if (fp) {
-    const bn = baseNameFromPath(fp);
-    if (bn) return bn;
-  }
-
-  const u = String(asset?.url ?? "").trim();
-  if (u) {
-    const bn = baseNameFromPath(u);
-    if (bn) return bn;
-  }
-
-  return `Παρτιτούρα ${idx + 1}`;
-}
-
 type Props = {
   open: boolean;
   assets: any[];
+  canEdit?: boolean;
 };
 
 export default function SongScoresPanel(props: Props) {
-  const { open, assets } = props;
+  const { open, assets, canEdit = false } = props;
 
   const scoreAssets = useMemo(() => {
     const allAssets: any[] = Array.isArray(assets) ? assets : [];
@@ -118,79 +109,29 @@ export default function SongScoresPanel(props: Props) {
   if (!open || scoreAssets.length === 0) return null;
 
   return (
-    <section id="song-score" data-tour="scores-section" style={{ marginTop: 18 }}>
-      <h2 data-tour="scores-title" style={{ marginBottom: 10, fontSize: "1.1rem" }}>
-        Παρτιτούρα
-      </h2>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <section id="song-score" data-tour="scores-section" className="song-score-panel">
+      <div className="song-score-list">
         {scoreAssets.map((asset, idx) => {
           const url = resolveScoreFileUrlFromAsset(asset);
-          const title = scoreTitleForAsset(asset, idx);
-
-          console.log(
-            "[SongScoresPanel:score-asset:json]",
-            JSON.stringify(
-              {
-                assetId: asset?.id ?? null,
-                kind: asset?.kind ?? null,
-                type: asset?.type ?? null,
-                title: asset?.title ?? null,
-                label: asset?.label ?? null,
-                mimeType: asset?.mimeType ?? null,
-                url: asset?.url ?? null,
-                filePath: asset?.filePath ?? null,
-                isPrimary: asset?.isPrimary ?? false,
-                sort: asset?.sort ?? null,
-                resolvedUrl: url,
-              },
-              null,
-              2,
-            ),
-          );
+          const editAction =
+            canEdit && asset?.id ? (
+              <a
+                href={`/assets/${asset.id}/notation-editor`}
+                title="Επεξεργασία παρτιτούρας"
+                className="sp-tools-toggle sp-tools-action"
+              >
+                Επεξεργασία
+              </a>
+            ) : null;
 
           return (
             <div
               key={asset?.id ?? `score-${idx}`}
-              style={{
-                borderRadius: 12,
-                border: "1px solid #333",
-                background: "#0b0b0b",
-                padding: 12,
-              }}
+              className="song-score-card"
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 10,
-                  marginBottom: 10,
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: "1.02rem" }}>{title}</div>
-
-                {asset?.isPrimary ? (
-                  <span
-                    style={{
-                      fontSize: 12,
-                      padding: "3px 10px",
-                      borderRadius: 999,
-                      border: "1px solid #444",
-                      background: "#121212",
-                      opacity: 0.95,
-                      whiteSpace: "nowrap",
-                    }}
-                    title="Κύρια παρτιτούρα"
-                  >
-                    Κύρια
-                  </span>
-                ) : null}
-              </div>
-
               {url ? (
                 <div data-tour="scores-player">
-                  <ScorePlayerClient fileUrl={url} title="" />
+                  <ScorePlayerClient fileUrl={url} title="" toolbarAction={editAction} />
                 </div>
               ) : (
                 <div

@@ -8,6 +8,73 @@
   gap: 8px;
   font-family: sans-serif;
   margin: 10px 0;
+  width: 100%;
+}
+
+.score-player-embed {
+  width: 100%;
+}
+
+.score-player-wrap {
+  width: 100%;
+}
+
+.sp-quickbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  min-height: 34px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  width: fit-content;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+.sp-tools-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid #444;
+  border-radius: 8px;
+  background: #222;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  box-sizing: border-box;
+  box-shadow: none;
+}
+
+.sp-tools-toggle:hover {
+  border-color: #555;
+  background: #444;
+}
+
+.score-player-embed.sp-tools-open .sp-tools-toggle:first-child {
+  border-color: #ff4747;
+  background: #ff4747;
+  color: #fff;
+  font-weight: 700;
+}
+
+.sp-tools-action {
+  color: #fff;
+}
+
+.score-player-embed:not(.sp-tools-open) .sp-controls,
+.score-player-embed:not(.sp-tools-open) .sp-controls-view,
+.score-player-embed:not(.sp-tools-open) .sp-voice-filter {
+  display: none !important;
 }
 
 /* Controls row */
@@ -178,14 +245,16 @@
 .sp-renderer {
   min-width: 0;                 /* ✅ για να μη “σκάει” το layout */
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
   overscroll-behavior-x: contain;
-  width: 90%;
+  width: 100%;
+  box-sizing: border-box;
   overflow-x: auto;
   overflow-y: auto;
-  max-height: 85vh;
+  max-height: none;
   background: #ffffff!important;
   border: 1px solid #ddd;
-  padding: 8px;
+  padding: 6px;
   border-radius: 8px;
 }
 
@@ -198,6 +267,16 @@
   color: #555;
   font-size: 16px;
   font-weight: 600;
+}
+
+.sp-score-loading {
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .sp-page { margin-bottom: 16px; }
@@ -233,14 +312,23 @@ rect.stem, g.stem rect {
   width: 96% !important;
   height: auto !important;
   margin: 0 auto;
-  touch-action: auto; /* επιστρέφουμε σε default συμπεριφορά */
+  touch-action: pan-x pan-y !important;
+  -ms-touch-action: pan-x pan-y !important;
 }
 
-/* Επιστροφή σε default touch handling για scroll/zoom του browser */
+/* Touch handling: κρατάμε το κανονικό pan/scroll και χειριζόμαστε το pinch με JS. */
 .score-player .sp-renderer,
 .score-player .sp-renderer * {
-  touch-action: auto;
-  -ms-touch-action: auto;
+  touch-action: pan-x pan-y !important;
+  -ms-touch-action: pan-x pan-y !important;
+}
+
+.score-player .sp-renderer.sp-pinching,
+.score-player .sp-renderer.sp-pinching * {
+  touch-action: none !important;
+  -ms-touch-action: none !important;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* --- View modes --- */
@@ -249,7 +337,7 @@ rect.stem, g.stem rect {
   white-space: nowrap;
   overflow-x: auto;
   overflow-y: auto;
-  max-height: 62vh;
+  max-height: none;
 }
 .score-player.sp-mode-horizontal .sp-page {
   display: inline-block;
@@ -258,14 +346,15 @@ rect.stem, g.stem rect {
 }
 .score-player.sp-mode-horizontal .sp-page svg {
   width: auto !important;
-  height: 58vh !important; /* ~4vh λιγότερο από το container */
+  height: auto !important;
+  max-height: 78vh;
 }
 
 /* Σελίδες */
 .score-player.sp-mode-paged .sp-renderer {
   white-space: normal;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: visible;
 }
 .score-player.sp-mode-paged .sp-page {
   display: block;
@@ -273,7 +362,7 @@ rect.stem, g.stem rect {
 }
 .score-player.sp-mode-paged .sp-page svg {
   display: block;
-  width: 96% !important;
+  width: 100% !important;
   height: auto !important;
   margin: 0 auto;
 }
@@ -401,7 +490,7 @@ rect.stem, g.stem rect {
 
 /* Mobile tweaks */
 @media (max-width: 768px) {
-  .score-player .sp-page svg { width: 94% !important; }
+  .score-player .sp-page svg { width: 100% !important; }
 }
 @media (max-width: 600px) {
   .sp-controls .sp-btn { height: 34px; font-size: 13px; }

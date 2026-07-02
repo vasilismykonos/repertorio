@@ -73,6 +73,14 @@ function InlineError({ message }: { message?: string }) {
   );
 }
 
+function SingerTuneShell({ children }: { children: React.ReactNode }) {
+  return (
+    <section style={{ padding: "0px 10px", maxWidth: 900, margin: "0 auto" }}>
+      {children}
+    </section>
+  );
+}
+
 function normalizeTuneForPick(v: string): string {
   const s = String(v ?? "").trim();
   if (!s) return "";
@@ -184,7 +192,7 @@ export default function SongSingerTunesEditorClient({ songId }: { songId: number
   const tunePicked = normalizeTuneForPick(tune);
 
   return (
-    <>
+    <SingerTuneShell>
       <ActionBar
         left={A.backLink({ href: `/songs/${songId}`, title: "Πίσω στο τραγούδι", disabled: busy })}
         right={
@@ -336,6 +344,6 @@ export default function SongSingerTunesEditorClient({ songId }: { songId: number
           </div>
         )}
       </div>
-    </>
+    </SingerTuneShell>
   );
 }

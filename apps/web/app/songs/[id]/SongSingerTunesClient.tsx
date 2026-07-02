@@ -276,8 +276,23 @@ export default function SongSingerTunesClient(props: {
         </div>
 
         {authRequired && !showListSelectedFallback ? (
-          <div style={{ opacity: 0.9 }}>
-            Απαιτείται σύνδεση για προβολή/εφαρμογή τονικοτήτων.
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ opacity: 0.9 }}>
+              Απαιτείται σύνδεση για προβολή/εφαρμογή τονικοτήτων.
+            </div>
+            {A.login({
+              title: "Σύνδεση για τονικότητες",
+              label: "Σύνδεση",
+              showLabel: true,
+              style: {
+                width: "fit-content",
+                maxWidth: "100%",
+                alignSelf: "flex-start",
+                justifySelf: "flex-start",
+                paddingLeft: 12,
+                paddingRight: 12,
+              },
+            })}
           </div>
         ) : err && !showListSelectedFallback ? (
           <div style={{ opacity: 0.85, marginBottom: 8 }}>

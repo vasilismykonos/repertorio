@@ -122,6 +122,13 @@ async function fetchMe(email: string): Promise<MeResponse> {
   });
 }
 
+function isDeactivatedProfile(profile: unknown): boolean {
+  if (!profile || typeof profile !== "object" || Array.isArray(profile)) return false;
+  const account = (profile as any).account;
+  if (!account || typeof account !== "object" || Array.isArray(account)) return false;
+  return typeof account.deactivatedAt === "string" && account.deactivatedAt.trim() !== "";
+}
+
 async function ensureUser(identity: AuthIdentity): Promise<void> {
   if (!identity.email) return;
 
@@ -148,6 +155,7 @@ export async function getCurrentUserFromApi(
     const me = await fetchMe(identity.email);
 
     if (!me?.email) return null;
+    if (isDeactivatedProfile(me.profile)) return null;
 
     return {
       id: me.id,
@@ -165,6 +173,7 @@ export async function getCurrentUserFromApi(
       const me = await fetchMe(identity.email);
 
       if (!me?.email) return null;
+      if (isDeactivatedProfile(me.profile)) return null;
 
       return {
         id: me.id,

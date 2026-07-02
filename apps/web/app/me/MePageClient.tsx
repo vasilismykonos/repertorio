@@ -1,9 +1,24 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
+import {
+  AlertTriangle,
+  Check,
+  Edit3,
+  History,
+  ListMusic,
+  LogOut,
+  Music2,
+  Save,
+  Settings2,
+  Shield,
+  Trash2,
+  UserRound,
+  X,
+} from "lucide-react";
 import Button from "@/app/components/buttons/Button";
-import { A } from "@/app/components/buttons/buttonActions";
 import { fetchJson } from "@/lib/api";
 
 type UserRole =
@@ -53,145 +68,167 @@ function readPrefs(profile: any): Required<ProfilePrefs> {
   };
 }
 
-const labelStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: "rgba(255,255,255,0.85)",
-};
-
-const inputReadOnlyStyle: React.CSSProperties = {
-  width: "100%",
-  minWidth: 0,
-  boxSizing: "border-box",
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(255,255,255,0.15)",
-  background: "rgba(255,255,255,0.06)",
-  color: "#ffffff",
-  outline: "none",
-};
-
-const inputEditableStyle: React.CSSProperties = {
-  width: "100%",
-  minWidth: 0,
-  boxSizing: "border-box",
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.15)",
-  background: "#ffffff",
-  color: "#000000",
-  outline: "none",
+const pageStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 16,
+  color: "#fff",
 };
 
 const cardStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 12,
+  border: "1px solid rgba(255,255,255,0.14)",
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.055)",
   padding: 16,
-  border: "1px solid rgba(255,255,255,0.15)",
-  borderRadius: 12,
   minWidth: 0,
 };
 
-function AddressBar({
-  title,
-  right,
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(255,255,255,0.18)",
+  background: "#fff",
+  color: "#111",
+  outline: "none",
+};
+
+const mutedStyle: React.CSSProperties = {
+  color: "rgba(255,255,255,0.68)",
+  fontSize: 13,
+};
+
+function displayRole(role: UserRole) {
+  const labels: Record<UserRole, string> = {
+    ADMIN: "Διαχειριστής",
+    EDITOR: "Editor",
+    AUTHOR: "Author",
+    CONTRIBUTOR: "Contributor",
+    SUBSCRIBER: "Subscriber",
+    USER: "Χρήστης",
+  };
+  return labels[role] || role;
+}
+
+function redirectLabel(value: RedirectDefault) {
+  if (value === "CHORDS") return "Συγχορδίες";
+  if (value === "LYRICS") return "Στίχοι";
+  if (value === "SCORE") return "Παρτιτούρα";
+  return "Τίτλος";
+}
+
+function initials(user: MeUser) {
+  return (user.displayName || user.username || user.email || "U").slice(0, 1).toUpperCase();
+}
+
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
+      <div style={mutedStyle}>{label}</div>
+      <div style={{ fontWeight: 800, overflowWrap: "anywhere" }}>{value || "-"}</div>
+    </div>
+  );
+}
+
+function ToggleChip({
+  active,
+  children,
+  onClick,
+  disabled,
 }: {
-  title: React.ReactNode;
-  right?: React.ReactNode;
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
       style={{
-        display: "flex",
-        gap: 12,
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "10px 12px",
-        border: "1px solid rgba(255,255,255,0.15)",
-        borderRadius: 12,
-        background: "rgba(255,255,255,0.06)",
-        flexWrap: "wrap",
+        border: active ? "1px solid #0d6efd" : "1px solid rgba(255,255,255,0.18)",
+        background: active ? "#0d6efd" : "rgba(255,255,255,0.06)",
+        color: "#fff",
+        borderRadius: 999,
+        padding: "8px 11px",
+        fontWeight: 850,
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.72 : 1,
       }}
     >
-      <div style={{ minWidth: 0, flex: "1 1 260px" }}>
-        <div
-          style={{
-            fontSize: 18,
-            fontWeight: 700,
-            color: "#ffffff",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {title}
-        </div>
-      </div>
+      {children}
+    </button>
+  );
+}
 
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          alignItems: "center",
-          flex: "0 1 auto",
-          minWidth: 0,
-          flexWrap: "wrap",
-          justifyContent: "flex-end",
-        }}
-      >
-        {right}
-      </div>
-    </div>
+function QuickLink({
+  href,
+  icon,
+  label,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <Link
+      href={href}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        color: "#fff",
+        textDecoration: "none",
+        border: "1px solid rgba(255,255,255,0.14)",
+        borderRadius: 12,
+        padding: "10px 12px",
+        background: "rgba(255,255,255,0.045)",
+        fontWeight: 850,
+      }}
+    >
+      {icon}
+      <span>{label}</span>
+    </Link>
   );
 }
 
 export default function MePageClient({ user }: { user: MeUser }) {
   const prefs = useMemo(() => readPrefs(user.profile), [user.profile]);
 
-  const [displayName, setDisplayName] = useState<string>(user.displayName ?? "");
-  const [avatarUrl, setAvatarUrl] = useState<string>(user.avatarUrl ?? "");
-
-  const [defChords, setDefChords] = useState<boolean>(
-    prefs.songTogglesDefault.chords ?? true,
-  );
-  const [defTonicities, setDefTonicities] = useState<boolean>(
-    prefs.songTogglesDefault.tonicities ?? true,
-  );
-  const [defInfo, setDefInfo] = useState<boolean>(
-    prefs.songTogglesDefault.info ?? true,
-  );
-  const [defScores, setDefScores] = useState<boolean>(
-    prefs.songTogglesDefault.scores ?? false,
-  );
-
+  const [editing, setEditing] = useState(false);
+  const [displayName, setDisplayName] = useState(user.displayName ?? "");
+  const [defChords, setDefChords] = useState(prefs.songTogglesDefault.chords ?? true);
+  const [defTonicities, setDefTonicities] = useState(prefs.songTogglesDefault.tonicities ?? true);
+  const [defInfo, setDefInfo] = useState(prefs.songTogglesDefault.info ?? true);
+  const [defScores, setDefScores] = useState(prefs.songTogglesDefault.scores ?? false);
   const [redirectDefault, setRedirectDefault] = useState<RedirectDefault>(
     prefs.songsRedirectDefault ?? "TITLE",
   );
-
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
-  const busy = saving || deleting;
+  const busy = saving || deactivating;
+  const publicName = displayName.trim() || user.username || user.email || `User #${user.id}`;
 
-  const avatarPreview = useMemo(() => {
-    const v = String(avatarUrl ?? "").trim();
-    return v ? v : null;
-  }, [avatarUrl]);
-
-  function onCancel() {
+  function resetForm() {
     setDisplayName(user.displayName ?? "");
-    setAvatarUrl(user.avatarUrl ?? "");
-
     setDefChords(prefs.songTogglesDefault.chords ?? true);
     setDefTonicities(prefs.songTogglesDefault.tonicities ?? true);
     setDefInfo(prefs.songTogglesDefault.info ?? true);
     setDefScores(prefs.songTogglesDefault.scores ?? false);
-
     setRedirectDefault(prefs.songsRedirectDefault ?? "TITLE");
-
     setError(null);
     setOk(null);
+  }
+
+  function cancelEdit() {
+    resetForm();
+    setEditing(false);
   }
 
   async function onSave() {
@@ -200,321 +237,281 @@ export default function MePageClient({ user }: { user: MeUser }) {
     setOk(null);
 
     try {
-      const payload: {
-        displayName?: string | null;
-        avatarUrl?: string | null;
-        profile?: any | null;
-      } = {
-        displayName: displayName.trim() ? displayName.trim() : null,
-        avatarUrl: avatarUrl.trim() ? avatarUrl.trim() : null,
-        profile: {
-          prefs: {
-            songTogglesDefault: {
-              chords: defChords,
-              tonicities: defTonicities,
-              info: defInfo,
-              scores: defScores,
-            },
-            songsRedirectDefault: redirectDefault,
-          },
-        },
-      };
-
       await fetchJson(`/users/${user.id}`, {
         method: "PATCH",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          displayName: displayName.trim() ? displayName.trim() : null,
+          profile: {
+            prefs: {
+              songTogglesDefault: {
+                chords: defChords,
+                tonicities: defTonicities,
+                info: defInfo,
+                scores: defScores,
+              },
+              songsRedirectDefault: redirectDefault,
+            },
+          },
+        }),
       });
 
-      setOk("Αποθηκεύτηκε.");
-    } catch (e: any) {
-      setError(e?.message || "Αποτυχία αποθήκευσης.");
+      setEditing(false);
+      setOk("Οι αλλαγές αποθηκεύτηκαν.");
+    } catch (err: any) {
+      setError(err?.message || "Αποτυχία αποθήκευσης.");
     } finally {
       setSaving(false);
     }
   }
 
-  async function onDeleteAccount() {
+  async function onDeactivateAccount() {
     const confirmed = window.confirm(
-      "Θέλεις σίγουρα να διαγράψεις τον λογαριασμό σου; Η ενέργεια δεν αναιρείται.",
+      "Θέλεις σίγουρα να απενεργοποιήσεις τον λογαριασμό σου; Θα αποσυνδεθείς και ο λογαριασμός δεν θα θεωρείται ενεργός.",
     );
     if (!confirmed) return;
 
-    setDeleting(true);
+    setDeactivating(true);
     setError(null);
     setOk(null);
 
     try {
-      const res = await fetch(`/api/users/${user.id}`, {
-        method: "DELETE",
-        credentials: "include",
-        cache: "no-store",
+      await fetchJson(`/users/${user.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          profile: {
+            account: {
+              deactivatedAt: new Date().toISOString(),
+            },
+          },
+        }),
       });
 
-      let body: any = null;
-      try {
-        body = await res.json();
-      } catch {
-        body = null;
-      }
-
-      if (!res.ok || body?.ok === false) {
-        throw new Error(body?.error || "Αποτυχία διαγραφής λογαριασμού.");
-      }
-
       await signOut({ callbackUrl: "/" });
-    } catch (e: any) {
-      setError(e?.message || "Αποτυχία διαγραφής λογαριασμού.");
-      setDeleting(false);
+    } catch (err: any) {
+      setError(err?.message || "Αποτυχία απενεργοποίησης λογαριασμού.");
+      setDeactivating(false);
     }
   }
 
   return (
-    <div style={{ display: "grid", gap: 16, color: "#ffffff" }}>
-      <AddressBar
-        title="Ο λογαριασμός μου"
-        right={
-          <>
-            {A.cancel({ onClick: onCancel, disabled: busy })}
-            {A.save({ onClick: onSave, disabled: busy, loading: saving })}
-            {A.del({
-              onClick: onDeleteAccount,
-              disabled: busy,
-              loading: deleting,
-              title: "Διαγραφή λογαριασμού",
-              label: "Διαγραφή",
-              loadingLabel: "Διαγραφή...",
-            })}
-            {A.logout({
-              title: "Αποσύνδεση",
-              callbackUrl: "/",
-              variant: "danger",
-              disabled: busy,
-            })}
-          </>
-        }
-      />
-
-      <div style={cardStyle}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+    <div style={pageStyle}>
+      <header
+        style={{
+          display: "flex",
+          gap: 14,
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          borderBottom: "1px solid rgba(255,255,255,0.12)",
+          paddingBottom: 14,
+        }}
+      >
+        <div style={{ display: "flex", gap: 14, alignItems: "center", minWidth: 0 }}>
           <div
             style={{
-              width: 56,
-              height: 56,
+              width: 72,
+              height: 72,
               borderRadius: "50%",
               overflow: "hidden",
               background: "rgba(255,255,255,0.08)",
-              flex: "0 0 auto",
+              border: "1px solid rgba(255,255,255,0.16)",
               display: "grid",
               placeItems: "center",
-              fontSize: 18,
-              color: "#ffffff",
+              flex: "0 0 auto",
+              fontSize: 28,
+              fontWeight: 950,
             }}
-            title="Avatar"
+            title="Εικόνα προφίλ"
           >
-            {avatarPreview ? (
+            {user.avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={avatarPreview}
-                alt="avatar"
+                src={user.avatarUrl}
+                alt=""
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
             ) : (
-              <span>
-                {(user.displayName || user.username || user.email || "U")
-                  .slice(0, 1)
-                  .toUpperCase()}
-              </span>
+              <span>{initials(user)}</span>
             )}
           </div>
 
-          <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 16,
-                fontWeight: 600,
-                color: "#ffffff",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {user.displayName ||
-                user.username ||
-                user.email ||
-                `User #${user.id}`}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.1 }}>{publicName}</h1>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  borderRadius: 999,
+                  padding: "4px 8px",
+                  color: "rgba(255,255,255,0.86)",
+                  fontSize: 12,
+                  fontWeight: 900,
+                }}
+              >
+                <Shield size={13} />
+                {displayRole(user.role)}
+              </span>
             </div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
-              Ρόλος: <b style={{ color: "#ffffff" }}>{user.role}</b>
+            <div style={{ ...mutedStyle, marginTop: 5 }}>
+              Ο λογαριασμός σου και οι προσωπικές προεπιλογές στο Repertorio.
             </div>
           </div>
         </div>
 
-        <div style={{ display: "grid", gap: 6 }}>
-          <label style={labelStyle}>Email</label>
-          <input value={user.email ?? ""} readOnly style={inputReadOnlyStyle} />
-        </div>
-
-        <div style={{ display: "grid", gap: 6 }}>
-          <label style={labelStyle}>Εμφανιζόμενο όνομα</label>
-          <input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="π.χ. Βασίλης Αντωνίου"
-            style={inputEditableStyle}
-          />
-        </div>
-
-        <div style={{ display: "grid", gap: 6 }}>
-          <label style={labelStyle}>Avatar URL</label>
-          <input
-            value={avatarUrl}
-            onChange={(e) => setAvatarUrl(e.target.value)}
-            placeholder="https://..."
-            style={inputEditableStyle}
-          />
-        </div>
-      </div>
-
-      <div style={cardStyle}>
-        <h2 style={{ margin: 0, fontSize: 16, color: "#ffffff" }}>
-          Προεπιλογές τραγουδιών
-        </h2>
-
-        <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.85)" }}>
-            Επιλέξτε την προεπιλεγμένη κατάσταση των επιλογών στα τραγούδια
-          </div>
-
-          <div
-            className="song-toggles"
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              marginTop: 4,
-            }}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {editing ? (
+            <>
+              <Button type="button" variant="secondary" onClick={cancelEdit} disabled={busy}>
+                <X size={16} /> Άκυρο
+              </Button>
+              <Button type="button" variant="primary" onClick={onSave} disabled={busy}>
+                <Save size={16} /> {saving ? "Αποθήκευση..." : "Αποθήκευση"}
+              </Button>
+            </>
+          ) : (
+            <Button type="button" variant="primary" onClick={() => setEditing(true)} disabled={busy}>
+              <Edit3 size={16} /> Επεξεργασία
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void signOut({ callbackUrl: "/" })}
+            disabled={busy}
           >
-            <Button
-              type="button"
-              variant={defTonicities ? "primary" : "secondary"}
-              onClick={() => setDefTonicities((v) => !v)}
-              title={
-                defTonicities
-                  ? "Προεπιλογή: ανοικτές Τονικότητες"
-                  : "Προεπιλογή: κλειστές Τονικότητες"
-              }
-              aria-pressed={defTonicities}
-            >
-              Tunes
-            </Button>
+            <LogOut size={16} /> Αποσύνδεση
+          </Button>
+        </div>
+      </header>
 
-            <Button
-              type="button"
-              variant={defInfo ? "primary" : "secondary"}
-              onClick={() => setDefInfo((v) => !v)}
-              title={
-                defInfo
-                  ? "Προεπιλογή: ανοικτές Πληροφορίες"
-                  : "Προεπιλογή: κλειστές Πληροφορίες"
-              }
-              aria-pressed={defInfo}
-            >
-              Info
-            </Button>
+      {error ? (
+        <div style={{ color: "#ffb4b4", fontWeight: 800 }}>{error}</div>
+      ) : ok ? (
+        <div style={{ color: "#b8ffb8", fontWeight: 800 }}>{ok}</div>
+      ) : null}
 
-            <Button
-              type="button"
-              variant={defChords ? "primary" : "secondary"}
-              onClick={() => setDefChords((v) => !v)}
-              title={
-                defChords
-                  ? "Προεπιλογή: ανοικτές Συγχορδίες"
-                  : "Προεπιλογή: κλειστές Συγχορδίες"
-              }
-              aria-pressed={defChords}
-            >
-              Chords
-            </Button>
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
+          gap: 14,
+        }}
+      >
+        <div style={{ ...cardStyle, display: "grid", gap: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <UserRound size={19} />
+            <h2 style={{ margin: 0, fontSize: 18 }}>Στοιχεία λογαριασμού</h2>
+          </div>
 
-            <Button
-              type="button"
-              variant={defScores ? "primary" : "secondary"}
-              onClick={() => setDefScores((v) => !v)}
-              title={
-                defScores
-                  ? "Προεπιλογή: ανοικτές Παρτιτούρες"
-                  : "Προεπιλογή: κλειστές Παρτιτούρες"
-              }
-              aria-pressed={defScores}
-            >
-              Scores
-            </Button>
+          {editing ? (
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={mutedStyle}>Εμφανιζόμενο όνομα</label>
+              <input
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                placeholder="π.χ. Βασίλης Αντωνίου"
+                style={inputStyle}
+              />
+            </div>
+          ) : (
+            <Field label="Εμφανιζόμενο όνομα" value={user.displayName || "-"} />
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+            <Field label="Email" value={user.email || "-"} />
+            <Field label="Username" value={user.username || "-"} />
+            <Field label="Ρόλος" value={displayRole(user.role)} />
+            <Field label="ID" value={`#${user.id}`} />
+          </div>
+
+          <div style={mutedStyle}>
+            Η εικόνα προφίλ έρχεται από τον τρόπο σύνδεσης σου. Δεν εμφανίζεται πια ως απλό URL γιατί δεν είναι χρήσιμη καθημερινή ρύθμιση.
+          </div>
+        </div>
+
+        <div style={{ ...cardStyle, display: "grid", gap: 10, alignContent: "start" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Settings2 size={19} />
+            <h2 style={{ margin: 0, fontSize: 18 }}>Γρήγορες επιλογές</h2>
+          </div>
+          <QuickLink href={`/songs?createdByUserId=${encodeURIComponent(String(user.id))}`} icon={<Music2 size={18} />} label="Τα τραγούδια μου" />
+          <QuickLink href="/lists" icon={<ListMusic size={18} />} label="Οι λίστες μου" />
+          <QuickLink href="/me/history" icon={<History size={18} />} label="Ιστορικό μου" />
+          <QuickLink href="/me/singer-tunes/settings" icon={<Settings2 size={18} />} label="Ρυθμίσεις τονικοτήτων" />
+        </div>
+      </section>
+
+      <section style={{ ...cardStyle, display: "grid", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18 }}>Προεπιλογές τραγουδιών</h2>
+            <div style={{ ...mutedStyle, marginTop: 4 }}>
+              Ορίζουν τι ανοίγει προεπιλεγμένα όταν μπαίνεις σε τραγούδι.
+            </div>
+          </div>
+          {!editing ? (
+            <span style={{ ...mutedStyle, display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <Check size={15} /> Προβολή
+            </span>
+          ) : null}
+        </div>
+
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={mutedStyle}>Ενότητες που εμφανίζονται ανοικτές</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <ToggleChip active={defTonicities} disabled={!editing} onClick={() => setDefTonicities((v) => !v)}>Tunes</ToggleChip>
+            <ToggleChip active={defInfo} disabled={!editing} onClick={() => setDefInfo((v) => !v)}>Info</ToggleChip>
+            <ToggleChip active={defChords} disabled={!editing} onClick={() => setDefChords((v) => !v)}>Chords</ToggleChip>
+            <ToggleChip active={defScores} disabled={!editing} onClick={() => setDefScores((v) => !v)}>Scores</ToggleChip>
           </div>
         </div>
 
         <div style={{ height: 1, background: "rgba(255,255,255,0.12)" }} />
 
-        <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.85)" }}>
-            Προεπιλογή ανακατεύθυνσης
-          </div>
-
-          <div
-            className="song-toggles"
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-            }}
-          >
-            <Button
-              type="button"
-              variant={redirectDefault === "TITLE" ? "primary" : "secondary"}
-              onClick={() => setRedirectDefault("TITLE")}
-              title="Άνοιγμα στο επάνω μέρος (Τίτλος)"
-              aria-pressed={redirectDefault === "TITLE"}
-            >
-              Τίτλος
-            </Button>
-
-            <Button
-              type="button"
-              variant={redirectDefault === "CHORDS" ? "primary" : "secondary"}
-              onClick={() => setRedirectDefault("CHORDS")}
-              title="Άνοιγμα στις Συγχορδίες"
-              aria-pressed={redirectDefault === "CHORDS"}
-            >
-              Συγχορδίες
-            </Button>
-
-            <Button
-              type="button"
-              variant={redirectDefault === "LYRICS" ? "primary" : "secondary"}
-              onClick={() => setRedirectDefault("LYRICS")}
-              title="Άνοιγμα στους Στίχους"
-              aria-pressed={redirectDefault === "LYRICS"}
-            >
-              Στίχοι
-            </Button>
-
-            <Button
-              type="button"
-              variant={redirectDefault === "SCORE" ? "primary" : "secondary"}
-              onClick={() => setRedirectDefault("SCORE")}
-              title="Άνοιγμα στην Παρτιτούρα"
-              aria-pressed={redirectDefault === "SCORE"}
-            >
-              Παρτιτούρα
-            </Button>
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={mutedStyle}>Πού να ανοίγει το τραγούδι</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {(["TITLE", "CHORDS", "LYRICS", "SCORE"] as RedirectDefault[]).map((value) => (
+              <ToggleChip
+                key={value}
+                active={redirectDefault === value}
+                disabled={!editing}
+                onClick={() => setRedirectDefault(value)}
+              >
+                {redirectLabel(value)}
+              </ToggleChip>
+            ))}
           </div>
         </div>
-      </div>
+      </section>
 
-      {error ? (
-        <div style={{ color: "#ffb4b4" }}>{error}</div>
-      ) : ok ? (
-        <div style={{ color: "#b8ffb8" }}>{ok}</div>
-      ) : null}
+      <section
+        style={{
+          ...cardStyle,
+          borderColor: "rgba(255,120,120,0.28)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start", minWidth: 0 }}>
+          <AlertTriangle size={20} color="#ffb4b4" />
+          <div>
+            <div style={{ fontWeight: 950 }}>Απενεργοποίηση λογαριασμού</div>
+            <div style={mutedStyle}>
+              Ο λογαριασμός δεν διαγράφεται από τη βάση. Απενεργοποιείται και αποσυνδέεσαι από τη σελίδα.
+            </div>
+          </div>
+        </div>
+        <Button type="button" variant="danger" onClick={onDeactivateAccount} disabled={busy}>
+          <Trash2 size={16} /> {deactivating ? "Απενεργοποίηση..." : "Απενεργοποίηση"}
+        </Button>
+      </section>
     </div>
   );
 }

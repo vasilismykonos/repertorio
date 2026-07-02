@@ -10,9 +10,11 @@ import {
   ChevronLeft,
   ChevronRight,
   ListMusic,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { signIn, useSession } from "next-auth/react";
 
 import ActionBar from "../../components/ActionBar";
 import { A } from "../../components/buttons";
@@ -23,6 +25,7 @@ import SongInfoToggle from "./SongInfoToggle";
 import SongSingerTunesClient from "./SongSingerTunesClient";
 import SongScoresPanel from "./SongScoresPanel";
 import SongAssetsPanel from "./SongAssetsPanel";
+import SongAssetsClient from "./SongAssetsClient";
 import SongListPickerModal from "./SongListPickerModal";
 import type { ListItemToneValue } from "@/app/components/ListItemTonePicker";
 import type { Step } from "react-joyride";
@@ -42,7 +45,7 @@ const GuidedTour = dynamic(
 );
 
 const ROOM_SENT_FLASH_MS = 1200;
-const PANEL_ICON_HAS_CONTENT = "#22c55e";
+const PANEL_ICON_HAS_CONTENT = "var(--rp-orange, #0a84ff)";
 
 type PanelsOpen = {
   info: boolean;
@@ -53,6 +56,8 @@ type PanelsOpen = {
 };
 
 type RedirectDefault = "TITLE" | "CHORDS" | "LYRICS" | "SCORE" | "ASSETS";
+type SongViewTab = "song" | "scores" | "info";
+type SongDisplaySettingKey = "singerTunes" | "chords";
 
 type Props = {
   song: SongDetail;
@@ -61,10 +66,16 @@ type Props = {
   schemaNode: React.ReactNode;
   defaultPanelsOpen?: Partial<PanelsOpen>;
   redirectDefault?: RedirectDefault;
+  initialViewTab?: SongViewTab;
   youtubeUrl: string;
   initialSingerTunes?: any[];
   initialSingerTunesLoaded?: boolean;
   initialSingerTunesAuthRequired?: boolean;
+};
+
+type CurrentUserForDisplaySettings = {
+  id: number;
+  profile?: any | null;
 };
 
 type SongListOption = {
@@ -703,6 +714,23 @@ function YouTubeActionButton({
   );
 }
 
+function tabForRedirectDefault(value: RedirectDefault | undefined): SongViewTab {
+  if (value === "SCORE") return "scores";
+  if (value === "ASSETS") return "info";
+  return "song";
+}
+
+function tabForLegacyQuery(searchParams: URLSearchParams | null): SongViewTab | null {
+  if (!searchParams) return null;
+  if (searchParams.get("partiture") === "1" || searchParams.get("scores") === "1") {
+    return "scores";
+  }
+  if (searchParams.get("info") === "1" || searchParams.get("assets") === "1") {
+    return "info";
+  }
+  return null;
+}
+
 function offlineSongIdForClient(value: any): number | null {
   const id = Math.trunc(Number(value?.id ?? value?.legacySongId ?? value?.song_id ?? value?.songId));
   return Number.isFinite(id) && id > 0 ? id : null;
@@ -757,6 +785,7 @@ export default function SongPageClient(props: Props) {
     schemaNode,
     defaultPanelsOpen,
     redirectDefault,
+    initialViewTab,
     youtubeUrl,
     initialSingerTunes,
     initialSingerTunesLoaded,
@@ -1368,8 +1397,11 @@ export default function SongPageClient(props: Props) {
 
   const allAssets: any[] = Array.isArray((song as any).assets) ? (song as any).assets : [];
   const hasAssets = allAssets.length > 0;
+  const scoreAssetsCount = allAssets.filter((a) => isMxlScoreAsset(a)).length;
+  const scoreDisplayCount =
+    scoreAssetsCount > 0 ? scoreAssetsCount : Boolean((song as any).hasScore) ? 1 : 0;
   const hasScores =
-    Boolean((song as any).hasScore) || allAssets.some((a) => isMxlScoreAsset(a));
+    Boolean((song as any).hasScore) || scoreAssetsCount > 0;
 
   const initialPanels = useMemo(
     () => computeInitialPanels(hasChords, hasScores, hasAssets, defaultPanelsOpen),
@@ -1377,10 +1409,26 @@ export default function SongPageClient(props: Props) {
   );
 
   const [panels, setPanels] = useState<PanelsOpen>(initialPanels);
+  const [activeTab, setActiveTab] = useState<SongViewTab>(() =>
+    initialViewTab ?? tabForRedirectDefault(redirectDefault),
+  );
+  const [displaySettingsOpen, setDisplaySettingsOpen] = useState(false);
+  const [displaySettingsSaving, setDisplaySettingsSaving] = useState(false);
+  const [displaySettingsError, setDisplaySettingsError] = useState<string | null>(null);
+  const [displaySettingsUser, setDisplaySettingsUser] =
+    useState<CurrentUserForDisplaySettings | null>(null);
+  const [displaySettingsAuthChecked, setDisplaySettingsAuthChecked] = useState(false);
+  const displaySettingsRef = useRef<HTMLDivElement | null>(null);
+  const legacyQueryTab = tabForLegacyQuery(sp);
+  const { status: displaySessionStatus } = useSession();
 
   useEffect(() => {
     setPanels(initialPanels);
   }, [song.id, initialPanels]);
+
+  useEffect(() => {
+    setActiveTab(legacyQueryTab ?? initialViewTab ?? tabForRedirectDefault(redirectDefault));
+  }, [song.id, redirectDefault, initialViewTab, legacyQueryTab]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1417,6 +1465,259 @@ export default function SongPageClient(props: Props) {
 
   function togglePanel<K extends keyof PanelsOpen>(key: K) {
     setPanels((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  useEffect(() => {
+    if (!displaySettingsOpen || typeof window === "undefined") return;
+
+    function onPointerDown(e: PointerEvent) {
+      const root = displaySettingsRef.current;
+      if (!root) return;
+      if (e.target instanceof Node && root.contains(e.target)) return;
+      setDisplaySettingsOpen(false);
+    }
+
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [displaySettingsOpen]);
+
+  async function fetchCurrentUserForDisplaySettings(): Promise<CurrentUserForDisplaySettings | null> {
+    try {
+      const res = await fetch("/api/current-user", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (!res.ok) {
+        setDisplaySettingsAuthChecked(true);
+        return null;
+      }
+
+      const data = await readJson(res);
+      const user = data?.user;
+      const id = Number(user?.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        setDisplaySettingsAuthChecked(true);
+        return null;
+      }
+
+      const normalized: CurrentUserForDisplaySettings = {
+        id,
+        profile: user?.profile ?? null,
+      };
+      setDisplaySettingsUser(normalized);
+      setDisplaySettingsAuthChecked(true);
+      return normalized;
+    } catch {
+      setDisplaySettingsAuthChecked(true);
+      return null;
+    }
+  }
+
+  function mergeDisplaySettingProfile(
+    profile: any,
+    key: SongDisplaySettingKey,
+    value: boolean,
+  ) {
+    const profileKey = key === "singerTunes" ? "tonicities" : key;
+    const baseProfile =
+      profile && typeof profile === "object" && !Array.isArray(profile) ? profile : {};
+    const basePrefs =
+      baseProfile.prefs && typeof baseProfile.prefs === "object" && !Array.isArray(baseProfile.prefs)
+        ? baseProfile.prefs
+        : {};
+    const baseSongDefaults =
+      basePrefs.songTogglesDefault &&
+      typeof basePrefs.songTogglesDefault === "object" &&
+      !Array.isArray(basePrefs.songTogglesDefault)
+        ? basePrefs.songTogglesDefault
+        : {};
+
+    return {
+      ...baseProfile,
+      prefs: {
+        ...basePrefs,
+        songTogglesDefault: {
+          ...baseSongDefaults,
+          [profileKey]: value,
+        },
+      },
+    };
+  }
+
+  async function updateSongDisplaySetting(key: SongDisplaySettingKey, value: boolean) {
+    setPanels((prev) => ({ ...prev, [key]: value }));
+    setDisplaySettingsError(null);
+
+    const existingUser = displaySettingsUser;
+    const user = existingUser ?? (await fetchCurrentUserForDisplaySettings());
+    if (!user) {
+      setDisplaySettingsAuthChecked(true);
+      setDisplaySettingsError("Συνδέσου για να αποθηκευτεί ως μόνιμη προτίμηση.");
+      return;
+    }
+
+    const nextProfile = mergeDisplaySettingProfile(user.profile, key, value);
+
+    setDisplaySettingsSaving(true);
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(String(user.id))}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ profile: nextProfile }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      setDisplaySettingsUser({ ...user, profile: nextProfile });
+    } catch {
+      setDisplaySettingsError("Δεν αποθηκεύτηκε. Η αλλαγή ισχύει προσωρινά στη σελίδα.");
+    } finally {
+      setDisplaySettingsSaving(false);
+    }
+  }
+
+  function openDisplaySettings() {
+    setDisplaySettingsOpen((open) => {
+      const next = !open;
+      if (next && !displaySettingsUser) {
+        void fetchCurrentUserForDisplaySettings();
+      }
+      return next;
+    });
+  }
+
+  function handleDisplaySettingsSignIn() {
+    const callbackUrl =
+      typeof window === "undefined"
+        ? `/songs/${encodeURIComponent(String(song.id))}`
+        : `${window.location.pathname}${window.location.search}`;
+    void signIn("google", { callbackUrl });
+  }
+
+  function renderDisplaySettingsControl() {
+    return (
+      <div
+        ref={displaySettingsRef}
+        style={{
+          position: "relative",
+          display: "inline-flex",
+          flex: "0 0 auto",
+          marginLeft: "auto",
+        }}
+        data-no-swipe
+      >
+        <Button
+          type="button"
+          variant="secondary"
+          iconOnly
+          onClick={openDisplaySettings}
+          title="Ρυθμίσεις προβολής"
+          aria-expanded={displaySettingsOpen}
+          icon={Settings}
+        />
+
+        {displaySettingsOpen ? (
+          <div
+            role="dialog"
+            aria-label="Ρυθμίσεις προβολής τραγουδιού"
+            style={{
+              position: "absolute",
+              top: "calc(100% + 8px)",
+              right: 0,
+              zIndex: 80,
+              width: 260,
+              maxWidth: "calc(100vw - 24px)",
+              padding: 12,
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "#161616",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.45)",
+              color: "#fff",
+            }}
+          >
+            <div style={{ fontWeight: 800, marginBottom: 10 }}>
+              Προεπιλογές προβολής
+            </div>
+
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "8px 0",
+                cursor: "pointer",
+              }}
+            >
+              <span>Εμφάνιση τονικοτήτων</span>
+              <input
+                type="checkbox"
+                checked={panels.singerTunes}
+                disabled={displaySettingsSaving}
+                onChange={(e) =>
+                  void updateSongDisplaySetting("singerTunes", e.currentTarget.checked)
+                }
+              />
+            </label>
+
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "8px 0",
+                cursor: "pointer",
+              }}
+            >
+              <span>Εμφάνιση συγχορδιών</span>
+              <input
+                type="checkbox"
+                checked={panels.chords}
+                disabled={displaySettingsSaving}
+                onChange={(e) =>
+                  void updateSongDisplaySetting("chords", e.currentTarget.checked)
+                }
+              />
+            </label>
+
+            {displaySessionStatus !== "authenticated" && !displaySettingsUser ? (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 10,
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.06)",
+                  display: "grid",
+                  gap: 8,
+                }}
+              >
+                <div style={{ fontSize: 12, lineHeight: 1.35, color: "#ddd" }}>
+                  Συνδέσου για να αποθηκεύονται οι επιλογές προβολής σου σε κάθε άνοιγμα.
+                </div>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={handleDisplaySettingsSignIn}
+                >
+                  Σύνδεση / Εγγραφή
+                </Button>
+              </div>
+            ) : null}
+
+            <div style={{ minHeight: 18, marginTop: 8, fontSize: 12, color: "#bbb" }}>
+              {displaySettingsSaving
+                ? "Αποθήκευση..."
+                : displaySettingsError || "Ισχύει για κάθε άνοιγμα τραγουδιού."}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   const listGroupTitleById = useMemo(() => {
@@ -2465,7 +2766,7 @@ export default function SongPageClient(props: Props) {
           </pre>
         </section>
 
-        <SongScoresPanel open={panels.scores} assets={viewAssets} />
+        <SongScoresPanel open={panels.scores} assets={viewAssets} canEdit={canEdit} />
       </div>
     );
   }
@@ -2502,10 +2803,8 @@ export default function SongPageClient(props: Props) {
   return (
     <section
       ref={swipeViewportRef}
+      className="songbook-page"
       style={{
-        padding: "0px 10px",
-        maxWidth: 900,
-        margin: "0 auto",
         touchAction: "pan-y",
         position: "relative",
         overflowX: "clip",
@@ -2522,10 +2821,10 @@ export default function SongPageClient(props: Props) {
       onPointerCancel={cancelSwipeGesture}
     >
       <div
+        className="songbook-swipe-surface"
         style={{
           position: "relative",
           zIndex: 1,
-          background: "#000",
           transform: swipeIsActive ? `translate3d(${swipeOffsetX}px, 0, 0)` : undefined,
           transition: swipeDragging
             ? "none"
@@ -2533,6 +2832,7 @@ export default function SongPageClient(props: Props) {
           willChange: swipeIsActive ? "transform" : undefined,
         }}
       >
+      <div className="songbook-actionbar">
       <ActionBar
         left={<>{A.backLink({ href: backHref, title: backTitle, label: backLabel })}</>}
         right={
@@ -2565,6 +2865,7 @@ export default function SongPageClient(props: Props) {
           </>
         }
       />
+      </div>
 
       <GuidedTour storageKey={TOUR_STORAGE_KEY} steps={tourSteps} openSignal={tourOpenSignal} />
 
@@ -2592,43 +2893,24 @@ export default function SongPageClient(props: Props) {
         normalizeListTitle={normalizeListTitle}
       />
 
-      <header id="song-title" style={{ marginBottom: 16 }}>
-        <div style={{ marginBottom: 8 }}>
-          <h1
-            style={{
-              fontSize: "1.8rem",
-              fontWeight: 700,
-              margin: 0,
-              lineHeight: 1.1,
-            }}
-          >
-            {song.title}
-          </h1>
+      <header id="song-title" className="songbook-hero">
+        <div className="songbook-hero-main">
+          <div className="songbook-title-copy">
+            <h1 className="songbook-title">{song.title}</h1>
 
-          {songHeaderMeta(song) ? (
-            <div
-              style={{
-                marginTop: 4,
-                fontSize: "0.9rem",
-                lineHeight: 1.1,
-                color: "#aaa",
-              }}
-            >
-              {songHeaderMeta(song)}
-            </div>
-          ) : null}
+            {songHeaderMeta(song) ? (
+              <div className="songbook-subtitle">{songHeaderMeta(song)}</div>
+            ) : null}
+
+          </div>
+
+          {renderDisplaySettingsControl()}
         </div>
 
         {listNav ? (
           <div
             data-tour="nav-buttons"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              marginTop: 10,
-              flexWrap: "wrap",
-            }}
+            className="songbook-list-nav"
           >
             <Button
               type="button"
@@ -2652,16 +2934,7 @@ export default function SongPageClient(props: Props) {
             </Button>
 
             <div
-              style={{
-                fontSize: "0.95rem",
-                opacity: 0.85,
-                padding: "6px 14px",
-                borderRadius: 999,
-                border: "1px solid #333",
-                background: "#111",
-                minWidth: 70,
-                textAlign: "center",
-              }}
+              className="songbook-list-count"
               title="Θέση στη λίστα"
             >
               {listNav.curPos + 1} / {listSongIds?.length ?? 0}
@@ -2715,91 +2988,63 @@ export default function SongPageClient(props: Props) {
         </div>
       ) : null}
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6, marginBottom: 14 }}>
-        <span data-tour="btn-tunes" style={{ display: "inline-flex" }}>
-          <Button
-            type="button"
-            variant={panels.singerTunes ? "primary" : "secondary"}
-            onClick={() => togglePanel("singerTunes")}
-            title={panels.singerTunes ? "Απόκρυψη τονικοτήτων" : "Εμφάνιση τονικοτήτων"}
-            aria-pressed={panels.singerTunes}
-            icon={panelIcon(Mic, true)}
-          >
-            Tunes
-          </Button>
-        </span>
-
-        <span data-tour="btn-info" style={{ display: "inline-flex" }}>
-          <Button
-            type="button"
-            variant={panels.info ? "primary" : "secondary"}
-            onClick={() => togglePanel("info")}
-            title={panels.info ? "Απόκρυψη πληροφοριών" : "Εμφάνιση πληροφοριών"}
-            aria-pressed={panels.info}
-            icon={panelIcon(Info, true)}
-          >
-            Info
-          </Button>
-        </span>
-
+      <div
+        role="tablist"
+        aria-label="Προβολή τραγουδιού"
+        className="songbook-tabs"
+      >
         <span data-tour="btn-chords" style={{ display: "inline-flex" }}>
           <Button
             type="button"
-            variant={panels.chords ? "primary" : "secondary"}
-            onClick={() => togglePanel("chords")}
-            title={
-              panels.chords
-                  ? "Απόκρυψη ακόρντων"
-                  : hasChords
-                    ? "Εμφάνιση ακόρντων"
-                    : "Άνοιγμα συγχορδιών για προσθήκη/επεξεργασία"
-            }
-            aria-pressed={panels.chords}
+            variant={activeTab === "song" ? "primary" : "secondary"}
+            className="songbook-tab"
+            showLabel
+            onClick={() => setActiveTab("song")}
+            title="Στίχοι, συγχορδίες και τονικότητες"
+            aria-pressed={activeTab === "song"}
             icon={panelIcon(Guitar, hasChords)}
           >
-            Chords
+            Τραγούδι
           </Button>
         </span>
 
         <span data-tour="btn-scores" style={{ display: "inline-flex" }}>
           <Button
             type="button"
-            variant={panels.scores ? "primary" : "secondary"}
-            onClick={() => togglePanel("scores")}
-            title={
-              panels.scores
-                  ? "Απόκρυψη παρτιτούρας"
-                  : hasScores
-                    ? "Εμφάνιση παρτιτούρας"
-                    : "Άνοιγμα παρτιτούρας"
-            }
-            aria-pressed={panels.scores}
+            variant={activeTab === "scores" ? "primary" : "secondary"}
+            className="songbook-tab"
+            showLabel
+            onClick={() => setActiveTab("scores")}
+            title={hasScores ? "Προβολή παρτιτούρας" : "Παρτιτούρες"}
+            aria-pressed={activeTab === "scores"}
             icon={panelIcon(Music, hasScores)}
           >
-            Scores
+            Παρτιτούρες{scoreDisplayCount > 0 ? ` (${scoreDisplayCount})` : ""}
           </Button>
         </span>
 
-        <SongAssetsPanel
-          open={panels.assets}
-          hasAssets={hasAssets}
-          assets={(song as any).assets ?? []}
-          onToggle={() => togglePanel("assets")}
-        />
+        <span data-tour="btn-info" style={{ display: "inline-flex" }}>
+          <Button
+            type="button"
+            variant={activeTab === "info" ? "primary" : "secondary"}
+            className="songbook-tab"
+            showLabel
+            onClick={() => setActiveTab("info")}
+            title="Πληροφορίες και υλικό τραγουδιού"
+            aria-pressed={activeTab === "info"}
+            icon={panelIcon(Info, true)}
+          >
+            Πληροφορίες
+          </Button>
+        </span>
       </div>
 
       {song.tags.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+        <div className="songbook-tags">
           {song.tags.map((t) => (
             <span
               key={t.id}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 99,
-                border: "1px solid #333",
-                background: "#111",
-                fontSize: 14,
-              }}
+              className="songbook-tag"
               title={t.slug ? `slug: ${t.slug}` : undefined}
             >
               #{t.title}
@@ -2809,82 +3054,83 @@ export default function SongPageClient(props: Props) {
       )}
 
       <div
-        style={{
-          height: 1,
-          background: "linear-gradient(to right, #333, transparent)",
-          marginBottom: 14,
-          marginTop: 14,
-        }}
+        className="songbook-divider"
       />
 
-      <SongInfoToggle
-        open={panels.info}
-        songTitle={song.title}
-        categoryTitle={song.categoryTitle}
-        composerName={song.composerName}
-        lyricistName={song.lyricistName}
-        rythmTitle={song.rythmTitle}
-        basedOnSongTitle={song.basedOnSongTitle}
-        basedOnSongId={song.basedOnSongId}
-        characteristics={song.characteristics}
-        views={song.views}
-        createdByUserId={song.createdByUserId}
-        createdByDisplayName={song.createdByDisplayName}
-        status={song.status}
-        versions={song.versions}
-      />
+      {activeTab === "song" ? (
+        <div className="songbook-performance">
+          {panels.singerTunes ? (
+            <SongSingerTunesClient
+              open
+              songId={song.id}
+              originalKeySign={song.originalKeySign}
+              selectedSingerTuneId={effectiveSelectedSingerTuneId}
+              selectedTonicity={effectiveUrlTonicity}
+              selectedTonicitySign={effectiveUrlTonicitySign}
+              initialRows={initialSingerTunes as any}
+              initialRowsLoaded={Boolean(initialSingerTunesLoaded)}
+              initialAuthRequired={Boolean(initialSingerTunesAuthRequired)}
+            />
+          ) : null}
 
-      <SongSingerTunesClient
-        open={panels.singerTunes}
-        songId={song.id}
-        originalKeySign={song.originalKeySign}
-        selectedSingerTuneId={effectiveSelectedSingerTuneId}
-        selectedTonicity={effectiveUrlTonicity}
-        selectedTonicitySign={effectiveUrlTonicitySign}
-        initialRows={initialSingerTunes as any}
-        initialRowsLoaded={Boolean(initialSingerTunesLoaded)}
-        initialAuthRequired={Boolean(initialSingerTunesAuthRequired)}
-      />
+          <div className="songbook-sheet">
+            {panels.chords ? (
+              <section id="song-chords" className="songbook-chords-section">
+                <SongChordsClient
+                  songId={song.id}
+                  chords={song.chords}
+                  canEdit={canEdit}
+                  characteristics={song.characteristics}
+                  originalKey={song.originalKey}
+                  originalKeySign={song.originalKeySign}
+                  urlTonicity={effectiveUrlTonicity}
+                  urlTonicitySign={effectiveUrlTonicitySign}
+                />
+              </section>
+            ) : null}
 
-      {panels.chords ? (
-        <section id="song-chords" style={{ marginTop: 0, marginBottom: 0 }}>
-          <SongChordsClient
-            songId={song.id}
-            chords={song.chords}
-            canEdit={canEdit}
-            characteristics={song.characteristics}
-            originalKey={song.originalKey}
-            originalKeySign={song.originalKeySign}
-            urlTonicity={effectiveUrlTonicity}
-            urlTonicitySign={effectiveUrlTonicitySign}
-          />
-        </section>
+            <section id="song-lyrics" className="songbook-lyrics-section">
+              <pre
+                data-tour="lyrics-zoom"
+                ref={lyricsPreRef}
+                className="songbook-lyrics"
+                style={{ fontSize: Math.round(LYRICS_BASE_FONT_SIZE * lyricsScale) }}
+              >
+                {finalLyrics}
+              </pre>
+            </section>
+          </div>
+        </div>
       ) : null}
 
-      <section id="song-lyrics" style={{ marginTop: 0, marginBottom: 24 }}>
-        <pre
-          data-tour="lyrics-zoom"
-          ref={lyricsPreRef}
-          style={{
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-            wordBreak: "break-word",
-            padding: "6px 10px",
-            margin: 0,
-            borderRadius: 10,
-            border: "1px solid #333",
-            background: "#0b0b0b",
-            fontSize: Math.round(LYRICS_BASE_FONT_SIZE * lyricsScale),
-            lineHeight: 1.12,
-            touchAction: "pan-y",
-            WebkitTextSizeAdjust: "100%",
-          }}
-        >
-          {finalLyrics}
-        </pre>
-      </section>
+      {activeTab === "scores" ? (
+        <div className="songbook-score-panel">
+          <SongScoresPanel open assets={(song as any).assets ?? []} canEdit={canEdit} />
+        </div>
+      ) : null}
 
-      <SongScoresPanel open={panels.scores} assets={(song as any).assets ?? []} />
+      {activeTab === "info" ? (
+        <div className="songbook-tab-panel">
+          <SongInfoToggle
+            open
+            songTitle={song.title}
+            categoryTitle={song.categoryTitle}
+            composerName={song.composerName}
+            lyricistName={song.lyricistName}
+            rythmTitle={song.rythmTitle}
+            basedOnSongTitle={song.basedOnSongTitle}
+            basedOnSongId={song.basedOnSongId}
+            characteristics={song.characteristics}
+            views={song.views}
+            createdByUserId={song.createdByUserId}
+            createdByDisplayName={song.createdByDisplayName}
+            status={song.status}
+            versions={song.versions}
+          />
+
+          <SongAssetsClient open assets={(song as any).assets ?? []} />
+        </div>
+      ) : null}
 
       {schemaNode}
       </div>

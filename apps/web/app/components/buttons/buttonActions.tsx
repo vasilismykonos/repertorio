@@ -698,6 +698,14 @@ export const A = {
         disabled={disabled}
         onClick={() => {
           const cb = callbackUrl ?? getSameOriginCallbackUrl("/");
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("repertorio_open_login_prompt", {
+                detail: { provider, callbackUrl: cb },
+              }),
+            );
+            return;
+          }
           void signIn(provider, { callbackUrl: cb });
         }}
         title={title}

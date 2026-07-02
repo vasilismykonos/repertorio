@@ -22,6 +22,7 @@ import { PresenceModule } from "./presence/presence.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { UserHistoryModule } from "./user-history/user-history.module";
 import { ChatModule } from "./chat/chat.module";
+import { IntegrityModule } from "./integrity/integrity.module";
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { ChatModule } from "./chat/chat.module";
     UserHistoryModule,
     AssetsModule,
     ChatModule,
+    IntegrityModule,
   ],
   controllers: [AppController],
   providers: [AppService],

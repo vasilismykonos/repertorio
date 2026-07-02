@@ -20,6 +20,8 @@
 
   // --------------------------- makeState ---------------------------
   function makeState(wrap) {
+    const storedViewMode = localStorage.getItem(VIEW_KEY);
+    const defaultViewMode = wrap.dataset.defaultView === 'paged' ? 'paged' : 'horizontal';
     return {
       wrap,
       fileUrl: wrap.dataset.file,
@@ -59,7 +61,7 @@
       baseBpm: 120,
 
       // view mode
-      viewMode: (localStorage.getItem(VIEW_KEY) === 'paged') ? 'paged' : 'horizontal',
+      viewMode: (storedViewMode === 'paged' || storedViewMode === 'horizontal') ? storedViewMode : defaultViewMode,
 
       // cache
       _xmlText: null,      // για καθαρό MusicXML (text)
@@ -73,7 +75,9 @@
 
       // flags
       lastTransport: null,
-      _osmdRenderPatched: false
+      _osmdRenderPatched: false,
+      _pinchZoomBound: false,
+      _pinchZoom: null
     };
   }
 
@@ -886,6 +890,177 @@
   }
 
   // Μετατροπή ArrayBuffer σε binary string (1 byte -> 1 char)
+  function getPointerDistance(a, b) {
+    const dx = (a.clientX || 0) - (b.clientX || 0);
+    const dy = (a.clientY || 0) - (b.clientY || 0);
+    return Math.sqrt((dx * dx) + (dy * dy));
+  }
+
+  function getPointerCenter(a, b) {
+    return {
+      x: ((a.clientX || 0) + (b.clientX || 0)) / 2,
+      y: ((a.clientY || 0) + (b.clientY || 0)) / 2
+    };
+  }
+
+  function getTouchDistance(touches) {
+    if (!touches || touches.length < 2) return 0;
+    return getPointerDistance(touches[0], touches[1]);
+  }
+
+  function getTouchCenter(touches) {
+    if (!touches || touches.length < 2) return null;
+    return getPointerCenter(touches[0], touches[1]);
+  }
+
+  function setTemporaryScoreScale(state, scale, center) {
+    const renderEl = state?.renderEl;
+    if (!renderEl) return;
+
+    const rect = renderEl.getBoundingClientRect();
+    const originX = center ? Math.max(0, center.x - rect.left + renderEl.scrollLeft) : 0;
+    const originY = center ? Math.max(0, center.y - rect.top + renderEl.scrollTop) : 0;
+
+    renderEl.querySelectorAll('.sp-page').forEach((el) => {
+      el.style.transformOrigin = `${originX}px ${originY}px`;
+      el.style.transform = `scale(${scale})`;
+    });
+  }
+
+  function clearTemporaryScoreScale(state) {
+    const renderEl = state?.renderEl;
+    if (!renderEl) return;
+
+    renderEl.querySelectorAll('.sp-page').forEach((el) => {
+      el.style.transform = '';
+      el.style.transformOrigin = '';
+    });
+  }
+
+  function bindPinchZoom(state) {
+    const renderEl = state?.renderEl;
+    if (!renderEl || state._pinchZoomBound) return;
+    state._pinchZoomBound = true;
+
+    const pointers = new Map();
+
+    const reset = async (commit) => {
+      renderEl.classList.remove('sp-pinching');
+      const pinch = state._pinchZoom;
+      state._pinchZoom = null;
+      pointers.clear();
+      clearTemporaryScoreScale(state);
+
+      if (!commit || !pinch || !Number.isFinite(pinch.targetZoom)) return;
+      const current = state.osmdZoom || state.osmd?.Zoom || 1;
+      if (Math.abs(pinch.targetZoom - current) < 0.01) return;
+      await applyOsmdZoom(state, pinch.targetZoom);
+    };
+
+    renderEl.addEventListener('pointerdown', (ev) => {
+      if (ev.pointerType !== 'touch') return;
+      pointers.set(ev.pointerId, ev);
+      if (pointers.size !== 2) return;
+      ev.preventDefault();
+      renderEl.classList.add('sp-pinching');
+
+      const active = Array.from(pointers.values());
+      const distance = getPointerDistance(active[0], active[1]);
+      if (!distance) return;
+
+      const startZoom = state.osmdZoom || state.osmd?.Zoom || 1;
+      state._pinchZoom = {
+        startDistance: distance,
+        startZoom,
+        targetZoom: startZoom,
+        center: getPointerCenter(active[0], active[1])
+      };
+
+      try { renderEl.setPointerCapture(ev.pointerId); } catch {}
+    }, { passive: false });
+
+    renderEl.addEventListener('pointermove', (ev) => {
+      if (ev.pointerType !== 'touch' || !pointers.has(ev.pointerId)) return;
+      pointers.set(ev.pointerId, ev);
+      if (pointers.size !== 2 || !state._pinchZoom) return;
+
+      ev.preventDefault();
+      const active = Array.from(pointers.values());
+      const distance = getPointerDistance(active[0], active[1]);
+      if (!distance || !state._pinchZoom.startDistance) return;
+
+      const scale = distance / state._pinchZoom.startDistance;
+      const targetZoom = clampZoom(state._pinchZoom.startZoom * scale);
+      state._pinchZoom.targetZoom = targetZoom;
+      state._pinchZoom.center = getPointerCenter(active[0], active[1]);
+
+      setTemporaryScoreScale(state, targetZoom / state._pinchZoom.startZoom, state._pinchZoom.center);
+
+      if (state.zoomInp) {
+        state.zoomInp.value = String(Math.round(targetZoom * 100));
+      }
+    }, { passive: false });
+
+    renderEl.addEventListener('pointerup', (ev) => {
+      if (ev.pointerType !== 'touch') return;
+      pointers.delete(ev.pointerId);
+      if (pointers.size < 2) void reset(true);
+    }, { passive: true });
+
+    renderEl.addEventListener('pointercancel', (ev) => {
+      if (ev.pointerType !== 'touch') return;
+      void reset(false);
+    }, { passive: true });
+
+    renderEl.addEventListener('gesturestart', (ev) => {
+      ev.preventDefault();
+    }, { passive: false });
+
+    renderEl.addEventListener('touchstart', (ev) => {
+      if (!ev.touches || ev.touches.length !== 2) return;
+      ev.preventDefault();
+      renderEl.classList.add('sp-pinching');
+
+      const distance = getTouchDistance(ev.touches);
+      if (!distance) return;
+
+      const startZoom = state.osmdZoom || state.osmd?.Zoom || 1;
+      state._pinchZoom = {
+        startDistance: distance,
+        startZoom,
+        targetZoom: startZoom,
+        center: getTouchCenter(ev.touches)
+      };
+    }, { passive: false });
+
+    renderEl.addEventListener('touchmove', (ev) => {
+      if (!ev.touches || ev.touches.length !== 2 || !state._pinchZoom) return;
+      ev.preventDefault();
+
+      const distance = getTouchDistance(ev.touches);
+      if (!distance || !state._pinchZoom.startDistance) return;
+
+      const scale = distance / state._pinchZoom.startDistance;
+      const targetZoom = clampZoom(state._pinchZoom.startZoom * scale);
+      state._pinchZoom.targetZoom = targetZoom;
+      state._pinchZoom.center = getTouchCenter(ev.touches);
+
+      setTemporaryScoreScale(state, targetZoom / state._pinchZoom.startZoom, state._pinchZoom.center);
+
+      if (state.zoomInp) {
+        state.zoomInp.value = String(Math.round(targetZoom * 100));
+      }
+    }, { passive: false });
+
+    renderEl.addEventListener('touchend', (ev) => {
+      if (state._pinchZoom && (!ev.touches || ev.touches.length < 2)) void reset(true);
+    }, { passive: true });
+
+    renderEl.addEventListener('touchcancel', () => {
+      if (state._pinchZoom) void reset(false);
+    }, { passive: true });
+  }
+
   function arrayBufferToBinaryString(buffer) {
     const bytes = new Uint8Array(buffer);
     const len = bytes.length;
@@ -901,6 +1076,10 @@
 
   async function unzipMxlBufferToXml(buffer) {
     try {
+      if (!w.JSZip && !(w.opensheetmusicdisplay && w.opensheetmusicdisplay.JSZip)) {
+        await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', '__REP_SCORE_JSZIP_PROMISE__');
+      }
+
       const JSZip = w.JSZip || (w.opensheetmusicdisplay && w.opensheetmusicdisplay.JSZip);
       if (!JSZip) return null;
 
@@ -946,6 +1125,16 @@
     if (!state._xmlText) {
       const res = await fetch(state.fileUrl);
 
+      if (!res.ok) {
+        const details = await res.text().catch(() => "");
+        console.warn("[score-player] score fetch failed", res.status, details);
+        if (state.renderEl) {
+          state.renderEl.innerHTML =
+            '<div class="sp-score-error" role="status">Η παρτιτούρα δεν βρέθηκε ή δεν είναι διαθέσιμη.</div>';
+        }
+        return;
+      }
+
       const ct = (res.headers.get("Content-Type") || "").toLowerCase();
       const url = String(state.fileUrl || "").toLowerCase();
 
@@ -985,6 +1174,20 @@
         // Καθαρό MusicXML → text
         state._xmlText = await res.text();
         parseCurrentXmlDoc(state);
+      }
+
+      const xmlProbe = String(state._xmlText || "").trimStart();
+      if (
+        !xmlProbe.startsWith("<?xml") &&
+        !xmlProbe.startsWith("<score-partwise") &&
+        !xmlProbe.startsWith("<score-timewise")
+      ) {
+        console.warn("[score-player] invalid MusicXML response", xmlProbe.slice(0, 80));
+        if (state.renderEl) {
+          state.renderEl.innerHTML =
+            '<div class="sp-score-error" role="status">Η παρτιτούρα δεν μπορεί να διαβαστεί.</div>';
+        }
+        return;
       }
     }
 
@@ -1416,9 +1619,90 @@ function ensureViewToggleUI(state) {
     }
   }
 
+  function loadScriptOnce(src, markerKey) {
+    if (!src) return Promise.resolve();
+    if (markerKey && w[markerKey]) return w[markerKey];
+
+    const existing = Array.from(document.scripts || []).find(script => {
+      const current = String(script.src || '');
+      return current === src || current.endsWith(src);
+    });
+    if (existing) {
+      const promise = new Promise((resolve, reject) => {
+        if (existing.dataset.loaded === '1') {
+          resolve();
+          return;
+        }
+        existing.addEventListener('load', resolve, { once: true });
+        existing.addEventListener('error', reject, { once: true });
+      });
+      if (markerKey) w[markerKey] = promise;
+      return promise;
+    }
+
+    const promise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.onload = () => {
+        script.dataset.loaded = '1';
+        resolve();
+      };
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+    if (markerKey) w[markerKey] = promise;
+    return promise;
+  }
+
+  async function ensureAudioReady() {
+    if (!w.Tone) {
+      await loadScriptOnce('https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.js', '__REP_SCORE_TONE_PROMISE__');
+    }
+    if (typeof NS.playAudio !== 'function') {
+      await loadScriptOnce('/score-player/score-audio.js?v=score-visual-first-20260630f', '__REP_SCORE_AUDIO_PROMISE__');
+    }
+  }
+
+  NS.changeTranspose = async function (state, value) {
+    if (!state) return;
+
+    const next = Math.max(
+      TRANSPOSE_MIN,
+      Math.min(TRANSPOSE_MAX, Number.parseInt(String(value), 10) || 0)
+    );
+    const wasPlaying = !!state.playing;
+
+    state.transpose = next;
+    NS.__globalTranspose = next;
+
+    if (typeof NS.updateTransposeUI === 'function') {
+      try { NS.updateTransposeUI(state); } catch {}
+    }
+
+    try {
+      if (wasPlaying && typeof NS.stopAudio === 'function') {
+        NS.stopAudio(state);
+      }
+    } catch (e) {
+      console.warn('[score-player] stop before transpose error', e);
+    }
+
+    await NS.loadAndRenderScore(state);
+
+    if (wasPlaying && typeof NS.playAudio === 'function') {
+      try {
+        await NS.playAudio(state);
+      } catch (e) {
+        console.warn('[score-player] restart after transpose error', e);
+      }
+    }
+  };
+
   NS.wireControls = function (state) {
     ensureViewToggleUI(state);
     ensureZoomButtons(state);
+    bindPinchZoom(state);
     setViewClass(state);
     updateViewButtons(state);
     NS.updateTransportUI(state);
@@ -1426,10 +1710,14 @@ function ensureViewToggleUI(state) {
     // Play
     if (state.btnPlay) state.btnPlay.addEventListener("click", async () => {
       state.lastTransport = 'play';
+      state.btnPlay.disabled = true;
       try {
+        await ensureAudioReady();
         if (w.Tone?.context?.state !== "running") await w.Tone.context.resume();
         await w.Tone?.loaded?.();
-      } catch {}
+      } catch (e) {
+        console.warn('[score-player] audio lazy load error', e);
+      }
       const v = Number.parseInt(state?.tempoInp?.value, 10);
       if (Number.isFinite(v) && v > 0 && w.Tone?.Transport) w.Tone.Transport.bpm.value = v;
       if (typeof NS.playAudio === 'function') await NS.playAudio(state);

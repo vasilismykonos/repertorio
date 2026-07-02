@@ -146,6 +146,14 @@ function InlineError({ message }: { message?: string }) {
   );
 }
 
+function SingerTuneShell({ children }: { children: React.ReactNode }) {
+  return (
+    <section style={{ padding: "0px 10px", maxWidth: 900, margin: "0 auto" }}>
+      {children}
+    </section>
+  );
+}
+
 export default function SingerTuneEditClient(props: {
   songId: number;
   mode: "create" | "edit";
@@ -323,7 +331,7 @@ export default function SingerTuneEditClient(props: {
   }
 
   return (
-    <>
+    <SingerTuneShell>
       <ActionBar
         left={A.backLink({
           href: `/songs/${songId}/singer-tunes`,
@@ -550,6 +558,6 @@ export default function SingerTuneEditClient(props: {
           text-overflow: ellipsis;
         }
       `}</style>
-    </>
+    </SingerTuneShell>
   );
 }

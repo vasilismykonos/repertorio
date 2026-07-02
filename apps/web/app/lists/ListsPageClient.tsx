@@ -420,7 +420,7 @@ export default function ListsPageClient({
 
   if (requiresLogin && sessionStatus === "unauthenticated") {
     return (
-      <section style={{ padding: "1rem" }}>
+      <section className="lists-index-page">
         <h1>Λίστες</h1>
         <p>Πρέπει να είστε συνδεδεμένος για να δείτε τις λίστες σας.</p>
       </section>
@@ -697,7 +697,7 @@ export default function ListsPageClient({
   }
 
   return (
-    <section style={{ padding: "1rem" }}>
+    <section className="lists-index-page">
       <ActionBar
         title="Λίστες"
         left={A.backLink({ href: "/", label: "Πίσω" })}

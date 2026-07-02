@@ -562,9 +562,24 @@ export function SongSingerTunesEditorClient({
             padding: 12,
             maxWidth: 720,
             background: "rgba(0,0,0,0.03)",
+            display: "grid",
+            gap: 10,
           }}
         >
-          Απαιτείται σύνδεση για προβολή και επεξεργασία τονικοτήτων.
+          <div>Απαιτείται σύνδεση για προβολή και επεξεργασία τονικοτήτων.</div>
+          {A.login({
+            title: "Σύνδεση για τονικότητες",
+            label: "Σύνδεση",
+            showLabel: true,
+            style: {
+              width: "fit-content",
+              maxWidth: "100%",
+              alignSelf: "flex-start",
+              justifySelf: "flex-start",
+              paddingLeft: 12,
+              paddingRight: 12,
+            },
+          })}
         </div>
       </>
     );

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, CloudOff, LayoutGrid, Mic, Recycle, RefreshCw, Search } from "lucide-react";
+import { Bell, CloudOff, ListMusic, Mic, Recycle, RefreshCw, Search } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { signIn, signOut } from "next-auth/react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
@@ -32,6 +32,12 @@ const ROOM_CHANGED_EVENT = "repertorio_current_room_changed";
 const PRESENCE_COUNTS_EVENT = "rep_presence_counts";
 const ROOMS_UPDATE_COUNT_EVENT = "rep_rooms_update_count";
 const ROOMS_API_BASE = "/rooms-api";
+const OPEN_LOGIN_PROMPT_EVENT = "repertorio_open_login_prompt";
+const GUEST_LOGIN_PROMPT_DISMISSED_UNTIL_KEY = "repertorio_guest_login_prompt_v3_dismissed_until";
+const GUEST_LOGIN_PROMPT_DELAY_MS = 3500;
+const GUEST_LOGIN_PROMPT_DISMISS_MS = 24 * 60 * 60 * 1000;
+const LAST_VIEWED_LIST_KEY = "repertorio:lastViewedListId";
+const LIST_PICKER_LAST_SELECTED_STORAGE_KEY = "repertorio_last_selected_list_id_v1";
 
 type StatusRoomUser = {
   device_id?: string;
@@ -85,6 +91,16 @@ function positiveRoomCount(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function localStoragePositiveInt(key: string): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const n = Number(window.localStorage.getItem(key));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 function HeaderInner({ appVersion }: HeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -92,6 +108,9 @@ function HeaderInner({ appVersion }: HeaderProps) {
 
   const isSongsPage = pathname === "/songs";
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [guestLoginPromptOpen, setGuestLoginPromptOpen] = useState(false);
+  const [guestLoginPromptCallbackUrl, setGuestLoginPromptCallbackUrl] = useState<string | null>(null);
+  const [quickListNotice, setQuickListNotice] = useState<string | null>(null);
 
   const identity = useOfflineIdentity();
   const isLoggedIn = identity.isAuthenticated;
@@ -118,6 +137,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const quickListNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [searchValue, setSearchValue] = useState("");
   const [hasText, setHasText] = useState(false);
@@ -141,6 +161,31 @@ function HeaderInner({ appVersion }: HeaderProps) {
     const callbackUrl = getSameOriginCallbackUrl();
     void signOut({ callbackUrl });
   }, [getSameOriginCallbackUrl]);
+
+  const openGuestLoginPrompt = useCallback((callbackUrl?: string | null) => {
+    if (isLoggedIn) return;
+    setGuestLoginPromptCallbackUrl(callbackUrl || null);
+    setGuestLoginPromptOpen(true);
+  }, [isLoggedIn]);
+
+  const closeGuestLoginPrompt = useCallback((durationMs = GUEST_LOGIN_PROMPT_DISMISS_MS) => {
+    setGuestLoginPromptOpen(false);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        GUEST_LOGIN_PROMPT_DISMISSED_UNTIL_KEY,
+        String(Date.now() + durationMs),
+      );
+    } catch {
+      // Best-effort UX memory only.
+    }
+  }, []);
+
+  const handleGuestLoginPromptSignIn = useCallback(() => {
+    setGuestLoginPromptOpen(false);
+    const callbackUrl = guestLoginPromptCallbackUrl || getSameOriginCallbackUrl();
+    void signIn("google", { callbackUrl });
+  }, [getSameOriginCallbackUrl, guestLoginPromptCallbackUrl]);
 
   const handleForceOfflineSync = useCallback(async () => {
     if (offlineActionBusy) return;
@@ -187,11 +232,66 @@ function HeaderInner({ appVersion }: HeaderProps) {
     [isSongsPage, searchParams, router],
   );
 
+  const openLastList = useCallback(() => {
+    const listId =
+      localStoragePositiveInt(LAST_VIEWED_LIST_KEY) ??
+      localStoragePositiveInt(LIST_PICKER_LAST_SELECTED_STORAGE_KEY);
+
+    if (quickListNoticeTimerRef.current) {
+      clearTimeout(quickListNoticeTimerRef.current);
+      quickListNoticeTimerRef.current = null;
+    }
+
+    setQuickListNotice(listId ? "Τελευταία λίστα" : "Δεν υπάρχει τελευταία λίστα");
+    quickListNoticeTimerRef.current = setTimeout(() => {
+      setQuickListNotice(null);
+      router.push(listId ? `/lists/${listId}` : "/lists");
+    }, 300);
+  }, [router]);
+
+  useEffect(() => {
+    return () => {
+      if (quickListNoticeTimerRef.current) clearTimeout(quickListNoticeTimerRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     const termFromUrl = searchParams.get("search_term") || "";
     setSearchValue(termFromUrl);
     setHasText(termFromUrl.trim().length > 0);
   }, [searchParams]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpenLoginPrompt = (event: Event) => {
+      const detail = (event as CustomEvent<{ callbackUrl?: string | null }>).detail;
+      openGuestLoginPrompt(detail?.callbackUrl || null);
+    };
+    window.addEventListener(OPEN_LOGIN_PROMPT_EVENT, onOpenLoginPrompt);
+    return () => window.removeEventListener(OPEN_LOGIN_PROMPT_EVENT, onOpenLoginPrompt);
+  }, [openGuestLoginPrompt]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      setGuestLoginPromptOpen(false);
+      return;
+    }
+    if (typeof window === "undefined") return;
+
+    try {
+      const dismissedUntil = Number(window.localStorage.getItem(GUEST_LOGIN_PROMPT_DISMISSED_UNTIL_KEY) || "0");
+      if (Number.isFinite(dismissedUntil) && dismissedUntil > Date.now()) return;
+    } catch {
+      // Storage is optional; fall through to a single delayed prompt.
+    }
+
+    const timer = window.setTimeout(() => {
+      if (document.visibilityState !== "visible") return;
+      setGuestLoginPromptOpen(true);
+    }, GUEST_LOGIN_PROMPT_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [isLoggedIn, pathname]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -473,9 +573,42 @@ function HeaderInner({ appVersion }: HeaderProps) {
                 width: "100%",
               }}
             >
-              <Link href="/categories" className="header-categories-button" title="Κατηγορίες" aria-label="Κατηγορίες">
-                <LayoutGrid size={22} strokeWidth={2.2} />
-              </Link>
+              <div style={{ position: "relative", display: "inline-flex", flex: "0 0 auto" }}>
+                <button
+                  type="button"
+                  className="header-categories-button"
+                  title="Τελευταία λίστα"
+                  aria-label="Άνοιγμα τελευταίας λίστας"
+                  onClick={openLastList}
+                  style={{ padding: 0, cursor: "pointer" }}
+                >
+                  <ListMusic size={21} strokeWidth={2.5} />
+                </button>
+                {quickListNotice ? (
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: "calc(100% + 7px)",
+                      zIndex: 30,
+                      padding: "5px 8px",
+                      borderRadius: 8,
+                      background: "rgba(17, 17, 17, 0.94)",
+                      color: "#fff",
+                      border: "1px solid rgba(255,255,255,0.16)",
+                      boxShadow: "0 8px 22px rgba(0,0,0,0.28)",
+                      fontSize: 12,
+                      fontWeight: 800,
+                      lineHeight: 1.15,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {quickListNotice}
+                  </span>
+                ) : null}
+              </div>
 
               <form
                 ref={formRef}
@@ -640,7 +773,6 @@ function HeaderInner({ appVersion }: HeaderProps) {
                 <span style={{ fontSize: 14 }}>{notifications.unreadCount}</span>
               </button>
             ) : null}
-
             {isLoggedIn ? (
               <Link
                 href="/me"
@@ -667,25 +799,29 @@ function HeaderInner({ appVersion }: HeaderProps) {
             ) : (
               <button
                 type="button"
-                onClick={doSignIn}
-                title="Σύνδεση / Εγγραφή με Google"
+                onClick={() => openGuestLoginPrompt(null)}
+                title="Σύνδεση / Εγγραφή"
                 style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: "50%",
-                  background: "#aaa",
-                  display: "flex",
+                  width: "auto",
+                  minWidth: 82,
+                  height: 34,
+                  borderRadius: 999,
+                  background: "#0a84ff",
+                  color: "#fff",
+                  display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: 18,
-                  border: "1px solid #fff",
+                  fontSize: 13,
+                  fontWeight: 900,
+                  border: "1px solid rgba(255,255,255,0.32)",
                   marginLeft: 8,
-                  padding: 0,
+                  padding: "0 12px",
                   cursor: "pointer",
-                  overflow: "hidden",
+                  whiteSpace: "nowrap",
+                  lineHeight: 1,
                 }}
               >
-                👤
+                Σύνδεση
               </button>
             )}
 
@@ -711,6 +847,109 @@ function HeaderInner({ appVersion }: HeaderProps) {
           </div>
         </div>
       </header>
+
+      {guestLoginPromptOpen && !isLoggedIn ? (
+        <div
+          role="presentation"
+          onClick={() => closeGuestLoginPrompt()}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2600,
+            background: "rgba(0,0,0,0.52)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Πρόταση σύνδεσης"
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(420px, 100%)",
+              borderRadius: 16,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "#171717",
+              color: "#fff",
+              boxShadow: "0 24px 70px rgba(0,0,0,0.45)",
+              padding: 18,
+              display: "grid",
+              gap: 14,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ display: "grid", gap: 6 }}>
+                <strong style={{ fontSize: 18, lineHeight: 1.2 }}>Σύνδεση με Google</strong>
+                <span style={{ color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 1.45 }}>
+                  Συνδέσου για να κρατάς τις λίστες, τις τονικότητες, το ιστορικό και τις offline ρυθμίσεις σου σε κάθε συσκευή.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => closeGuestLoginPrompt()}
+                aria-label="Κλείσιμο πρότασης σύνδεσης"
+                title="Όχι τώρα"
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: 22,
+                  lineHeight: 1,
+                  flex: "0 0 auto",
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={handleGuestLoginPromptSignIn}
+                style={{
+                  minHeight: 40,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  background: "#0a84ff",
+                  color: "#fff",
+                  padding: "0 14px",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                  flex: "1 1 170px",
+                }}
+              >
+                Σύνδεση με Google
+              </button>
+              <button
+                type="button"
+                onClick={() => closeGuestLoginPrompt()}
+                style={{
+                  minHeight: 40,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#fff",
+                  padding: "0 14px",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  flex: "1 1 120px",
+                }}
+              >
+                Όχι τώρα
+              </button>
+            </div>
+            <small style={{ color: "rgba(255,255,255,0.55)", lineHeight: 1.35 }}>
+              Μπορείς να συνεχίσεις κανονικά ως επισκέπτης.
+            </small>
+          </div>
+        </div>
+      ) : null}
 
       <SideMenu
         isOpen={isSidebarOpen}

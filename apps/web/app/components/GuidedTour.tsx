@@ -94,11 +94,11 @@ export default function GuidedTour({ storageKey, steps, openSignal = 0 }: Props)
       styles={{
         options: {
           zIndex: 2147483647,
-          backgroundColor: "#ffffff",
-          textColor: "#111111",
-          primaryColor: "#e11d48",
-          arrowColor: "#ffffff",
-          overlayColor: "rgba(0,0,0,0.55)",
+          backgroundColor: "#181818",
+          textColor: "#ffffff",
+          primaryColor: "#0a84ff",
+          arrowColor: "#181818",
+          overlayColor: "rgba(0,0,0,0.58)",
         },
         // ✅ Overlay/spotlight don't eat clicks
         overlay: { zIndex: 2147483646, pointerEvents: "none" },
@@ -106,34 +106,41 @@ export default function GuidedTour({ storageKey, steps, openSignal = 0 }: Props)
 
         tooltip: {
           zIndex: 2147483647,
-          borderRadius: 12,
+          borderRadius: 14,
           padding: 16,
           pointerEvents: "auto",
+          background: "#181818",
+          color: "#ffffff",
+          border: "1px solid rgba(255,255,255,0.16)",
+          boxShadow: "0 18px 55px rgba(0,0,0,0.45)",
         },
-        tooltipContent: { color: "#111111" },
+        tooltipContent: { color: "#ffffff", fontWeight: 600, lineHeight: 1.45 },
 
         buttonNext: {
+          background: "#0a84ff",
+          color: "#ffffff",
+          borderRadius: 10,
+          padding: "10px 14px",
+          fontWeight: 800,
+          pointerEvents: "auto",
+        },
+        buttonBack: {
+          background: "rgba(255,255,255,0.10)",
           color: "#ffffff",
           borderRadius: 10,
           padding: "10px 14px",
           fontWeight: 700,
           pointerEvents: "auto",
         },
-        buttonBack: {
-          color: "#111111",
-          borderRadius: 10,
-          padding: "10px 14px",
-          fontWeight: 600,
-          pointerEvents: "auto",
-        },
         buttonSkip: {
-          color: "#111111",
+          background: "rgba(255,255,255,0.08)",
+          color: "rgba(255,255,255,0.78)",
           borderRadius: 10,
           padding: "10px 14px",
-          fontWeight: 600,
+          fontWeight: 700,
           pointerEvents: "auto",
         },
-        buttonClose: { pointerEvents: "auto" },
+        buttonClose: { color: "#ffffff", pointerEvents: "auto" },
       }}
       callback={handleCallback}
     />

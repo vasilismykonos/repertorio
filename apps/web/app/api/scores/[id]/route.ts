@@ -110,31 +110,43 @@ async function resolveScoreFile(nameOrId: string): Promise<
   | { kind: "mxl"; path: string }
   | null
 > {
-  const scoresDir =
-    process.env.SCORES_DIR?.trim() ||
-    path.join(process.cwd(), "public", "scores");
+  const scoresDirs = [
+    process.env.SCORES_DIR?.trim(),
+    "/home/reperto/uploads/assets/score",
+    "/home/reperto/uploads/scores",
+    path.join(process.cwd(), "public", "scores"),
+    "/home/reperto/public_html/wp-content/uploads/mxl",
+    "/home/reperto/public_html/wp-content/plugins/repertorio-mxl-player/tmp",
+  ].filter(Boolean) as string[];
 
   // 1) Αν έρχεται ως filename με extension, δοκίμασέ το αυτούσιο
-  const directPath = path.join(scoresDir, nameOrId);
-  if (await fileExists(directPath)) {
-    const lower = nameOrId.toLowerCase();
-    if (lower.endsWith(".mxl")) return { kind: "mxl", path: directPath };
-    if (lower.endsWith(".musicxml") || lower.endsWith(".xml")) return { kind: "xml", path: directPath };
-    // Αν είναι άγνωστη κατάληξη αλλά υπάρχει, δεν το σερβίρουμε ως score
-    return null;
+  for (const scoresDir of scoresDirs) {
+    const directPath = path.join(scoresDir, nameOrId);
+    if (await fileExists(directPath)) {
+      const lower = nameOrId.toLowerCase();
+      if (lower.endsWith(".mxl")) return { kind: "mxl", path: directPath };
+      if (lower.endsWith(".musicxml") || lower.endsWith(".xml")) return { kind: "xml", path: directPath };
+      // Αν είναι άγνωστη κατάληξη αλλά υπάρχει, δεν το σερβίρουμε ως score
+      return null;
+    }
   }
 
   // 2) Αν δεν υπάρχει αυτούσιο, το θεωρούμε "id" χωρίς extension
   const idNoExt = nameOrId.replace(/\.(mxl|musicxml|xml)$/i, "");
 
-  const mxlPath = path.join(scoresDir, `${idNoExt}.mxl`);
-  if (await fileExists(mxlPath)) return { kind: "mxl", path: mxlPath };
+  for (const scoresDir of scoresDirs) {
+    const mxlPath = path.join(scoresDir, `${idNoExt}.mxl`);
+    if (await fileExists(mxlPath)) return { kind: "mxl", path: mxlPath };
 
-  const musicXmlPath = path.join(scoresDir, `${idNoExt}.musicxml`);
-  if (await fileExists(musicXmlPath)) return { kind: "xml", path: musicXmlPath };
+    const musicXmlPath = path.join(scoresDir, `${idNoExt}.musicxml`);
+    if (await fileExists(musicXmlPath)) return { kind: "xml", path: musicXmlPath };
 
-  const xmlPath = path.join(scoresDir, `${idNoExt}.xml`);
-  if (await fileExists(xmlPath)) return { kind: "xml", path: xmlPath };
+    const xmlPath = path.join(scoresDir, `${idNoExt}.xml`);
+    if (await fileExists(xmlPath)) return { kind: "xml", path: xmlPath };
+
+    const fixedXmlPath = path.join(scoresDir, `fixed_${idNoExt}.xml`);
+    if (await fileExists(fixedXmlPath)) return { kind: "xml", path: fixedXmlPath };
+  }
 
   return null;
 }
@@ -157,7 +169,7 @@ export async function GET(
       const dir =
         process.env.SCORES_DIR?.trim() ||
         path.join(process.cwd(), "public", "scores");
-      console.warn(`[api/scores] not found id=${safe} in dir=${dir}`);
+      console.warn(`[api/scores] not found id=${safe} in primary dir=${dir}`);
       return new Response("Score not found", { status: 404 });
     }
 

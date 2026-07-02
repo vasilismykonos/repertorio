@@ -13,7 +13,6 @@ import {
   Mail,
   PlusSquare,
   LogIn,
-  LogOut,
   CloudOff,
   RefreshCw,
   RotateCw,
@@ -807,10 +806,19 @@ export default function SideMenu(props: Props) {
                 />
                 <span>Αυτόματος συγχρονισμός</span>
               </label>
-              <div className="smh-sync-buttons">
+              <div
+                className="smh-sync-buttons"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+                  gap: 8,
+                  alignItems: "stretch",
+                }}
+              >
                 <button
                   type="button"
                   className="smh-sync-btn"
+                  style={{ minWidth: 0 }}
                   onClick={onForceOfflineSync}
                   disabled={offlineActionBusy || offlineStatus.syncing || !offlineStatus.online}
                   title={offlineStatus.online ? "Επιβολή συγχρονισμού τώρα" : "Χρειάζεται σύνδεση internet"}
@@ -821,6 +829,7 @@ export default function SideMenu(props: Props) {
                 <button
                   type="button"
                   className="smh-sync-btn danger"
+                  style={{ minWidth: 0 }}
                   onClick={onClearOfflineData}
                   disabled={controlsDisabled}
                   title="Διαγραφή offline δεδομένων συγχρονισμού από αυτή τη συσκευή"
@@ -865,20 +874,22 @@ export default function SideMenu(props: Props) {
           </div>
         ) : null}
 
-        <div className="smh-auth">
-          <button
-            type="button"
-            className="smh-auth-btn"
-            onClick={() => {
-              onClose();
-              isLoggedIn ? onSignOut() : onSignIn();
-            }}
-            title={isLoggedIn ? "Αποσύνδεση" : "Σύνδεση / Εγγραφή"}
-          >
-            {isLoggedIn ? <LogOut size={18} /> : <LogIn size={18} />}
-            <span>{isLoggedIn ? "Αποσύνδεση" : "Σύνδεση / Εγγραφή"}</span>
-          </button>
-        </div>
+        {!isLoggedIn ? (
+          <div className="smh-auth">
+            <button
+              type="button"
+              className="smh-auth-btn"
+              onClick={() => {
+                onClose();
+                onSignIn();
+              }}
+              title="Σύνδεση / Εγγραφή"
+            >
+              <LogIn size={18} />
+              <span>Σύνδεση / Εγγραφή</span>
+            </button>
+          </div>
+        ) : null}
 
         <div className="smh-sep" />
 

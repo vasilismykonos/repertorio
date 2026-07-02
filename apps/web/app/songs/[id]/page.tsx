@@ -84,10 +84,17 @@ export type SongDetail = {
 
 type SongPageProps = {
   params: { id: string };
-  searchParams?: { offlineShell?: string };
+  searchParams?: {
+    offlineShell?: string;
+    partiture?: string;
+    scores?: string;
+    info?: string;
+    assets?: string;
+  };
 };
 
 type RedirectDefault = "TITLE" | "CHORDS" | "LYRICS" | "SCORE";
+type InitialSongViewTab = "song" | "scores" | "info";
 
 function slugify(text: string): string {
   return text
@@ -475,6 +482,12 @@ function isApiNotFoundError(err: unknown): boolean {
   return /\bAPI error 404\b/.test(message) || /"statusCode"\s*:\s*404/.test(message);
 }
 
+function readInitialViewTabFromQuery(searchParams: SongPageProps["searchParams"]): InitialSongViewTab | undefined {
+  if (searchParams?.partiture === "1" || searchParams?.scores === "1") return "scores";
+  if (searchParams?.info === "1" || searchParams?.assets === "1") return "info";
+  return undefined;
+}
+
 export default async function SongPage({ params, searchParams }: SongPageProps) {
   if (searchParams?.offlineShell === "1") {
     return <SongOfflineShellClient />;
@@ -599,6 +612,7 @@ export default async function SongPage({ params, searchParams }: SongPageProps) 
   const redirectDefault = currentUser?.profile
     ? readSongsRedirectDefaultFromProfile(currentUser.profile)
     : ("TITLE" as const);
+  const initialViewTab = readInitialViewTabFromQuery(searchParams);
 
   const initialSingerTunes = currentUser?.email
     ? await fetchInitialSingerTunes(song.id, currentUser.email).catch(() => [])
@@ -614,6 +628,7 @@ export default async function SongPage({ params, searchParams }: SongPageProps) 
       schemaNode={renderSongSchema(song)}
       defaultPanelsOpen={defaultPanelsOpen}
       redirectDefault={redirectDefault}
+      initialViewTab={initialViewTab}
       initialSingerTunes={initialSingerTunes}
       initialSingerTunesLoaded={initialSingerTunesLoaded}
       initialSingerTunesAuthRequired={!currentUser?.email}

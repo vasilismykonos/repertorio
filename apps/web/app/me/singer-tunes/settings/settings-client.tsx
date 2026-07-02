@@ -67,6 +67,14 @@ function InlineError({ message }: { message?: string }) {
   );
 }
 
+function SettingsShell({ children }: { children: React.ReactNode }) {
+  return (
+    <section style={{ padding: "0px 10px", maxWidth: 900, margin: "0 auto" }}>
+      {children}
+    </section>
+  );
+}
+
 async function getJson<T>(url: string): Promise<ApiResult<T>> {
   const res = await fetch(url, {
     method: "GET",
@@ -294,7 +302,7 @@ export default function SingerTunesSettingsClient({
 
   if (authRequired) {
     return (
-      <>
+      <SettingsShell>
         <ActionBar
           left={A.backLink({ href: backHref, title: "Πίσω" })}
           right={null}
@@ -317,12 +325,12 @@ export default function SingerTunesSettingsClient({
             Απαιτείται σύνδεση για να δεις ή να αλλάξεις αυτές τις ρυθμίσεις.
           </div>
         </div>
-      </>
+      </SettingsShell>
     );
   }
 
   return (
-    <>
+    <SettingsShell>
       <ActionBar
         left={A.backLink({ href: backHref, title: "Πίσω", disabled: busy })}
         right={
@@ -607,6 +615,6 @@ export default function SingerTunesSettingsClient({
           (Α) σου το δώσει.
         </div>
       </div>
-    </>
+    </SettingsShell>
   );
 }
