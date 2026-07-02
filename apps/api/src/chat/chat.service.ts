@@ -33,6 +33,47 @@ function userLabel(user: any): string {
   return user?.displayName || user?.username || user?.email || `User #${user?.id ?? ""}`;
 }
 
+type ChatParticipantReadState = {
+  userId: number;
+  lastReadAt: Date | null;
+};
+
+function deliveryForMessage(
+  message: { senderUserId: number; createdAt: Date },
+  participants: ChatParticipantReadState[],
+  viewerUserId: number,
+) {
+  if (message.senderUserId !== viewerUserId) return null;
+
+  const recipients = participants.filter((participant) => participant.userId !== message.senderUserId);
+  if (!recipients.length) {
+    return {
+      status: "sent" as const,
+      recipientCount: 0,
+      readByCount: 0,
+      readAt: null,
+    };
+  }
+
+  const createdAt = message.createdAt.getTime();
+  const readers = recipients.filter((participant) => {
+    const readAt = participant.lastReadAt?.getTime() ?? 0;
+    return readAt >= createdAt;
+  });
+  const latestReadAt = readers.reduce<Date | null>((latest, participant) => {
+    if (!participant.lastReadAt) return latest;
+    if (!latest || participant.lastReadAt.getTime() > latest.getTime()) return participant.lastReadAt;
+    return latest;
+  }, null);
+
+  return {
+    status: readers.length >= recipients.length ? ("read" as const) : ("delivered" as const),
+    recipientCount: recipients.length,
+    readByCount: readers.length,
+    readAt: latestReadAt,
+  };
+}
+
 @Injectable()
 export class ChatService {
   constructor(
@@ -174,31 +215,39 @@ export class ChatService {
 
   async listMessages(viewerUserId: number, threadId: number, afterId?: number | null) {
     await this.requireParticipant(threadId, viewerUserId);
-    const messages = await this.prisma.chatMessage.findMany({
-      where: {
-        threadId,
-        deletedAt: null,
-        ...(afterId ? { id: { gt: afterId } } : {}),
-      },
-      orderBy: { createdAt: "asc" },
-      take: afterId ? 100 : 80,
-      include: {
-        sender: {
-          select: { id: true, displayName: true, username: true, email: true, avatarUrl: true },
+    const [messages, participants] = await Promise.all([
+      this.prisma.chatMessage.findMany({
+        where: {
+          threadId,
+          deletedAt: null,
+          ...(afterId ? { id: { gt: afterId } } : {}),
         },
-      },
-    });
+        orderBy: { createdAt: "asc" },
+        take: afterId ? 100 : 80,
+        include: {
+          sender: {
+            select: { id: true, displayName: true, username: true, email: true, avatarUrl: true },
+          },
+        },
+      }),
+      this.prisma.chatParticipant.findMany({
+        where: { threadId },
+        select: { userId: true, lastReadAt: true },
+      }),
+    ]);
 
     return {
       ok: true,
       messages: messages.map((message) => ({
         id: message.id,
         threadId: message.threadId,
+        senderUserId: message.senderUserId,
         body: message.body,
         createdAt: message.createdAt,
         editedAt: message.editedAt,
         sender: message.sender,
         mine: message.senderUserId === viewerUserId,
+        delivery: deliveryForMessage(message, participants, viewerUserId),
       })),
     };
   }
@@ -235,11 +284,18 @@ export class ChatService {
       message: {
         id: message.id,
         threadId: message.threadId,
+        senderUserId: message.senderUserId,
         body: message.body,
         createdAt: message.createdAt,
         editedAt: message.editedAt,
         sender: message.sender,
         mine: true,
+        delivery: {
+          status: "delivered" as const,
+          recipientCount: Math.max((await this.prisma.chatParticipant.count({ where: { threadId } })) - 1, 0),
+          readByCount: 0,
+          readAt: null,
+        },
       },
       thread: await this.threadDto(threadId, viewerUserId),
     };

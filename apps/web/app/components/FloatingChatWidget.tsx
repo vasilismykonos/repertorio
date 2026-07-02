@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, PointerEvent, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bell, MessageCircle, Search, Send, X } from "lucide-react";
+import { ArrowLeft, Bell, CheckCheck, MessageCircle, Search, Send, X } from "lucide-react";
 
 const OPEN_DRAG_PX = 36;
 const PANEL_USERS_TAKE = 5;
@@ -27,14 +27,21 @@ type ChatMessage = {
   id: number;
   body: string;
   createdAt: string;
+  senderUserId?: number;
   mine: boolean;
+  delivery?: {
+    status: "sent" | "delivered" | "read";
+    recipientCount: number;
+    readByCount: number;
+    readAt?: string | null;
+  } | null;
 };
 
 type ChatThread = {
   id: number;
   title: string;
   unreadCount: number;
-  participants: Array<{ userId: number; user: OnlineUser }>;
+  participants: Array<{ userId: number; lastReadAt?: string | null; user: OnlineUser }>;
   lastMessage?: { body: string; createdAt: string } | null;
 };
 
@@ -61,6 +68,12 @@ function normalizeUser(item: any, online = false): OnlineUser | null {
     avatarUrl: source.avatarUrl ?? source.image ?? null,
     online,
   };
+}
+
+function readTime(value?: string | null) {
+  if (!value) return 0;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -482,6 +495,7 @@ export default function FloatingChatWidget() {
       )
   ).slice(0, searchingUsers ? 8 : PANEL_USERS_TAKE);
   const onlineUserIds = new Set(users.map((user) => Number(user.id)).filter((id) => Number.isFinite(id)));
+  const activeThread = threads.find((thread) => thread.id === activeThreadId) || null;
   const threadOtherParticipant = (thread: ChatThread) =>
     thread.participants.find((participant) => participant.userId !== meId) || null;
   const threadUser = (thread: ChatThread): OnlineUser => {
@@ -598,6 +612,35 @@ export default function FloatingChatWidget() {
       </button>
     );
   };
+  const messageReceipt = (item: ChatMessage) => {
+    if (!item.mine) return null;
+    const senderUserId = Number(item.senderUserId ?? meId ?? 0);
+    const createdAt = readTime(item.createdAt);
+    const recipients =
+      activeThread?.participants.filter((participant) => Number(participant.userId) !== senderUserId) ??
+      Array.from({ length: Math.max(item.delivery?.recipientCount ?? 0, 0) }, (_, index) => ({
+        userId: -index - 1,
+        lastReadAt: null,
+        user: { id: -index - 1, label: "" },
+      }));
+
+    if (!recipients.length) return { status: "sent" as const, label: "Στάλθηκε" };
+
+    const readByCount = activeThread
+      ? recipients.filter((participant) => readTime(participant.lastReadAt) >= createdAt).length
+      : Math.max(item.delivery?.readByCount ?? 0, 0);
+
+    if (readByCount >= recipients.length) {
+      return {
+        status: "read" as const,
+        label: recipients.length === 1 ? "Διαβάστηκε" : `Διαβάστηκε ${readByCount}/${recipients.length}`,
+      };
+    }
+    if (readByCount > 0) {
+      return { status: "read-partial" as const, label: `Διαβάστηκε ${readByCount}/${recipients.length}` };
+    }
+    return { status: "delivered" as const, label: "Παραδόθηκε" };
+  };
 
   return (
     <>
@@ -638,12 +681,21 @@ export default function FloatingChatWidget() {
                   <div className="fcw-messages" aria-label="Πρόσφατα μηνύματα">
                     {loadingMessages ? <span className="fcw-muted">Φόρτωση συνομιλίας...</span> : null}
                     {!loadingMessages && !messages.length ? <span className="fcw-muted">Δεν υπάρχουν μηνύματα ακόμα.</span> : null}
-                    {messages.map((item) => (
-                      <div key={item.id} className={item.mine ? "mine" : ""}>
-                        <small>{item.mine ? "Εσύ" : userLabel(selected)}</small>
-                        <p>{item.body}</p>
-                      </div>
-                    ))}
+                    {messages.map((item) => {
+                      const receipt = messageReceipt(item);
+                      return (
+                        <div key={item.id} className={item.mine ? "mine" : ""}>
+                          <small>{item.mine ? "Εσύ" : userLabel(selected)}</small>
+                          <p>{item.body}</p>
+                          {receipt ? (
+                            <span className={`fcw-receipt ${receipt.status}`}>
+                              <CheckCheck size={13} aria-hidden="true" />
+                              {receipt.label}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
                   <div className="fcw-input-row">
                     <textarea
@@ -1314,6 +1366,24 @@ export default function FloatingChatWidget() {
           overflow-wrap: anywhere;
           white-space: pre-wrap;
           line-height: 1.28;
+        }
+
+        .fcw-receipt {
+          display: inline-flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 3px;
+          width: 100%;
+          margin-top: 3px;
+          color: rgba(255, 255, 255, 0.76);
+          font-size: 0.68rem;
+          font-weight: 800;
+          line-height: 1;
+        }
+
+        .fcw-receipt.read,
+        .fcw-receipt.read-partial {
+          color: #bbf7d0;
         }
 
         .fcw-composer {

@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.93";
+export const APP_VERSION = "3.0.94";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.94",
+    date: "2026-07-02",
+    level: "patch",
+    title: "Ενδείξεις παράδοσης chat",
+    items: [
+      "Στα δικά σου μηνύματα chat εμφανίζεται πλέον αν το μήνυμα παραδόθηκε ή διαβάστηκε.",
+      "Η ένδειξη βασίζεται στο υπάρχον read state της συνομιλίας, χωρίς νέο βαρύ μηχανισμό παρακολούθησης.",
+    ],
+  },
   {
     version: "3.0.93",
     date: "2026-06-25",

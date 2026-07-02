@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MessageCircle, Plus, Search, Send, Users } from "lucide-react";
+import { CheckCheck, MessageCircle, Plus, Search, Send, Users } from "lucide-react";
 
 type UserMini = {
   id: number;
@@ -18,17 +18,26 @@ type ChatThread = {
   isGroup: boolean;
   unreadCount: number;
   lastMessageAt?: string | null;
-  participants: Array<{ userId: number; user: UserMini }>;
+  participants: Array<{ userId: number; lastReadAt?: string | null; user: UserMini }>;
   lastMessage?: { id: number; body: string; createdAt: string; sender: UserMini } | null;
+};
+
+type MessageDelivery = {
+  status: "sent" | "delivered" | "read";
+  recipientCount: number;
+  readByCount: number;
+  readAt?: string | null;
 };
 
 type ChatMessage = {
   id: number;
   threadId: number;
+  senderUserId?: number;
   body: string;
   createdAt: string;
   sender: UserMini;
   mine: boolean;
+  delivery?: MessageDelivery | null;
 };
 
 function userLabel(user: UserMini | null | undefined) {
@@ -40,6 +49,45 @@ function formatTime(iso?: string | null) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("el-GR", { dateStyle: "short", timeStyle: "short" }).format(date);
+}
+
+function readTime(value?: string | null) {
+  if (!value) return 0;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function getMessageReceipt(message: ChatMessage, thread: ChatThread | null) {
+  if (!message.mine) return null;
+
+  const senderUserId = Number(message.senderUserId ?? message.sender?.id ?? 0);
+  const createdAt = readTime(message.createdAt);
+  const recipients =
+    thread?.participants.filter((participant) => Number(participant.userId) !== senderUserId) ??
+    Array.from({ length: Math.max(message.delivery?.recipientCount ?? 0, 0) }, (_, index) => ({
+      userId: -index - 1,
+      lastReadAt: null,
+      user: {},
+    }));
+
+  if (!recipients.length) return { status: "sent" as const, label: "Στάλθηκε" };
+
+  const readByCount = thread
+    ? recipients.filter((participant) => readTime(participant.lastReadAt) >= createdAt).length
+    : Math.max(message.delivery?.readByCount ?? 0, 0);
+
+  if (readByCount >= recipients.length) {
+    return {
+      status: "read" as const,
+      label: recipients.length === 1 ? "Διαβάστηκε" : `Διαβάστηκε ${readByCount}/${recipients.length}`,
+    };
+  }
+
+  if (readByCount > 0) {
+    return { status: "read-partial" as const, label: `Διαβάστηκε ${readByCount}/${recipients.length}` };
+  }
+
+  return { status: "delivered" as const, label: "Παραδόθηκε" };
 }
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -139,8 +187,8 @@ export default function ChatClient() {
         if (data.messages?.length) {
           setMessages((prev) => [...prev, ...data.messages]);
           await fetch(`/api/chat/${activeThreadId}/read`, { method: "POST", credentials: "include" }).catch(() => null);
-          void refreshThreads().catch(() => null);
         }
+        void refreshThreads().catch(() => null);
       } catch {
         // Polling must not disturb the user while typing/reading.
       }
@@ -326,13 +374,24 @@ export default function ChatClient() {
                 {loadingMessages ? <div className="empty-state">Φόρτωση μηνυμάτων...</div> : null}
                 {!loadingMessages && !messages.length ? <div className="empty-state">Γράψε το πρώτο μήνυμα.</div> : null}
                 {messages.map((message) => (
-                  <div key={message.id} className={message.mine ? "message mine" : "message"}>
-                    <div className="message-meta">
-                      <strong>{message.mine ? "Εσύ" : userLabel(message.sender)}</strong>
-                      <span>{formatTime(message.createdAt)}</span>
-                    </div>
-                    <p>{message.body}</p>
-                  </div>
+                  (() => {
+                    const receipt = getMessageReceipt(message, activeThread);
+                    return (
+                      <div key={message.id} className={message.mine ? "message mine" : "message"}>
+                        <div className="message-meta">
+                          <strong>{message.mine ? "Εσύ" : userLabel(message.sender)}</strong>
+                          <span>{formatTime(message.createdAt)}</span>
+                        </div>
+                        <p>{message.body}</p>
+                        {receipt ? (
+                          <span className={`message-receipt ${receipt.status}`}>
+                            <CheckCheck size={14} aria-hidden="true" />
+                            {receipt.label}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })()
                 ))}
                 <div ref={listBottomRef} />
               </div>
