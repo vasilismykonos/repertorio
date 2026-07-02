@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.95";
+export const APP_VERSION = "3.0.96";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.96",
+    date: "2026-07-02",
+    level: "patch",
+    title: "Πηγή στίχων Sealabs",
+    items: [
+      "Η εύρεση στίχων ψάχνει πλέον και στο rebetiko.sealabs.net ως δεύτερη αξιόπιστη πηγή.",
+      "Το stixoi.info παραμένει ενεργό και η αναζήτηση συνεχίζει ακόμη κι αν μία εξωτερική πηγή αργήσει ή δεν έχει στίχους.",
+      "Οι στίχοι από HTML παραγράφους καθαρίζονται με σωστές αλλαγές γραμμής πριν μπουν στο πεδίο.",
+    ],
+  },
   {
     version: "3.0.95",
     date: "2026-07-02",

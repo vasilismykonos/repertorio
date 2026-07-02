@@ -944,7 +944,7 @@ export default function SongEditForm({
                       className="song-edit-lyrics-search-button"
                       onClick={() => void handleLyricsSearch()}
                       disabled={lyricsSearchLoading}
-                      title="Αναζήτηση στίχων στο stixoi.info"
+                      title="Αναζήτηση στίχων σε αξιόπιστες πηγές"
                     >
                       {lyricsSearchLoading ? "Ψάχνω..." : "Εύρεση στίχων"}
                     </button>
@@ -1011,7 +1011,7 @@ export default function SongEditForm({
                       </div>
 
                       {lyricsSearchLoading ? (
-                        <p>Αναζήτηση στο stixoi.info...</p>
+                        <p>Αναζήτηση σε stixoi.info και rebetiko.sealabs.net...</p>
                       ) : lyricsSearchError ? (
                         <p className="song-edit-lyrics-search-error">{lyricsSearchError}</p>
                       ) : null}
