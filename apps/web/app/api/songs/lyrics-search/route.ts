@@ -17,11 +17,13 @@ type LyricsCandidate = {
   lyrics: string;
   confidence: number;
   preview: string;
+  searchRank?: number;
 };
 
 const STIXOI_BASE_URL = "https://stixoi.info";
 const FETCH_TIMEOUT_MS = 9000;
 const MAX_PAGES_TO_READ = 32;
+const MAX_RESULTS = 10;
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, {
@@ -104,6 +106,30 @@ function scoreTitle(queryTitle: string, candidateTitle: string): number {
   const precision = hits / candidateTokens.size;
   const recall = hits / queryTokens.size;
   return Math.round((precision * 0.35 + recall * 0.65) * 78);
+}
+
+function scoreLyricsHint(hint: string, lyrics: string): number {
+  const normalizedHint = normalizeText(hint);
+  const normalizedLyrics = normalizeText(lyrics);
+  if (!normalizedHint || !normalizedLyrics) return 0;
+  if (normalizedLyrics.includes(normalizedHint)) return 18;
+
+  const hintTokens = normalizedHint
+    .split(" ")
+    .filter((token) => token.length > 3)
+    .slice(0, 14);
+  if (!hintTokens.length) return 0;
+
+  let hits = 0;
+  for (const token of hintTokens) {
+    if (normalizedLyrics.includes(token)) hits += 1;
+  }
+
+  const ratio = hits / hintTokens.length;
+  const requiredHits = Math.max(3, Math.ceil(hintTokens.length * 0.65));
+  if (hits < requiredHits) return 0;
+
+  return Math.round(ratio * 10);
 }
 
 async function fetchText(url: string): Promise<string> {
@@ -197,7 +223,7 @@ function extractStixoiLyrics(html: string): string {
   return "";
 }
 
-async function searchStixoi(title: string): Promise<LyricsCandidate[]> {
+async function searchStixoi(title: string, hint = ""): Promise<LyricsCandidate[]> {
   const encodedTitle = encodeURIComponent(title);
   const searchUrls = [
     `${STIXOI_BASE_URL}/search?q=${encodedTitle}`,
@@ -220,14 +246,14 @@ async function searchStixoi(title: string): Promise<LyricsCandidate[]> {
 
   const candidates: LyricsCandidate[] = [];
 
-  for (const url of links) {
+  for (const [searchRank, url] of links.entries()) {
     try {
       const pageHtml = await fetchText(url);
       const candidateTitle = extractStixoiTitle(pageHtml);
       const lyrics = extractStixoiLyrics(pageHtml);
       if (!candidateTitle || lyrics.length < 20) continue;
 
-      const confidence = scoreTitle(title, candidateTitle);
+      const confidence = Math.min(100, scoreTitle(title, candidateTitle) + scoreLyricsHint(hint, lyrics));
       if (confidence < 35) continue;
 
       candidates.push({
@@ -238,6 +264,7 @@ async function searchStixoi(title: string): Promise<LyricsCandidate[]> {
         lyrics,
         confidence,
         preview: lyrics.split(/\n+/).slice(0, 3).join("\n"),
+        searchRank,
       });
     } catch {
       // Keep searching the rest of the candidates.
@@ -245,19 +272,20 @@ async function searchStixoi(title: string): Promise<LyricsCandidate[]> {
   }
 
   return candidates
-    .sort((a, b) => b.confidence - a.confidence || b.lyrics.length - a.lyrics.length)
-    .slice(0, 5);
+    .sort((a, b) => b.confidence - a.confidence || (a.searchRank ?? 9999) - (b.searchRank ?? 9999))
+    .slice(0, MAX_RESULTS);
 }
 
 export async function GET(req: NextRequest) {
   const title = (req.nextUrl.searchParams.get("title") || "").trim();
+  const hint = (req.nextUrl.searchParams.get("hint") || "").trim().slice(0, 600);
 
   if (title.length < 2) {
     return json({ message: "Δώσε πρώτα τίτλο τραγουδιού." }, 400);
   }
 
   try {
-    const items = await searchStixoi(title);
+    const items = await searchStixoi(title, hint);
     return json({
       items,
       searchedSources: [

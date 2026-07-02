@@ -512,7 +512,11 @@ export default function SongEditForm({
     setLyricsSearchError(null);
 
     try {
-      const res = await fetch(`/api/songs/lyrics-search?title=${encodeURIComponent(title)}`, {
+      const params = new URLSearchParams({ title });
+      const lyricsHint = lyricsLive.trim().slice(0, 600);
+      if (lyricsHint) params.set("hint", lyricsHint);
+
+      const res = await fetch(`/api/songs/lyrics-search?${params.toString()}`, {
         cache: "no-store",
         credentials: "include",
       });
