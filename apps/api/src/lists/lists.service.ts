@@ -8,6 +8,7 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { ElasticsearchSongsSyncService } from '../elasticsearch/elasticsearch-songs-sync.service';
 import { NotificationsService } from "../notifications/notifications.service";
+import { SongSingerTuneAccessService } from "../songs/SongSingerTuneAccess.service";
 
 /* =========================
    DTOs
@@ -17,6 +18,8 @@ export type ListSummaryDto = {
   id: number;
   title: string;
   groupId: number | null;
+  groupIds: number[];
+  groups: ListGroupSummaryDto[];
   marked: boolean;
   updatedAt: string | null;
   role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
@@ -71,6 +74,7 @@ export type ListItemDto = {
 
   songId: number | null;
   title: string | null;
+  songViews: number;
   songOriginalKey: string | null;
   songOriginalKeySign: "+" | "-" | null;
 
@@ -101,6 +105,8 @@ export type ListDetailDto = {
   groupId: number | null;
   groupTitle: string | null;
   groupFullTitle: string | null;
+  groupIds: number[];
+  groups: ListGroupSummaryDto[];
 
   marked: boolean;
   updatedAt: string | null;
@@ -190,12 +196,18 @@ type GroupRole = "OWNER" | "LIST_EDITOR" | "VIEWER";
 // legacy values we may still have in DB
 type LegacyRole = "EDITOR" | "LIST_VIEWER" | "SONGS_VIEWER";
 
+type SingerTuneVisibility = {
+  allowAll: boolean;
+  creatorIds: Set<number>;
+};
+
 @Injectable()
 export class ListsService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly esSync?: ElasticsearchSongsSyncService,
     @Optional() private readonly notifications?: NotificationsService,
+    @Optional() private readonly singerTuneAccess?: SongSingerTuneAccessService,
   ) {}
 
   private isoDateOrNull(value: unknown): string | null {
@@ -252,7 +264,54 @@ export class ListsService {
     return value === "+" || value === "-" ? value : null;
   }
 
-  private listItemToDto(it: any): ListItemDto {
+  private async getSingerTuneVisibilityForViewer(userId: number): Promise<SingerTuneVisibility> {
+    const viewerId = this.positiveIntOrNull(userId);
+    if (!viewerId) return { allowAll: false, creatorIds: new Set<number>() };
+
+    if (this.singerTuneAccess) {
+      const access = await this.singerTuneAccess.getMyAccess(viewerId);
+      if (access.mode === "ALL") {
+        return { allowAll: true, creatorIds: new Set<number>([viewerId]) };
+      }
+      return {
+        allowAll: false,
+        creatorIds: new Set<number>([viewerId, ...(access.creatorUserIds || [])]),
+      };
+    }
+
+    const rows = await this.prisma.userSingerTuneAccess.findMany({
+      where: { viewerUserId: viewerId, canView: true },
+      select: { creatorUserId: true },
+    });
+
+    return {
+      allowAll: false,
+      creatorIds: new Set<number>([viewerId, ...rows.map((r) => r.creatorUserId)]),
+    };
+  }
+
+  private canViewSingerTuneCreator(
+    visibility: SingerTuneVisibility | undefined,
+    creatorUserId: unknown,
+  ): boolean {
+    const creatorId = this.positiveIntOrNull(creatorUserId);
+    if (!visibility || !creatorId) return false;
+    return visibility.allowAll || visibility.creatorIds.has(creatorId);
+  }
+
+  private listItemSingerTuneVisible(
+    it: any,
+    visibility?: SingerTuneVisibility,
+  ): boolean {
+    const selectedSingerTuneId = this.positiveIntOrNull(it?.selectedSingerTuneId);
+    if (!selectedSingerTuneId) return true;
+    return this.canViewSingerTuneCreator(
+      visibility,
+      it?.selectedSingerTune?.createdByUserId,
+    );
+  }
+
+  private listItemToDto(it: any, visibility?: SingerTuneVisibility): ListItemDto {
     const songTitle = this.nonEmptyOrNull(it.song?.title);
     const songChords = this.nonEmptyOrNull(it.song?.chords);
     const songLyrics = this.nonEmptyOrNull(it.song?.lyrics);
@@ -276,6 +335,9 @@ export class ListsService {
       : songLyrics
         ? "SONG"
         : "NONE";
+    const selectedSingerTuneId = this.positiveIntOrNull(it.selectedSingerTuneId);
+    const selectedSingerTuneVisible = this.listItemSingerTuneVisible(it, visibility);
+    const hideLinkedTonicity = !!selectedSingerTuneId && !selectedSingerTuneVisible;
 
     return {
       listItemId: Number(it.id),
@@ -284,13 +346,22 @@ export class ListsService {
       transport: Number.isInteger(it.transport) ? Number(it.transport) : 0,
       songId: it.songId ?? null,
       title: effectiveTitle,
+      songViews: Number.isFinite(Number(it.song?.views)) ? Number(it.song?.views) : 0,
       songOriginalKey: this.nonEmptyOrNull(it.song?.originalKey),
       songOriginalKeySign: this.tonicitySignOrNull(it.song?.originalKeySign),
-      selectedTonicity: this.selectedTonicityOrNull(it.selectedTonicity),
-      selectedTonicitySign: this.tonicitySignOrNull(it.selectedTonicitySign),
-      selectedSingerTuneId: it.selectedSingerTuneId ?? null,
-      selectedSingerTuneTitle: this.nonEmptyOrNull(it.selectedSingerTune?.title),
-      selectedSingerTuneTune: this.nonEmptyOrNull(it.selectedSingerTune?.tune),
+      selectedTonicity: hideLinkedTonicity
+        ? null
+        : this.selectedTonicityOrNull(it.selectedTonicity),
+      selectedTonicitySign: hideLinkedTonicity
+        ? null
+        : this.tonicitySignOrNull(it.selectedTonicitySign),
+      selectedSingerTuneId: selectedSingerTuneVisible ? selectedSingerTuneId : null,
+      selectedSingerTuneTitle: selectedSingerTuneVisible
+        ? this.nonEmptyOrNull(it.selectedSingerTune?.title)
+        : null,
+      selectedSingerTuneTune: selectedSingerTuneVisible
+        ? this.nonEmptyOrNull(it.selectedSingerTune?.tune)
+        : null,
       chords: effectiveChords,
       chordsSource,
       lyrics: effectiveLyrics,
@@ -301,6 +372,7 @@ export class ListsService {
   private async assertSingerTuneBelongsToSongOrThrow(params: {
     songId: number | null | undefined;
     selectedSingerTuneId: number | null | undefined;
+    viewerUserId?: number | null | undefined;
   }) {
     const selectedSingerTuneId = this.positiveIntOrNull(params.selectedSingerTuneId);
     if (!selectedSingerTuneId) return null;
@@ -312,11 +384,19 @@ export class ListsService {
 
     const row = await this.prisma.songSingerTune.findFirst({
       where: { id: selectedSingerTuneId, songId },
-      select: { id: true, tune: true },
+      select: { id: true, tune: true, createdByUserId: true },
     });
 
     if (!row) {
       throw new BadRequestException("Η φωνή δεν ανήκει σε αυτό το τραγούδι.");
+    }
+
+    const viewerUserId = this.positiveIntOrNull(params.viewerUserId);
+    if (viewerUserId) {
+      const visibility = await this.getSingerTuneVisibilityForViewer(viewerUserId);
+      if (!this.canViewSingerTuneCreator(visibility, row.createdByUserId)) {
+        throw new ForbiddenException("Δεν έχεις δικαίωμα χρήσης αυτής της τονικότητας.");
+      }
     }
 
     return row;
@@ -406,6 +486,68 @@ export class ListsService {
       select: { id: true },
     });
     if (!exists) throw new NotFoundException("Η ομάδα δεν βρέθηκε.");
+  }
+
+  private normalizeGroupIds(input?: unknown): number[] {
+    if (input === undefined || input === null) return [];
+    const source = Array.isArray(input) ? input : [input];
+    const seen = new Set<number>();
+    const out: number[] = [];
+
+    for (const value of source) {
+      if (value === null || value === undefined || value === "") continue;
+      const n = Number(value);
+      if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+        throw new BadRequestException("groupIds must contain positive integers.");
+      }
+      if (seen.has(n)) continue;
+      seen.add(n);
+      out.push(n);
+    }
+
+    return out;
+  }
+
+  private async ensureGroupsExistOrThrow(groupIds: number[]) {
+    if (!groupIds.length) return;
+    const count = await this.prisma.listGroup.count({
+      where: { id: { in: groupIds } },
+    });
+    if (count !== groupIds.length) {
+      throw new NotFoundException("At least one tag was not found.");
+    }
+  }
+
+  private groupsFromListRecord(list: any): ListGroupSummaryDto[] {
+    const byId = new Map<number, ListGroupSummaryDto>();
+
+    const add = (group: any) => {
+      const id = Number(group?.id);
+      if (!Number.isFinite(id) || id <= 0 || byId.has(id)) return;
+      byId.set(id, {
+        id,
+        title: String(group?.title ?? ""),
+        fullTitle: group?.fullTitle ?? null,
+        listsCount: 0,
+      });
+    };
+
+    for (const link of list?.groupLinks ?? []) add(link?.group);
+    add(list?.group);
+
+    return Array.from(byId.values()).sort((a, b) =>
+      String(a.fullTitle || a.title || "").localeCompare(String(b.fullTitle || b.title || ""), "el"),
+    );
+  }
+
+  private async replaceListGroups(tx: any, listId: number, groupIds: number[]) {
+    await tx.listGroupList.deleteMany({ where: { listId } });
+    if (!groupIds.length) return;
+
+    await tx.listGroupList.createMany({
+      data: groupIds.map((groupId) => ({ listId, groupId })),
+      skipDuplicates: true,
+    });
   }
 
   /**
@@ -542,9 +684,15 @@ async getListsIndex(params: {
   }
 
   if (groupId === null) {
-    filters.groupId = null;
+    filters.AND = [
+      { groupId: null },
+      { groupLinks: { none: {} } },
+    ];
   } else if (typeof groupId === "number") {
-    filters.groupId = groupId;
+    filters.OR = [
+      { groupId },
+      { groupLinks: { some: { groupId } } },
+    ];
   }
 
   const acl = this.viewAclWhere(userId);
@@ -562,6 +710,12 @@ async getListsIndex(params: {
         id: true,
         title: true,
         groupId: true,
+        group: { select: { id: true, title: true, fullTitle: true } },
+        groupLinks: {
+          include: {
+            group: { select: { id: true, title: true, fullTitle: true } },
+          },
+        },
         marked: true,
         updatedAt: true,
 
@@ -574,10 +728,17 @@ async getListsIndex(params: {
 
     this.prisma.listGroup.findMany({
       where: {
-        lists: { some: this.viewAclWhere(userId) },
+        OR: [
+          { lists: { some: this.viewAclWhere(userId) } },
+          { listLinks: { some: { list: this.viewAclWhere(userId) } } },
+        ],
       },
       orderBy: [{ title: "asc" }, { id: "asc" }],
       include: {
+        listLinks: {
+          where: { list: this.viewAclWhere(userId) },
+          select: { listId: true },
+        },
         lists: {
           where: this.viewAclWhere(userId),
           select: { id: true },
@@ -646,6 +807,10 @@ async getListsIndex(params: {
       selectedSingerTuneTune: string | null;
     }
   >();
+  const singerTuneVisibility =
+    typeof songId === "number" && songId > 0
+      ? await this.getSingerTuneVisibilityForViewer(userId)
+      : undefined;
 
   if (typeof songId === "number" && songId > 0 && listIds.length > 0) {
     const selectedRows = await this.prisma.listItem.findMany({
@@ -662,6 +827,7 @@ async getListsIndex(params: {
         selectedSingerTuneId: true,
         selectedSingerTune: {
           select: {
+            createdByUserId: true,
             title: true,
             tune: true,
           },
@@ -673,13 +839,27 @@ async getListsIndex(params: {
       if (typeof row.listId === "number") {
         containsSongSet.add(row.listId);
         if (!selectedItemByListId.has(row.listId)) {
+          const selectedSingerTuneVisible = this.listItemSingerTuneVisible(
+            row,
+            singerTuneVisibility,
+          );
+          const selectedSingerTuneId = this.positiveIntOrNull(row.selectedSingerTuneId);
+          const hideLinkedTonicity = !!selectedSingerTuneId && !selectedSingerTuneVisible;
           selectedItemByListId.set(row.listId, {
             listItemId: row.id,
-            selectedTonicity: this.selectedTonicityOrNull(row.selectedTonicity),
-            selectedTonicitySign: this.tonicitySignOrNull(row.selectedTonicitySign),
-            selectedSingerTuneId: row.selectedSingerTuneId ?? null,
-            selectedSingerTuneTitle: this.nonEmptyOrNull(row.selectedSingerTune?.title),
-            selectedSingerTuneTune: this.nonEmptyOrNull(row.selectedSingerTune?.tune),
+            selectedTonicity: hideLinkedTonicity
+              ? null
+              : this.selectedTonicityOrNull(row.selectedTonicity),
+            selectedTonicitySign: hideLinkedTonicity
+              ? null
+              : this.tonicitySignOrNull(row.selectedTonicitySign),
+            selectedSingerTuneId: selectedSingerTuneVisible ? selectedSingerTuneId : null,
+            selectedSingerTuneTitle: selectedSingerTuneVisible
+              ? this.nonEmptyOrNull(row.selectedSingerTune?.title)
+              : null,
+            selectedSingerTuneTune: selectedSingerTuneVisible
+              ? this.nonEmptyOrNull(row.selectedSingerTune?.tune)
+              : null,
           });
         }
       }
@@ -687,12 +867,23 @@ async getListsIndex(params: {
   }
 
   const groups: ListGroupSummaryDto[] = (groupsRaw ?? [])
-    .map((g: any) => ({
-      id: g.id,
-      title: g.title,
-      fullTitle: g.fullTitle ?? null,
-      listsCount: (g.lists ?? []).length,
-    }))
+    .map((g: any) => {
+      const listIds = new Set<number>();
+      for (const link of g.listLinks ?? []) {
+        const id = Number(link?.listId);
+        if (Number.isFinite(id) && id > 0) listIds.add(id);
+      }
+      for (const list of g.lists ?? []) {
+        const id = Number(list?.id);
+        if (Number.isFinite(id) && id > 0) listIds.add(id);
+      }
+      return {
+        id: g.id,
+        title: g.title,
+        fullTitle: g.fullTitle ?? null,
+        listsCount: listIds.size,
+      };
+    })
     .filter((g) => g.listsCount > 0);
 
   return {
@@ -701,11 +892,14 @@ async getListsIndex(params: {
       const memberRoleCounts = countsByListId.get(r.id) ?? emptyCounts();
 
       const selectedItem = selectedItemByListId.get(r.id);
+      const rowGroups = this.groupsFromListRecord(r);
 
       return {
         id: r.id,
         title: t,
-        groupId: r.groupId ?? null,
+        groupId: r.groupId ?? rowGroups[0]?.id ?? null,
+        groupIds: rowGroups.map((g) => g.id),
+        groups: rowGroups,
         marked: !!r.marked,
         updatedAt: this.isoDateOrNull(r.updatedAt),
         role: this.computeHighestListRole(r.members),
@@ -746,10 +940,25 @@ async getListsIndex(params: {
       where: { id: listId },
       include: {
         group: true,
+        groupLinks: {
+          include: {
+            group: true,
+          },
+        },
         members: { where: { userId }, select: { role: true } },
         items: {
           orderBy: [{ sortId: "asc" }, { id: "asc" }],
-          include: { song: true, selectedSingerTune: true },
+          include: {
+            song: true,
+            selectedSingerTune: {
+              select: {
+                id: true,
+                title: true,
+                tune: true,
+                createdByUserId: true,
+              },
+            },
+          },
         },
       },
     });
@@ -762,6 +971,8 @@ async getListsIndex(params: {
 
     const role = this.computeHighestListRole((list as any).members);
     const title = list.title ?? "";
+    const singerTuneVisibility = await this.getSingerTuneVisibilityForViewer(userId);
+    const listGroups = this.groupsFromListRecord(list);
 
     return {
       id: list.id,
@@ -771,15 +982,19 @@ async getListsIndex(params: {
       listTitle: title,
       list_title: title,
 
-      groupId: list.groupId ?? null,
-      groupTitle: list.group?.title ?? null,
-      groupFullTitle: list.group?.fullTitle ?? null,
+      groupId: list.groupId ?? listGroups[0]?.id ?? null,
+      groupTitle: list.group?.title ?? listGroups[0]?.title ?? null,
+      groupFullTitle: list.group?.fullTitle ?? listGroups[0]?.fullTitle ?? null,
+      groupIds: listGroups.map((g) => g.id),
+      groups: listGroups,
 
       marked: !!list.marked,
       updatedAt: this.isoDateOrNull((list as any).updatedAt),
       role,
 
-      items: (list.items ?? []).map((it: any) => this.listItemToDto(it)),
+      items: (list.items ?? []).map((it: any) =>
+        this.listItemToDto(it, singerTuneVisibility),
+      ),
     };
   }
 
@@ -823,21 +1038,32 @@ async getListsIndex(params: {
     title: string;
     marked?: boolean;
     groupId?: number | null;
+    groupIds?: number[] | null;
   }): Promise<CreateListResponse> {
     const { userId, title, marked, groupId } = params;
 
     const nextTitle = String(title ?? "").trim();
     if (!nextTitle) throw new BadRequestException("Ο τίτλος είναι υποχρεωτικός.");
 
+    const nextGroupIds =
+      params.groupIds !== undefined
+        ? this.normalizeGroupIds(params.groupIds)
+        : groupId !== undefined
+          ? this.normalizeGroupIds(groupId)
+          : [];
+    await this.ensureGroupsExistOrThrow(nextGroupIds);
+
     const created = await this.prisma.$transaction(async (tx) => {
       const list = await tx.list.create({
         data: {
           title: nextTitle,
           marked: marked ?? false,
-          groupId: groupId ?? null,
+          groupId: nextGroupIds[0] ?? null,
         },
         select: { id: true },
       });
+
+      await this.replaceListGroups(tx, list.id, nextGroupIds);
 
       await tx.listMember.create({
         data: {
@@ -896,6 +1122,7 @@ async getListsIndex(params: {
     const selectedSingerTune = await this.assertSingerTuneBelongsToSongOrThrow({
       songId,
       selectedSingerTuneId: params.selectedSingerTuneId,
+      viewerUserId: userId,
     });
     const selectedTonicityToStore =
       this.selectedTonicityOrNull(params.selectedTonicity) ??
@@ -920,7 +1147,17 @@ async getListsIndex(params: {
         selectedTonicitySign: selectedTonicitySignToStore,
         selectedSingerTuneId: selectedSingerTune?.id ?? null,
       },
-      include: { song: true, selectedSingerTune: true },
+      include: {
+        song: true,
+        selectedSingerTune: {
+          select: {
+            id: true,
+            title: true,
+            tune: true,
+            createdByUserId: true,
+          },
+        },
+      },
     });
 
     await this.touchListUpdatedAt(listId);
@@ -930,7 +1167,10 @@ async getListsIndex(params: {
     await this.esSync?.upsertSong(songId);
 
     return {
-      ...this.listItemToDto(created),
+      ...this.listItemToDto(
+        created,
+        await this.getSingerTuneVisibilityForViewer(userId),
+      ),
       itemsCount,
     };
   }
@@ -958,6 +1198,7 @@ async getListsIndex(params: {
     const selectedSingerTune = await this.assertSingerTuneBelongsToSongOrThrow({
       songId: existing.songId,
       selectedSingerTuneId: params.selectedSingerTuneId,
+      viewerUserId: userId,
     });
 
     const selectedTonicityToStore =
@@ -977,7 +1218,17 @@ async getListsIndex(params: {
         selectedTonicitySign: selectedTonicitySignToStore,
         selectedSingerTuneId: selectedSingerTune?.id ?? null,
       },
-      include: { song: true, selectedSingerTune: true },
+      include: {
+        song: true,
+        selectedSingerTune: {
+          select: {
+            id: true,
+            title: true,
+            tune: true,
+            createdByUserId: true,
+          },
+        },
+      },
     });
 
     await this.touchListUpdatedAt(listId);
@@ -986,7 +1237,10 @@ async getListsIndex(params: {
       await this.esSync?.upsertSong(existing.songId);
     }
 
-    return this.listItemToDto(updated);
+    return this.listItemToDto(
+      updated,
+      await this.getSingerTuneVisibilityForViewer(userId),
+    );
   }
 
   async deleteListItem(params: {
@@ -1078,6 +1332,7 @@ async getListsIndex(params: {
     title: string;
     marked?: boolean;
     groupId?: number | null;
+    groupIds?: number[] | null;
   }): Promise<UpdateListResponse> {
     const { listId, userId, title, marked, groupId } = params;
 
@@ -1086,13 +1341,28 @@ async getListsIndex(params: {
     const nextTitle = String(title ?? "").trim();
     if (!nextTitle) throw new BadRequestException("Ο τίτλος είναι υποχρεωτικός.");
 
-    await this.prisma.list.update({
-      where: { id: listId },
-      data: {
-        title: nextTitle,
-        ...(marked !== undefined ? { marked: !!marked } : {}),
-        ...(groupId !== undefined ? { groupId } : {}),
-      },
+    const shouldReplaceGroups = params.groupIds !== undefined || groupId !== undefined;
+    const nextGroupIds =
+      params.groupIds !== undefined
+        ? this.normalizeGroupIds(params.groupIds)
+        : groupId !== undefined
+          ? this.normalizeGroupIds(groupId)
+          : [];
+    if (shouldReplaceGroups) await this.ensureGroupsExistOrThrow(nextGroupIds);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.list.update({
+        where: { id: listId },
+        data: {
+          title: nextTitle,
+          ...(marked !== undefined ? { marked: !!marked } : {}),
+          ...(shouldReplaceGroups ? { groupId: nextGroupIds[0] ?? null } : {}),
+        },
+      });
+
+      if (shouldReplaceGroups) {
+        await this.replaceListGroups(tx, listId, nextGroupIds);
+      }
     });
 
     return this.getListDetail({ listId, userId });
@@ -1484,19 +1754,34 @@ async getListsIndex(params: {
       orderBy: [{ title: "asc" }, { id: "asc" }],
       include: {
         members: { where: { userId }, select: { role: true } },
+        listLinks: {
+          where: { list: this.viewAclWhere(userId) },
+          select: { listId: true },
+        },
         // visible lists for that user
         lists: { where: this.viewAclWhere(userId), select: { id: true } },
       },
     });
 
     return {
-      items: (rows ?? []).map((g: any) => ({
-        id: g.id,
-        title: g.title,
-        fullTitle: g.fullTitle ?? null,
-        listsCount: (g.lists ?? []).length,
-        role: this.computeHighestGroupRole(g.members),
-      })),
+      items: (rows ?? []).map((g: any) => {
+        const listIds = new Set<number>();
+        for (const link of g.listLinks ?? []) {
+          const id = Number(link?.listId);
+          if (Number.isFinite(id) && id > 0) listIds.add(id);
+        }
+        for (const list of g.lists ?? []) {
+          const id = Number(list?.id);
+          if (Number.isFinite(id) && id > 0) listIds.add(id);
+        }
+        return {
+          id: g.id,
+          title: g.title,
+          fullTitle: g.fullTitle ?? null,
+          listsCount: listIds.size,
+          role: this.computeHighestGroupRole(g.members),
+        };
+      }),
     };
   }
 
@@ -1591,7 +1876,12 @@ async getListsIndex(params: {
     // ✅ ΣΗΜΑΝΤΙΚΟ: check σε ΟΛΕΣ τις λίστες (όχι με ACL),
     // γιατί αλλιώς μπορεί να υπάρχουν lists άλλων users που κρατάνε FK.
     const listsCount = await this.prisma.list.count({
-      where: { groupId },
+      where: {
+        OR: [
+          { groupId },
+          { groupLinks: { some: { groupId } } },
+        ],
+      },
     });
 
     if (listsCount > 0) {

@@ -28,8 +28,28 @@ function stripTrailingCount(label: string): string {
 
 function normalizeListItemsForEdit(list: ListDetailDto) {
   const items = (list.items ?? []).slice();
-  items.sort((a: any, b: any) => (Number(a.sortId) || 0) - (Number(b.sortId) || 0));
+  items.sort((a: any, b: any) => {
+    const aSort = Number(a.sortId) || 0;
+    const bSort = Number(b.sortId) || 0;
+    if (aSort !== bSort) return bSort - aSort;
+
+    const aId = Number(a.listItemId) || 0;
+    const bId = Number(b.listItemId) || 0;
+    return bId - aId;
+  });
   return items;
+}
+
+function itemsForBackendReorder(items: any[]) {
+  return (items ?? []).slice().sort((a: any, b: any) => {
+    const aSort = Number(a?.sortId) || 0;
+    const bSort = Number(b?.sortId) || 0;
+    if (aSort !== bSort) return aSort - bSort;
+
+    const aId = Number(a?.listItemId) || 0;
+    const bId = Number(b?.listItemId) || 0;
+    return aId - bId;
+  });
 }
 
 function sameNumberArray(a: number[], b: number[]) {
@@ -39,6 +59,28 @@ function sameNumberArray(a: number[], b: number[]) {
     if (Number(a[i]) !== Number(b[i])) return false;
   }
   return true;
+}
+
+function sameNumberSet(a: number[], b: number[]) {
+  if (a.length !== b.length) return false;
+  const aa = [...new Set(a.map(Number))].sort((x, y) => x - y);
+  const bb = [...new Set(b.map(Number))].sort((x, y) => x - y);
+  if (aa.length !== bb.length) return false;
+  return aa.every((value, index) => value === bb[index]);
+}
+
+function normalizeListGroupIds(list: any): number[] {
+  const source = Array.isArray(list?.groupIds) ? list.groupIds : [];
+  const ids = source
+    .map((value: any) => Number(value))
+    .filter((value: number) => Number.isFinite(value) && value > 0);
+
+  if (!ids.length && list?.groupId != null) {
+    const legacyId = Number(list.groupId);
+    if (Number.isFinite(legacyId) && legacyId > 0) ids.push(legacyId);
+  }
+
+  return [...new Set<number>(ids)];
 }
 
 function isDraftItem(it: any): boolean {
@@ -109,9 +151,11 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
 
   const [title, setTitle] = useState<string>(list.title ?? "");
   const [marked, setMarked] = useState<boolean>(!!list.marked);
-  const [groupId, setGroupId] = useState<string>(list.groupId === null ? "" : String(list.groupId));
+  const [groupIds, setGroupIds] = useState<string[]>(() =>
+    normalizeListGroupIds(list).map((id) => String(id)),
+  );
 
-  // ✅ για να εμφανιστεί άμεσα η νέα ομάδα στο select, ακόμα κι αν δεν είναι στα props groups
+  // Για να εμφανιστεί άμεσα το νέο tag στο select, ακόμα κι αν δεν είναι στα props groups.
   const [extraGroupOption, setExtraGroupOption] = useState<ExtraGroupOption>(null);
 
   // Baseline snapshot (μόνο server items)
@@ -121,6 +165,7 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
       .map((it) => Number(it.listItemId))
       .filter((id) => Number.isFinite(id) && id > 0),
   );
+  const initialGroupIdsRef = useRef<number[]>(normalizeListGroupIds(list));
 
   const [items, setItems] = useState<any[]>(() => initialItemsRef.current);
   const [songsDirtyManual, setSongsDirtyManual] = useState(false);
@@ -128,6 +173,7 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
 
   // Μόνο ο OWNER ή ο LIST_EDITOR μπορεί να διαχειρίζεται τα μέλη της λίστας.
   const canManageMembers = list.role === "OWNER" || list.role === "LIST_EDITOR";
@@ -152,7 +198,7 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
       if (seen.has(id)) continue;
       seen.add(id);
 
-      const raw = (g as any).fullTitle || g.title || `Ομάδα #${id}`;
+      const raw = (g as any).fullTitle || g.title || `Tag #${id}`;
       arr.push({ value: String(id), label: stripTrailingCount(raw) });
     }
 
@@ -171,7 +217,12 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
     return merged;
   }, [baseGroupOptions, extraGroupOption]);
 
-  // ✅ όταν γυρίζεις από "Νέα ομάδα", πάρε το id από localStorage και κάνε setGroupId
+  const selectedGroupLabels = useMemo(() => {
+    const labels = new Map(groupOptions.map((option) => [option.value, option.label]));
+    return groupIds.map((id) => labels.get(id) || `Tag #${id}`).filter(Boolean);
+  }, [groupIds, groupOptions]);
+
+  // Όταν γυρίζεις από "Νέο tag", πάρε το id από localStorage και κάνε setGroupId.
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -195,7 +246,7 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
     const value = String(createdId);
 
     // 1) set value (ώστε να "γυρίσει" η φόρμα)
-    setGroupId(value);
+    setGroupIds((prev) => (prev.includes(value) ? prev : [value, ...prev]));
 
     // 2) αν δεν υπάρχει στα options, φέρε τίτλο από API και πρόσθεσε προσωρινό option
     const alreadyInOptions = baseGroupOptions.some((o) => o.value === value);
@@ -213,11 +264,11 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
         const labelRaw =
           (found?.fullTitle as string | null) ||
           (found?.title as string | null) ||
-          `Ομάδα #${createdId}`;
+          `Tag #${createdId}`;
 
         setExtraGroupOption({ value, label: stripTrailingCount(labelRaw) });
       } catch {
-        setExtraGroupOption({ value, label: `Ομάδα #${createdId}` });
+        setExtraGroupOption({ value, label: `Tag #${createdId}` });
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -232,7 +283,12 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
   const metaHasChanges =
     title.trim() !== (list.title ?? "").trim() ||
     marked !== !!list.marked ||
-    (groupId === "" ? null : Number(groupId)) !== (list.groupId ?? null);
+    !sameNumberSet(
+      groupIds
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0),
+      initialGroupIdsRef.current,
+    );
 
   const songsDirtyDerived = useMemo(() => {
     const cur = items ?? [];
@@ -255,6 +311,24 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
 
   // Only the OWNER may delete a list.
   const canDelete = !saving && !deleting && list.role === "OWNER";
+
+  useEffect(() => {
+    if (!permissionsOpen || typeof document === "undefined") return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setPermissionsOpen(false);
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [permissionsOpen]);
 
   function sessionKeyForList(listId: number) {
     return `repertorio:listEdit:${listId}:items`;
@@ -302,15 +376,19 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
     setErr(null);
 
     try {
-      // 1) UPDATE list metadata (title/marked/groupId) if allowed
+      // 1) UPDATE list metadata (title/marked/groupIds) if allowed
       if (metaChangesAllowed) {
+        const selectedGroupIds = groupIds
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value > 0);
         await fetchJson(`/lists/${list.id}?userId=${encodeURIComponent(String(viewerUserId))}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             title: nextTitle,
             marked: !!marked,
-            groupId: groupId === "" ? null : Number(groupId),
+            groupId: selectedGroupIds[0] ?? null,
+            groupIds: selectedGroupIds,
           }),
         });
       }
@@ -383,7 +461,7 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
 
       // 5) REORDER with ONLY positive ids
       const finalOrderIds: number[] = [];
-      for (const it of items ?? []) {
+      for (const it of itemsForBackendReorder(items)) {
         const id = Number(it.listItemId);
 
         if (Number.isFinite(id) && id > 0) {
@@ -451,7 +529,7 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
     }
   }
 
-  // ✅ ΠΡΟΣΘΗΚΗ ΟΜΑΔΑΣ: πάνω από το Ομάδα (δεξιά)
+  // Προσθήκη tag πάνω από το πεδίο Tag.
   const onAddGroup = useCallback(() => {
     try {
       const returnToRel =
@@ -466,6 +544,13 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
 
     router.push("/lists/groups/new");
   }, [pathname, searchParams, router, list.id]);
+
+  function toggleGroup(value: string) {
+    if (!canEditListMeta || saving || deleting) return;
+    setGroupIds((prev) =>
+      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value],
+    );
+  }
 
   const fieldWrapStyle: React.CSSProperties = {
     display: "grid",
@@ -492,6 +577,28 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
     color: "rgba(255,255,255,0.85)",
     fontWeight: 600,
   };
+
+  const handleSongsOrderSaved = useCallback((savedItems: any[]) => {
+    const orderedIds = (savedItems ?? [])
+      .map((it) => Number(it?.listItemId))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    initialExistingIdsRef.current = orderedIds;
+
+    const previousInitialById = new Map<number, any>(
+      initialItemsRef.current
+        .map((it) => [Number(it?.listItemId), it] as const)
+        .filter(([id]) => Number.isFinite(id) && id > 0),
+    );
+
+    initialItemsRef.current = (savedItems ?? []).map((item) => {
+      const id = Number(item?.listItemId);
+      const previous = previousInitialById.get(id);
+      return previous ? { ...previous, sortId: item?.sortId } : item;
+    });
+
+    setItems(savedItems ?? []);
+  }, []);
 
   return (
     <section style={{ padding: "1rem", maxWidth: 900, margin: "0 auto" }}>
@@ -547,6 +654,68 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
         ) : null}
 
         <div style={{ display: "grid", gap: 14 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <button
+              type="button"
+              aria-pressed={marked}
+              onClick={() => setMarked((value) => !value)}
+              disabled={!canEditListMeta || saving || deleting}
+              title={marked ? "Αφαίρεση από αγαπημένες" : "Προσθήκη στις αγαπημένες"}
+              style={{
+                minHeight: 42,
+                padding: "0 14px",
+                borderRadius: 14,
+                border: marked ? "1px solid rgba(255,215,120,0.55)" : "1px solid rgba(255,255,255,0.18)",
+                background: marked ? "rgba(255,215,120,0.16)" : "rgba(255,255,255,0.05)",
+                color: "#fff",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 10,
+                fontWeight: 900,
+                cursor: !canEditListMeta || saving || deleting ? "not-allowed" : "pointer",
+                opacity: !canEditListMeta || saving || deleting ? 0.58 : 1,
+              }}
+            >
+              <span aria-hidden="true" style={{ color: marked ? "#ffd978" : "rgba(255,255,255,0.72)" }}>
+                ★
+              </span>
+              <span>Αγαπημένη</span>
+              <span
+                aria-hidden="true"
+                style={{
+                  minWidth: 34,
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  background: marked ? "rgba(25,135,84,0.32)" : "rgba(255,255,255,0.10)",
+                  color: marked ? "#9ff0bf" : "rgba(255,255,255,0.72)",
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                }}
+              >
+                {marked ? "ON" : "OFF"}
+              </span>
+            </button>
+
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              action="settings"
+              title="Άνοιγμα δικαιωμάτων λίστας"
+              onClick={() => setPermissionsOpen(true)}
+              disabled={deleting}
+            >
+              Δικαιώματα
+            </Button>
+          </div>
           <div style={fieldWrapStyle}>
             <label style={labelStyle}>Τίτλος</label>
             <input
@@ -560,61 +729,73 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
 
           <div style={fieldWrapStyle}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-              <label style={labelStyle}>Ομάδα</label>
+              <label style={labelStyle}>Tag</label>
 
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
                 action="new"
-                title="Προσθήκη ομάδας"
+                title="Προσθήκη tag"
                 onClick={onAddGroup}
                 disabled={!canEditListMeta || saving || deleting}
               >
-                Προσθήκη ομάδας
+                Προσθήκη tag
               </Button>
             </div>
 
-            <select
-              value={groupId}
-              onChange={(e) => setGroupId(e.target.value)}
-              style={inputStyle}
-              disabled={!canEditListMeta || saving || deleting}
-            >
-              <option value="">Χωρίς ομάδα</option>
-              {groupOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-
-            <div style={{ fontSize: 13, opacity: 0.75, color: "#fff" }}>
-              Τρέχουσα: <strong>{list.groupTitle ? stripTrailingCount(list.groupTitle) : "Χωρίς ομάδα"}</strong>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {groupIds.length ? (
+                <button
+                  type="button"
+                  onClick={() => setGroupIds([])}
+                  disabled={!canEditListMeta || saving || deleting}
+                  style={{
+                    minHeight: 34,
+                    borderRadius: 999,
+                    border: "1px solid rgba(255,255,255,0.18)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "#fff",
+                    padding: "6px 11px",
+                    fontWeight: 800,
+                    cursor: !canEditListMeta || saving || deleting ? "default" : "pointer",
+                  }}
+                >
+                  Καθαρισμός tags
+                </button>
+              ) : null}
+              {groupOptions.map((o) => {
+                const selected = groupIds.includes(o.value);
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => toggleGroup(o.value)}
+                    disabled={!canEditListMeta || saving || deleting}
+                    aria-pressed={selected}
+                    style={{
+                      minHeight: 34,
+                      borderRadius: 999,
+                      border: selected ? "1px solid rgba(88,166,255,0.65)" : "1px solid rgba(255,255,255,0.18)",
+                      background: selected ? "rgba(88,166,255,0.22)" : "rgba(255,255,255,0.04)",
+                      color: "#fff",
+                      padding: "6px 11px",
+                      fontWeight: 800,
+                      cursor: !canEditListMeta || saving || deleting ? "default" : "pointer",
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
             </div>
-          </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 10, paddingTop: 6 }}>
-            <input
-              id="marked"
-              type="checkbox"
-              checked={marked}
-              onChange={(e) => setMarked(e.target.checked)}
-              style={{ width: 18, height: 18 }}
-              disabled={!canEditListMeta || saving || deleting}
-            />
-            <label htmlFor="marked" style={{ color: "#fff", fontWeight: 600 }}>
-              Αγαπημένη (★)
-            </label>
+            {selectedGroupLabels.length ? (
+              <div style={{ fontSize: 13, opacity: 0.75, color: "#fff" }}>
+                Tags: <strong>{selectedGroupLabels.join(", ")}</strong>
+              </div>
+            ) : null}
           </div>
-
-          {/* ✅ “Κοινή χρήση” σε ξεχωριστό αρχείο */}
-          <ListEditMembersPanel
-            listId={list.id}
-            viewerUserId={viewerUserId}
-            canManageMembers={canManageMembers}
-            inputStyle={inputStyle}
-          />
 
           <ListEditSongsClient
             viewerUserId={viewerUserId}
@@ -623,10 +804,109 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
             inputStyle={inputStyle}
             onItemsChange={(next) => setItems(next)}
             onDirtyChange={(d) => setSongsDirtyManual(!!d)}
+            onOrderSaved={handleSongsOrderSaved}
             initialPickedSongId={initialPickedSongId ?? null}
           />
         </div>
       </div>
+
+      {permissionsOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="list-permissions-title"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setPermissionsOpen(false);
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 4000,
+            background: "rgba(0,0,0,0.72)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{
+              width: "min(980px, 100%)",
+              maxHeight: "min(760px, calc(100vh - 32px))",
+              overflow: "hidden",
+              borderRadius: 18,
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "#101010",
+              boxShadow: "0 28px 80px rgba(0,0,0,0.62)",
+              color: "#fff",
+              display: "grid",
+              gridTemplateRows: "auto minmax(0, 1fr)",
+            }}
+          >
+            <div
+              style={{
+                padding: "14px 16px",
+                borderBottom: "1px solid rgba(255,255,255,0.12)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <h2 id="list-permissions-title" style={{ margin: 0, fontSize: 20, lineHeight: 1.2 }}>
+                  Δικαιώματα
+                </h2>
+                <div
+                  style={{
+                    marginTop: 4,
+                    fontSize: 13,
+                    color: "rgba(255,255,255,0.72)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {list.title || `Λίστα #${list.id}`}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setPermissionsOpen(false)}
+                aria-label="Κλείσιμο"
+                title="Κλείσιμο"
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 14,
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#fff",
+                  fontSize: 24,
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: 16, overflowY: "auto", overflowX: "hidden" }}>
+              <ListEditMembersPanel
+                listId={list.id}
+                viewerUserId={viewerUserId}
+                canManageMembers={canManageMembers}
+                inputStyle={inputStyle}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

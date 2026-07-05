@@ -669,6 +669,15 @@ function firstLabelByValue(opts: Option[], value: string): string {
   return String(o?.label ?? v).trim();
 }
 
+function userLabelFromPayload(user: any, fallback: string): string {
+  return (
+    String(user?.displayName ?? "").trim() ||
+    String(user?.username ?? "").trim() ||
+    String(user?.email ?? "").trim() ||
+    fallback
+  );
+}
+
 function triYesNoSummary(csv: string, yesLabel: string, noLabel: string): string {
   const set = new Set(parseCsv(csv));
   const hasYes = set.has("1") || set.has("true");
@@ -1067,6 +1076,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
   const [yearMin, setYearMin] = useState<number | null>(null);
   const [yearMax, setYearMax] = useState<number | null>(null);
   const [createdByOptions, setCreatedByOptions] = useState<Option[]>([]);
+  const [createdByResolvedLabels, setCreatedByResolvedLabels] = useState<Record<string, string>>({});
   const [createdByCounts, setCreatedByCounts] = useState<Record<string, number>>({});
 
   const [chordsCounts, setChordsCounts] = useState<Record<string, number>>({
@@ -1179,6 +1189,46 @@ export default function SongsSearchClient({ searchParams }: Props) {
       cancelled = true;
     };
   }, [canLoadUserLists, currentUserEmail]);
+
+  useEffect(() => {
+    const id = String(filters.createdByUserId || "").trim();
+    if (!id) return;
+
+    const optionLabel = firstLabelByValue(createdByOptions, id);
+    if (optionLabel && optionLabel !== id) {
+      setCreatedByResolvedLabels((prev) =>
+        prev[id] === optionLabel ? prev : { ...prev, [id]: optionLabel },
+      );
+      return;
+    }
+
+    const cachedLabel = String(createdByResolvedLabels[id] || "").trim();
+    if (cachedLabel && cachedLabel !== id) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(id)}`, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const user = await parseJsonSafe<any>(res);
+        const label = userLabelFromPayload(user, id);
+        if (!cancelled && label && label !== id) {
+          setCreatedByResolvedLabels((prev) =>
+            prev[id] === label ? prev : { ...prev, [id]: label },
+          );
+        }
+      } catch {
+        // Keep the numeric id as a safe fallback if the lightweight lookup fails.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filters.createdByUserId, createdByOptions, createdByResolvedLabels]);
 
   const patchFilters = (patch: Partial<FiltersState>) => {
     const next: FiltersState = { ...filters, ...patch };
@@ -1774,9 +1824,13 @@ export default function SongsSearchClient({ searchParams }: Props) {
     }
 
     if ((filters.createdByUserId || "").trim()) {
+      const createdById = String(filters.createdByUserId || "").trim();
+      const createdByLabel =
+        createdByResolvedLabels[createdById] ||
+        firstLabelByValue(createdByOptions, createdById);
       chips.push({
         key: "createdBy",
-        label: `Δημιουργός: ${firstLabelByValue(createdByOptions, filters.createdByUserId)}`,
+        label: `Δημιουργός: ${createdByLabel}`,
         onRemove: () => patchFilters({ createdByUserId: "" }),
       });
     }
@@ -1801,6 +1855,7 @@ export default function SongsSearchClient({ searchParams }: Props) {
     singerFrontOptions,
     singerBackOptions,
     createdByOptions,
+    createdByResolvedLabels,
   ]);
 
   return (

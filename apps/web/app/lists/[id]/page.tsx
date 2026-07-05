@@ -40,6 +40,13 @@ export type ListDetailDto = {
   groupId: number | null;
   groupTitle: string | null;
   groupFullTitle: string | null;
+  groupIds?: number[];
+  groups?: Array<{
+    id: number;
+    title: string;
+    fullTitle: string | null;
+    listsCount?: number;
+  }>;
   marked: boolean;
   role:
     | "OWNER"
@@ -56,10 +63,10 @@ type PageProps = {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   if (params.id === "offline-shell") {
-    return { title: "Offline λίστα | Repertorio Next" };
+    return { title: "Repertorio.net" };
   }
 
-  return { title: `Λίστα #${params.id} | Repertorio Next` };
+  return { title: "Repertorio.net" };
 }
 
 export default async function ListDetailPage({ params, searchParams }: PageProps) {

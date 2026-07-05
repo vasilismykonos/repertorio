@@ -46,11 +46,9 @@ export class SongSingerTuneAccessService {
       .filter((r) => r.canView)
       .map((r) => r.creatorUserId);
 
-    const mode = creatorUserIds.length > 0 ? 'ONLY_SELECTED' : 'ALL';
-
     return {
       viewerUserId,
-      mode,
+      mode: 'ONLY_SELECTED',
       creatorUserIds,
       rows,
     };
@@ -135,11 +133,9 @@ export class SongSingerTuneAccessService {
         .filter((r) => r.canView)
         .map((r) => r.creatorUserId);
 
-      const mode = selected.length > 0 ? 'ONLY_SELECTED' : 'ALL';
-
       return {
         viewerUserId,
-        mode,
+        mode: 'ONLY_SELECTED',
         creatorUserIds: selected,
         rows,
       };

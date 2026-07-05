@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 
 export type OnlinePresenceUserDto = {
@@ -13,28 +12,30 @@ export type OnlinePresenceUserDto = {
   guest?: boolean;
 };
 
-type PresenceUserRow = {
-  userId: number;
-  firstSeenAt: Date;
-  lastSeenAt: Date;
-  lastSessionAt: Date;
-  sessionCount: number;
-  activeMinutes: number;
-  user: {
-    id: number;
-    email: string | null;
-    username: string | null;
-    displayName: string | null;
-    avatarUrl: string | null;
-    role?: string | null;
-  };
-};
-
 type GuestPresence = {
   id: string;
   label: string;
   firstSeenAt: Date;
   lastSeenAt: Date;
+};
+
+type CountRow = {
+  count: number | bigint | string;
+};
+
+type RawPresenceUserRow = {
+  id: number;
+  email: string | null;
+  username: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  role?: string | null;
+  firstSeenAt?: Date | string | null;
+  lastSeenAt: Date | string;
+  lastSessionAt?: Date | string | null;
+  sessionCount?: number | bigint | string | null;
+  activeMinutes?: number | bigint | string | null;
+  secondsAgo: number | bigint | string;
 };
 
 const DEFAULT_WINDOW_SEC = 180;
@@ -77,22 +78,49 @@ function sanitizeGuestLabel(value: unknown): string {
   return label.slice(0, 40);
 }
 
-function mapUserStats(row: PresenceUserRow, now: Date) {
-  const user = row.user;
+function toInt(value: unknown): number {
+  if (typeof value === "bigint") return Number(value);
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
+function isoDate(value: Date | string | null | undefined): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string" && value.trim()) {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? value : d.toISOString();
+  }
+  return new Date(0).toISOString();
+}
+
+function mapOnlineUser(row: RawPresenceUserRow): OnlinePresenceUserDto {
   return {
-    id: user.id,
-    label: displayLabel(user),
-    username: user.username ?? null,
-    displayName: user.displayName ?? null,
-    email: user.email ?? null,
-    avatarUrl: user.avatarUrl ?? null,
-    role: user.role ?? null,
-    firstSeenAt: row.firstSeenAt.toISOString(),
-    lastSeenAt: row.lastSeenAt.toISOString(),
-    lastSessionAt: row.lastSessionAt.toISOString(),
-    sessionCount: row.sessionCount,
-    activeMinutes: row.activeMinutes,
-    secondsAgo: Math.max(0, Math.round((now.getTime() - row.lastSeenAt.getTime()) / 1000)),
+    id: row.id,
+    label: displayLabel(row),
+    username: row.username ?? null,
+    displayName: row.displayName ?? null,
+    avatarUrl: row.avatarUrl ?? null,
+    lastSeenAt: isoDate(row.lastSeenAt),
+    secondsAgo: Math.max(0, toInt(row.secondsAgo)),
+    guest: false,
+  };
+}
+
+function mapUserStats(row: RawPresenceUserRow) {
+  return {
+    id: row.id,
+    label: displayLabel(row),
+    username: row.username ?? null,
+    displayName: row.displayName ?? null,
+    email: row.email ?? null,
+    avatarUrl: row.avatarUrl ?? null,
+    role: row.role ?? null,
+    firstSeenAt: isoDate(row.firstSeenAt),
+    lastSeenAt: isoDate(row.lastSeenAt),
+    lastSessionAt: isoDate(row.lastSessionAt),
+    sessionCount: toInt(row.sessionCount ?? 1),
+    activeMinutes: toInt(row.activeMinutes ?? 0),
+    secondsAgo: Math.max(0, toInt(row.secondsAgo)),
   };
 }
 
@@ -103,9 +131,8 @@ export class PresenceService {
   constructor(private readonly prisma: PrismaService) {}
 
   async ping(userId: number) {
-    const now = new Date();
-
-    // Single atomic write on the existing heartbeat. No per-page/user history is stored.
+    // UserPresence columns are timestamp-without-time-zone. Keep all heartbeat
+    // math inside Postgres local time to avoid false online users from TZ drift.
     await this.prisma.$executeRaw`
       INSERT INTO "UserPresence" (
         "userId",
@@ -115,26 +142,26 @@ export class PresenceService {
         "sessionCount",
         "activeMinutes"
       )
-      VALUES (${userId}, ${now}, ${now}, ${now}, 1, 0)
+      VALUES (${userId}, LOCALTIMESTAMP, LOCALTIMESTAMP, LOCALTIMESTAMP, 1, 0)
       ON CONFLICT ("userId") DO UPDATE SET
         "activeMinutes" = "UserPresence"."activeMinutes" + CASE
-          WHEN EXTRACT(EPOCH FROM (${now} - "UserPresence"."lastSeenAt")) >= 30
-           AND EXTRACT(EPOCH FROM (${now} - "UserPresence"."lastSeenAt")) <= 1800
-          THEN LEAST(5, GREATEST(1, CEIL(EXTRACT(EPOCH FROM (${now} - "UserPresence"."lastSeenAt")) / 60.0)::int))
+          WHEN EXTRACT(EPOCH FROM (LOCALTIMESTAMP - "UserPresence"."lastSeenAt")) >= 30
+           AND EXTRACT(EPOCH FROM (LOCALTIMESTAMP - "UserPresence"."lastSeenAt")) <= 1800
+          THEN LEAST(5, GREATEST(1, CEIL(EXTRACT(EPOCH FROM (LOCALTIMESTAMP - "UserPresence"."lastSeenAt")) / 60.0)::int))
           ELSE 0
         END,
         "sessionCount" = "UserPresence"."sessionCount" + CASE
-          WHEN ${now} - "UserPresence"."lastSeenAt" > interval '30 minutes' THEN 1
+          WHEN LOCALTIMESTAMP - "UserPresence"."lastSeenAt" > interval '30 minutes' THEN 1
           ELSE 0
         END,
         "lastSessionAt" = CASE
-          WHEN ${now} - "UserPresence"."lastSeenAt" > interval '30 minutes' THEN ${now}
+          WHEN LOCALTIMESTAMP - "UserPresence"."lastSeenAt" > interval '30 minutes' THEN LOCALTIMESTAMP
           ELSE "UserPresence"."lastSessionAt"
         END,
-        "lastSeenAt" = ${now}
+        "lastSeenAt" = LOCALTIMESTAMP
     `;
 
-    return { ok: true, lastSeenAt: now.toISOString() };
+    return { ok: true, lastSeenAt: new Date().toISOString() };
   }
 
   async pingGuest(guestId: string, guestLabel?: string) {
@@ -175,11 +202,15 @@ export class PresenceService {
 
   async onlineCount(windowSec: number) {
     const n = normalizeWindowSec(windowSec);
-    const since = new Date(Date.now() - n * 1000);
 
-    const userCount = await this.prisma.userPresence.count({
-      where: { lastSeenAt: { gte: since } },
-    });
+    const userCountRows = await this.prisma.$queryRaw<CountRow[]>`
+      SELECT COUNT(*)::int AS count
+      FROM "UserPresence"
+      WHERE "lastSeenAt" >= LOCALTIMESTAMP - (${n}::int * interval '1 second')
+        AND "lastSeenAt" <= LOCALTIMESTAMP + interval '10 seconds'
+    `;
+    const userCount = toInt(userCountRows[0]?.count);
+    const since = new Date(Date.now() - n * 1000);
     const guestCount = this.activeGuests(since).length;
     const count = userCount + guestCount;
 
@@ -192,46 +223,33 @@ export class PresenceService {
     const now = new Date();
     const since = new Date(now.getTime() - windowSec * 1000);
 
-    const [userCount, rows] = await Promise.all([
-      this.prisma.userPresence.count({
-        where: { lastSeenAt: { gte: since } },
-      }),
-      this.prisma.userPresence.findMany({
-        where: { lastSeenAt: { gte: since } },
-        orderBy: { lastSeenAt: "desc" },
-        take,
-        include: {
-          user: {
-            select: {
-              id: true,
-              email: true,
-              username: true,
-              displayName: true,
-              avatarUrl: true,
-            },
-          },
-        },
-      }),
+    const [userCountRows, rows] = await Promise.all([
+      this.prisma.$queryRaw<CountRow[]>`
+        SELECT COUNT(*)::int AS count
+        FROM "UserPresence"
+        WHERE "lastSeenAt" >= LOCALTIMESTAMP - (${windowSec}::int * interval '1 second')
+          AND "lastSeenAt" <= LOCALTIMESTAMP + interval '10 seconds'
+      `,
+      this.prisma.$queryRaw<RawPresenceUserRow[]>`
+        SELECT
+          u.id,
+          u.email,
+          u.username,
+          u."displayName",
+          u."avatarUrl",
+          p."lastSeenAt" AT TIME ZONE current_setting('TimeZone') AS "lastSeenAt",
+          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (LOCALTIMESTAMP - p."lastSeenAt"))))::int AS "secondsAgo"
+        FROM "UserPresence" p
+        JOIN "User" u ON u.id = p."userId"
+        WHERE p."lastSeenAt" >= LOCALTIMESTAMP - (${windowSec}::int * interval '1 second')
+          AND p."lastSeenAt" <= LOCALTIMESTAMP + interval '10 seconds'
+        ORDER BY p."lastSeenAt" DESC
+        LIMIT ${take}
+      `,
     ]);
 
-    const users: OnlinePresenceUserDto[] = rows.map((row) => {
-      const user = row.user;
-      const secondsAgo = Math.max(
-        0,
-        Math.round((now.getTime() - row.lastSeenAt.getTime()) / 1000),
-      );
-
-      return {
-        id: user.id,
-        label: displayLabel(user),
-        username: user.username ?? null,
-        displayName: user.displayName ?? null,
-        avatarUrl: user.avatarUrl ?? null,
-        lastSeenAt: row.lastSeenAt.toISOString(),
-        secondsAgo,
-        guest: false,
-      };
-    });
+    const userCount = toInt(userCountRows[0]?.count);
+    const users: OnlinePresenceUserDto[] = rows.map(mapOnlineUser);
     const guests = this.activeGuests(since, undefined, now);
     const mergedUsers = [...users, ...guests]
       .sort(
@@ -256,34 +274,69 @@ export class PresenceService {
 
   async adminStats() {
     const now = new Date();
-    const onlineSince = new Date(now.getTime() - ONLINE_WINDOW_MS);
-    const daySince = new Date(now.getTime() - ACTIVE_DAY_MS);
-    const weekSince = new Date(now.getTime() - ACTIVE_WEEK_MS);
-    const userSelect = {
-      id: true,
-      email: true,
-      username: true,
-      displayName: true,
-      avatarUrl: true,
-      role: true,
-    } satisfies Prisma.UserSelect;
+    const onlineSec = Math.round(ONLINE_WINDOW_MS / 1000);
+    const daySec = Math.round(ACTIVE_DAY_MS / 1000);
+    const weekSec = Math.round(ACTIVE_WEEK_MS / 1000);
 
-    const [knownUsers, onlineUsers, activeToday, activeWeek, recentUsers, frequentUsers] =
+    const [knownUsers, onlineRows, activeTodayRows, activeWeekRows, recentUsers, frequentUsers] =
       await Promise.all([
         this.prisma.user.count(),
-        this.prisma.userPresence.count({ where: { lastSeenAt: { gte: onlineSince } } }),
-        this.prisma.userPresence.count({ where: { lastSeenAt: { gte: daySince } } }),
-        this.prisma.userPresence.count({ where: { lastSeenAt: { gte: weekSince } } }),
-        this.prisma.userPresence.findMany({
-          orderBy: { lastSeenAt: "desc" },
-          take: 12,
-          include: { user: { select: userSelect } },
-        }),
-        this.prisma.userPresence.findMany({
-          orderBy: [{ activeMinutes: "desc" }, { sessionCount: "desc" }, { lastSeenAt: "desc" }],
-          take: 12,
-          include: { user: { select: userSelect } },
-        }),
+        this.prisma.$queryRaw<CountRow[]>`
+          SELECT COUNT(*)::int AS count
+          FROM "UserPresence"
+          WHERE "lastSeenAt" >= LOCALTIMESTAMP - (${onlineSec}::int * interval '1 second')
+            AND "lastSeenAt" <= LOCALTIMESTAMP + interval '10 seconds'
+        `,
+        this.prisma.$queryRaw<CountRow[]>`
+          SELECT COUNT(*)::int AS count
+          FROM "UserPresence"
+          WHERE "lastSeenAt" >= LOCALTIMESTAMP - (${daySec}::int * interval '1 second')
+            AND "lastSeenAt" <= LOCALTIMESTAMP + interval '10 seconds'
+        `,
+        this.prisma.$queryRaw<CountRow[]>`
+          SELECT COUNT(*)::int AS count
+          FROM "UserPresence"
+          WHERE "lastSeenAt" >= LOCALTIMESTAMP - (${weekSec}::int * interval '1 second')
+            AND "lastSeenAt" <= LOCALTIMESTAMP + interval '10 seconds'
+        `,
+        this.prisma.$queryRaw<RawPresenceUserRow[]>`
+          SELECT
+            u.id,
+            u.email,
+            u.username,
+            u."displayName",
+            u."avatarUrl",
+            u.role,
+            p."firstSeenAt" AT TIME ZONE current_setting('TimeZone') AS "firstSeenAt",
+            p."lastSeenAt" AT TIME ZONE current_setting('TimeZone') AS "lastSeenAt",
+            p."lastSessionAt" AT TIME ZONE current_setting('TimeZone') AS "lastSessionAt",
+            p."sessionCount",
+            p."activeMinutes",
+            GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (LOCALTIMESTAMP - p."lastSeenAt"))))::int AS "secondsAgo"
+          FROM "UserPresence" p
+          JOIN "User" u ON u.id = p."userId"
+          ORDER BY p."lastSeenAt" DESC
+          LIMIT 12
+        `,
+        this.prisma.$queryRaw<RawPresenceUserRow[]>`
+          SELECT
+            u.id,
+            u.email,
+            u.username,
+            u."displayName",
+            u."avatarUrl",
+            u.role,
+            p."firstSeenAt" AT TIME ZONE current_setting('TimeZone') AS "firstSeenAt",
+            p."lastSeenAt" AT TIME ZONE current_setting('TimeZone') AS "lastSeenAt",
+            p."lastSessionAt" AT TIME ZONE current_setting('TimeZone') AS "lastSessionAt",
+            p."sessionCount",
+            p."activeMinutes",
+            GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (LOCALTIMESTAMP - p."lastSeenAt"))))::int AS "secondsAgo"
+          FROM "UserPresence" p
+          JOIN "User" u ON u.id = p."userId"
+          ORDER BY p."activeMinutes" DESC, p."sessionCount" DESC, p."lastSeenAt" DESC
+          LIMIT 12
+        `,
       ]);
 
     return {
@@ -296,12 +349,12 @@ export class PresenceService {
       },
       totals: {
         knownUsers,
-        onlineUsers,
-        activeToday,
-        activeWeek,
+        onlineUsers: toInt(onlineRows[0]?.count),
+        activeToday: toInt(activeTodayRows[0]?.count),
+        activeWeek: toInt(activeWeekRows[0]?.count),
       },
-      recentUsers: recentUsers.map((row) => mapUserStats(row as PresenceUserRow, now)),
-      frequentUsers: frequentUsers.map((row) => mapUserStats(row as PresenceUserRow, now)),
+      recentUsers: recentUsers.map(mapUserStats),
+      frequentUsers: frequentUsers.map(mapUserStats),
     };
   }
 }

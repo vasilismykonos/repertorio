@@ -64,7 +64,7 @@ export default function ListNewClient({ viewerUserId, groups }: Props) {
 
   const [title, setTitle] = useState("");
   const [marked, setMarked] = useState(false);
-  const [groupId, setGroupId] = useState<string>("");
+  const [groupIds, setGroupIds] = useState<string[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -81,7 +81,7 @@ export default function ListNewClient({ viewerUserId, groups }: Props) {
       if (seen.has(id)) continue;
       seen.add(id);
 
-      const raw = (g as any)?.fullTitle || (g as any)?.title || `Ομάδα #${id}`;
+      const raw = (g as any)?.fullTitle || (g as any)?.title || `Tag #${id}`;
       arr.push({ value: String(id), label: stripTrailingCount(raw) });
     }
 
@@ -89,14 +89,15 @@ export default function ListNewClient({ viewerUserId, groups }: Props) {
     return arr;
   }, [safeGroups]);
 
-  // ✅ όταν γυρίσουμε από create group
+  // Όταν γυρίσουμε από create tag.
   useEffect(() => {
     try {
       const v = window.localStorage.getItem(LS_LAST_CREATED_GROUP_ID) ?? "";
       const n = Number(v);
       if (!Number.isFinite(n) || n <= 0) return;
 
-      setGroupId(String(n));
+      const value = String(n);
+      setGroupIds((prev) => (prev.includes(value) ? prev : [value, ...prev]));
       window.localStorage.removeItem(LS_LAST_CREATED_GROUP_ID);
     } catch {
       // ignore
@@ -115,13 +116,20 @@ export default function ListNewClient({ viewerUserId, groups }: Props) {
     if (saving) return;
 
     try {
-      // πού να επιστρέψει μετά το save της ομάδας
+      // Πού να επιστρέψει μετά το save του tag.
       window.localStorage.setItem(LS_RETURN_TO, "/lists/new");
     } catch {
       // ignore
     }
 
     router.push("/lists/groups/new");
+  }
+
+  function toggleGroup(value: string) {
+    if (saving) return;
+    setGroupIds((prev) =>
+      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value],
+    );
   }
 
   async function onSave() {
@@ -137,6 +145,9 @@ export default function ListNewClient({ viewerUserId, groups }: Props) {
     setErr(null);
 
     try {
+      const selectedGroupIds = groupIds
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0);
       const res = await fetch("/api/lists", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -144,7 +155,8 @@ export default function ListNewClient({ viewerUserId, groups }: Props) {
         body: JSON.stringify({
           title: nextTitle,
           marked: !!marked,
-          groupId: groupId === "" ? null : Number(groupId),
+          groupId: selectedGroupIds[0] ?? null,
+          groupIds: selectedGroupIds,
         }),
       });
 
@@ -254,7 +266,7 @@ export default function ListNewClient({ viewerUserId, groups }: Props) {
 
           <div style={fieldWrapStyle}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-              <label style={labelStyle}>Ομάδα</label>
+              <label style={labelStyle}>Tag</label>
 
               {/* ✅ ΠΡΟΣΟΧΗ: Button, όχι Link, για να δουλέψει το onClick */}
               <Button
@@ -262,7 +274,7 @@ export default function ListNewClient({ viewerUserId, groups }: Props) {
                 variant="secondary"
                 size="sm"
                 action="new"
-                title="Προσθήκη ομάδας"
+                title="Προσθήκη tag"
                 disabled={saving}
                 onClick={onAddGroup}
               >
@@ -270,22 +282,53 @@ export default function ListNewClient({ viewerUserId, groups }: Props) {
               </Button>
             </div>
 
-            <select
-              value={groupId}
-              onChange={(e) => setGroupId(e.target.value)}
-              style={inputStyle}
-              disabled={saving}
-            >
-              <option value="">Χωρίς ομάδα</option>
-              {groupOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => setGroupIds([])}
+                disabled={saving}
+                aria-pressed={groupIds.length === 0}
+                style={{
+                  minHeight: 34,
+                  borderRadius: 999,
+                  border: groupIds.length === 0 ? "1px solid rgba(255,255,255,0.42)" : "1px solid rgba(255,255,255,0.18)",
+                  background: groupIds.length === 0 ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.04)",
+                  color: "#fff",
+                  padding: "6px 11px",
+                  fontWeight: 800,
+                  cursor: saving ? "default" : "pointer",
+                }}
+              >
+                Χωρίς tag
+              </button>
+              {groupOptions.map((o) => {
+                const selected = groupIds.includes(o.value);
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => toggleGroup(o.value)}
+                    disabled={saving}
+                    aria-pressed={selected}
+                    style={{
+                      minHeight: 34,
+                      borderRadius: 999,
+                      border: selected ? "1px solid rgba(88,166,255,0.65)" : "1px solid rgba(255,255,255,0.18)",
+                      background: selected ? "rgba(88,166,255,0.22)" : "rgba(255,255,255,0.04)",
+                      color: "#fff",
+                      padding: "6px 11px",
+                      fontWeight: 800,
+                      cursor: saving ? "default" : "pointer",
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
 
             <div style={{ fontSize: 12, opacity: 0.7, color: "#fff" }}>
-              Ομάδες διαθέσιμες: {safeGroups.length}
+              Tags διαθέσιμα: {safeGroups.length} · επιλεγμένα: {groupIds.length}
             </div>
           </div>
 

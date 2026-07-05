@@ -40,6 +40,8 @@ type SongListOption = {
   id: number;
   title: string;
   groupId: number | null;
+  groupIds?: number[];
+  groups?: ListGroupOption[];
   marked: boolean;
   role: ListRole;
   itemsCount: number;
@@ -67,6 +69,7 @@ type ListGroupOption = {
 type CreateListInput = {
   title: string;
   groupId: number | null;
+  groupIds?: number[];
   marked: boolean;
 };
 
@@ -424,10 +427,21 @@ export default function SongListPickerModal({
                   listToneSelections[list.id] ??
                   toneValueFromList(list, alreadySelected ? undefined : defaultToneSelection);
                 const title = normalizeListTitle(list);
-                const groupLabel =
-                  list.groupId === null
-                    ? "Χωρίς ομάδα"
-                    : groupLabelById.get(list.groupId) || `Ομάδα #${list.groupId}`;
+                const groupLabels = Array.isArray(list.groups)
+                  ? list.groups.map((group) => normalizeGroupTitle(group)).filter(Boolean)
+                  : [];
+                if (!groupLabels.length && Array.isArray(list.groupIds)) {
+                  for (const groupId of list.groupIds) {
+                    const id = Number(groupId);
+                    if (Number.isFinite(id) && id > 0) {
+                      groupLabels.push(groupLabelById.get(id) || `Tag #${id}`);
+                    }
+                  }
+                }
+                if (!groupLabels.length && list.groupId !== null) {
+                  groupLabels.push(groupLabelById.get(list.groupId) || `Tag #${list.groupId}`);
+                }
+                const groupLabel = groupLabels.length ? groupLabels.join(", ") : "Χωρίς tag";
                 const canChangeTone = !alreadySelected || canEditListSongs(list);
                 const actionDisabled = mutating || alreadySelected;
 

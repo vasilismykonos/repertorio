@@ -76,13 +76,13 @@ function roleHint(role: Role | undefined | null): string {
     case "ADMIN":
       return "Προβολή ως διαχειριστής";
     case "OWNER":
-      return "Ορίζει δικαιώματα και διαχειρίζεται την ομάδα.";
+      return "Ορίζει δικαιώματα και διαχειρίζεται το tag.";
     case "LIST_EDITOR":
-      return "Μπορεί να διαχειρίζεται μέλη της ομάδας.";
+      return "Μπορεί να διαχειρίζεται μέλη του tag.";
     case "SONGS_EDITOR":
       return "Μπορεί να επεξεργάζεται μόνο λίστες/τραγούδια (ανάλογα με τον κανόνα σου).";
     case "VIEWER":
-      return "Μπορεί να βλέπει την ομάδα.";
+      return "Μπορεί να βλέπει το tag.";
     default:
       return String(role);
   }
@@ -295,17 +295,17 @@ export default function ListsGroupsBlock({
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <div style={{ fontWeight: 900, color: "#fff", fontSize: 14, letterSpacing: 0.3 }}>Ομάδες</div>
+          <div style={{ fontWeight: 900, color: "#fff", fontSize: 14, letterSpacing: 0.3 }}>Tags</div>
           {adminChip}
         </div>
 
-        {/* ✅ ΠΑΝΤΑ ενεργό: πάει στη σελίδα που φτιάχνεις/προσθέτεις ομάδες */}
+        {/* Πάει στη σελίδα που φτιάχνεις/προσθέτεις tags. */}
         {A.link({
           href: groupsEditHref,
           label: "Επεξεργασία",
           action: "edit",
           variant: "secondary",
-          title: "Διαχείριση / Προσθήκη νέων ομάδων",
+          title: "Διαχείριση / Προσθήκη νέων tags",
         })}
       </div>
 
@@ -316,14 +316,14 @@ export default function ListsGroupsBlock({
         </Link>
 
         <Link href={buildPageUrl({ search, groupId: "null", page: 1 })} style={pillStyle(groupId === "null")}>
-          <span>Χωρίς ομάδα</span>
+          <span>Χωρίς tag</span>
           <span style={{ opacity: 0.9 }}>({noGroupCount})</span>
         </Link>
 
         {visibleGroups.map((g) => {
           const isActive = groupId !== "" && groupId !== "null" && groupId === String(g.id);
 
-          const rawLabel = g.fullTitle || g.title || `Ομάδα #${g.id}`;
+          const rawLabel = g.fullTitle || g.title || `Tag #${g.id}`;
           const cleanLabel = stripTrailingCount(rawLabel);
 
           const role = (g as any).role ?? roleByGroupId.get(g.id);
@@ -334,9 +334,9 @@ export default function ListsGroupsBlock({
               href={buildPageUrl({ search, groupId: String(g.id), page: 1 })}
               onClick={() => setRecentGroupIds(rememberRecentGroup(g.id))}
               style={pillStyle(isActive)}
-              title={role ? `Δικαίωμα ομάδας: ${roleLabel(role)} — ${roleHint(role)}` : undefined}
+              title={role ? `Δικαίωμα tag: ${roleLabel(role)} — ${roleHint(role)}` : undefined}
             >
-              {/* ✅ ΕΔΩ φαίνεται ΠΑΝΤΑ το icon δίπλα από την ομάδα */}
+              {/* Εδώ φαίνεται πάντα το icon δίπλα από το tag. */}
               {role ? (
                 <span aria-hidden="true" style={{ display: "inline-flex", opacity: 0.95, flex: "0 0 auto" }}>
                   {roleIcon(role)}
@@ -368,7 +368,7 @@ export default function ListsGroupsBlock({
 
               {/* ✅ κρατάμε και badge label (όπως πριν) */}
               {role ? (
-                <span style={roleBadgeStyle(role)} title={`Δικαίωμα ομάδας: ${roleLabel(role)} — ${roleHint(role)}`}>
+                <span style={roleBadgeStyle(role)} title={`Δικαίωμα tag: ${roleLabel(role)} — ${roleHint(role)}`}>
                   {roleLabel(role)}
                 </span>
               ) : null}
@@ -385,8 +385,8 @@ export default function ListsGroupsBlock({
               cursor: "pointer",
               fontFamily: "inherit",
             }}
-            title={showAllGroups ? "Εμφάνιση λιγότερων ομάδων" : `Εμφάνιση ${hiddenGroupsCount} ακόμα ομάδων`}
-            aria-label={showAllGroups ? "Εμφάνιση λιγότερων ομάδων" : `Εμφάνιση ${hiddenGroupsCount} ακόμα ομάδων`}
+            title={showAllGroups ? "Εμφάνιση λιγότερων tags" : `Εμφάνιση ${hiddenGroupsCount} ακόμα tags`}
+            aria-label={showAllGroups ? "Εμφάνιση λιγότερων tags" : `Εμφάνιση ${hiddenGroupsCount} ακόμα tags`}
           >
             <MoreHorizontal size={20} aria-hidden="true" />
             <span style={{ opacity: 0.9 }}>{showAllGroups ? "Λιγότερες" : `+${hiddenGroupsCount}`}</span>

@@ -81,6 +81,25 @@ function requirePositiveIntBodyField(value: unknown, fieldName: string): number 
   return n;
 }
 
+function parseOptionalGroupIdsBodyField(value: unknown, fieldName = "groupIds"): number[] | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new BadRequestException(`Body field '${fieldName}' must be an array of positive integers.`);
+  }
+
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const item of value) {
+    if (item === null || item === undefined || item === "") continue;
+    const id = requirePositiveIntBodyField(item, fieldName);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 /**
  * Reorder body parser:
  * Δέχεται:
@@ -137,12 +156,14 @@ type UpdateListBody = {
   title: string;
   marked?: boolean;
   groupId?: number | null;
+  groupIds?: number[] | null;
 };
 
 type CreateListBody = {
   title: string;
   marked?: boolean;
   groupId?: number | null;
+  groupIds?: number[] | null;
 };
 
 type CreateGroupBody = {
@@ -239,12 +260,14 @@ export class ListsController {
         requirePositiveIntBodyField(v, "groupId");
       }
     }
+    const groupIds = parseOptionalGroupIdsBodyField(body.groupIds);
 
     return this.listsService.createList({
       userId,
       title,
       marked: body.marked,
       groupId: body.groupId,
+      groupIds,
     });
   }
 
@@ -534,6 +557,7 @@ export class ListsController {
         requirePositiveIntBodyField(v, "groupId");
       }
     }
+    const groupIds = parseOptionalGroupIdsBodyField(body.groupIds);
 
     return this.listsService.updateList({
       listId: id,
@@ -541,6 +565,7 @@ export class ListsController {
       title,
       marked: body.marked,
       groupId: body.groupId,
+      groupIds,
     });
   }
 

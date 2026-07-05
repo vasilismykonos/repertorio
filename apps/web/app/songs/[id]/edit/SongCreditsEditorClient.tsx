@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
@@ -13,6 +13,7 @@ type ArtistOption = {
 };
 
 type SelectedArtist = { id: number; label: string };
+type SuggestedCredit = { name: string; artist: SelectedArtist | null };
 
 type Props = {
   // truth from GET /songs/:id (credits included)
@@ -22,6 +23,9 @@ type Props = {
   // fallback from legacy song.composerName/song.lyricistName
   initialComposerNames?: string[];
   initialLyricistNames?: string[];
+  suggestedComposerNames?: string[];
+  suggestedLyricistNames?: string[];
+  suggestionSourceLabel?: string | null;
 
   // IMPORTANT: name of the hidden input to be submitted
   hiddenInputName: string; // e.g. "creditsJson"
@@ -67,10 +71,150 @@ function uniqStrings(arr: any[]): string[] {
   return out;
 }
 
+function uniqSearchQueries(arr: any[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of arr ?? []) {
+    const t = cleanName(x);
+    if (!t) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
 function artistDisplay(a: ArtistOption): string {
   const full = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim();
   const name = (full || a.title || "").trim();
   return name || "Καλλιτέχνης";
+}
+
+function withoutDiacritics(s: string): string {
+  return cleanName(s)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function artistSearchText(s: string): string {
+  return withoutDiacritics(s).toLocaleUpperCase("el-GR");
+}
+
+function normalizeArtistName(s: string): string {
+  return withoutDiacritics(s)
+    .toLocaleLowerCase("el-GR")
+    .replace(/ς/g, "σ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function artistNameTokens(s: string): string[] {
+  return normalizeArtistName(s)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1);
+}
+
+function artistNameKey(s: string): string {
+  return artistNameTokens(s).sort().join(" ");
+}
+
+function editDistanceWithin(a: string, b: string, maxDistance: number): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > maxDistance) return false;
+
+  const previous = new Array<number>(b.length + 1);
+  const current = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j += 1) previous[j] = j;
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+    let rowMin = current[0];
+
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + cost,
+      );
+      rowMin = Math.min(rowMin, current[j]);
+    }
+
+    if (rowMin > maxDistance) return false;
+    for (let j = 0; j <= b.length; j += 1) previous[j] = current[j];
+  }
+
+  return previous[b.length] <= maxDistance;
+}
+
+function artistTokensLooselyMatch(targetTokens: string[], candidateTokens: string[]): boolean {
+  if (targetTokens.length < 2 || candidateTokens.length < 2) return false;
+  if (targetTokens.length !== candidateTokens.length) return false;
+
+  const remaining = [...candidateTokens];
+  for (const targetToken of targetTokens) {
+    const matchIndex = remaining.findIndex((candidateToken) => {
+      if (targetToken === candidateToken) return true;
+      const minLength = Math.min(targetToken.length, candidateToken.length);
+      return minLength >= 5 && editDistanceWithin(targetToken, candidateToken, 1);
+    });
+
+    if (matchIndex < 0) return false;
+    remaining.splice(matchIndex, 1);
+  }
+
+  return true;
+}
+
+function artistCandidateNames(a: ArtistOption): string[] {
+  const first = cleanName(a.firstName);
+  const last = cleanName(a.lastName);
+  return uniqStrings([
+    artistDisplay(a),
+    a.title,
+    first && last ? `${first} ${last}` : "",
+    first && last ? `${last} ${first}` : "",
+  ]);
+}
+
+function artistMatchesName(a: ArtistOption, target: string): boolean {
+  const targetNormalized = normalizeArtistName(target);
+  const targetKey = artistNameKey(target);
+  const targetTokens = artistNameTokens(target);
+  if (!targetNormalized || !targetKey) return false;
+
+  return artistCandidateNames(a).some((candidateName) => {
+    const candidateNormalized = normalizeArtistName(candidateName);
+    if (!candidateNormalized) return false;
+    if (candidateNormalized === targetNormalized) return true;
+    if (artistNameKey(candidateName) === targetKey) return true;
+    return artistTokensLooselyMatch(targetTokens, artistNameTokens(candidateName));
+  });
+}
+
+function buildArtistSearchQueries(name: string): string[] {
+  const clean = cleanName(name);
+  const originalTokens = clean.split(" ").map((token) => token.trim()).filter(Boolean);
+  const reversed = originalTokens.length > 1 ? [...originalTokens].reverse().join(" ") : "";
+  const queries = [
+    clean,
+    withoutDiacritics(clean),
+    artistSearchText(clean),
+    reversed,
+    reversed ? withoutDiacritics(reversed) : "",
+    reversed ? artistSearchText(reversed) : "",
+    ...originalTokens.filter((token) => withoutDiacritics(token).length >= 4),
+    ...originalTokens
+      .map((token) => withoutDiacritics(token))
+      .filter((token) => token.length >= 4),
+    ...originalTokens
+      .map((token) => artistSearchText(token))
+      .filter((token) => token.length >= 4),
+  ];
+
+  return uniqSearchQueries(queries).slice(0, 16);
 }
 
 async function fetchArtistsSearch(q: string, take = 20): Promise<ArtistOption[]> {
@@ -122,6 +266,22 @@ async function fetchArtistsSearch(q: string, take = 20): Promise<ArtistOption[]>
   return [];
 }
 
+async function fetchArtistSearchCandidates(name: string): Promise<ArtistOption[]> {
+  const seen = new Set<number>();
+  const out: ArtistOption[] = [];
+
+  for (const query of buildArtistSearchQueries(name)) {
+    const results = await fetchArtistsSearch(query, 20);
+    for (const artist of results) {
+      if (seen.has(artist.id)) continue;
+      seen.add(artist.id);
+      out.push(artist);
+    }
+  }
+
+  return out;
+}
+
 async function fetchArtistById(id: number): Promise<ArtistOption | null> {
   try {
     const res = await fetch(`${API_BASE_URL}/artists/${id}`, { cache: "no-store" });
@@ -146,12 +306,11 @@ async function resolveNameToArtist(name: string): Promise<SelectedArtist | null>
   const target = cleanName(name);
   if (!target) return null;
 
-  const results = await fetchArtistsSearch(target, 10);
-  const targetKey = target.toLowerCase();
+  const results = await fetchArtistSearchCandidates(target);
 
   for (const a of results) {
     const label = artistDisplay(a);
-    if (cleanName(label).toLowerCase() === targetKey) {
+    if (artistMatchesName(a, target)) {
       return { id: a.id, label };
     }
   }
@@ -165,6 +324,23 @@ function buildCreditsPayload(composers: SelectedArtist[], lyricists: SelectedArt
   const lyricistNames = uniqStrings(lyricists.map((x) => x.label));
 
   return { composerArtistIds, lyricistArtistIds, composerNames, lyricistNames };
+}
+
+async function resolveSuggestedCredits(names: string[]): Promise<SuggestedCredit[]> {
+  const suggestions: SuggestedCredit[] = [];
+  for (const name of uniqStrings(names)) {
+    suggestions.push({ name, artist: await resolveNameToArtist(name) });
+  }
+  return suggestions;
+}
+
+function addResolvedSuggestion(
+  selected: SelectedArtist[],
+  suggestion: SuggestedCredit,
+): SelectedArtist[] {
+  if (!suggestion.artist) return selected;
+  if (selected.some((item) => item.id === suggestion.artist?.id)) return selected;
+  return [...selected, suggestion.artist];
 }
 
 function readNumericParam(name: string): number | null {
@@ -392,10 +568,15 @@ export default function SongCreditsEditorClient({
   initialLyricistArtistIds,
   initialComposerNames,
   initialLyricistNames,
+  suggestedComposerNames,
+  suggestedLyricistNames,
+  suggestionSourceLabel,
   hiddenInputName,
 }: Props) {
   const [composers, setComposers] = useState<SelectedArtist[]>([]);
   const [lyricists, setLyricists] = useState<SelectedArtist[]>([]);
+  const [composerSuggestions, setComposerSuggestions] = useState<SuggestedCredit[]>([]);
+  const [lyricistSuggestions, setLyricistSuggestions] = useState<SuggestedCredit[]>([]);
   const [isNarrow, setIsNarrow] = useState(false);
 
   useEffect(() => {
@@ -406,6 +587,42 @@ export default function SongCreditsEditorClient({
     window.addEventListener("resize", recalc);
     return () => window.removeEventListener("resize", recalc);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const [nextComposerSuggestions, nextLyricistSuggestions] = await Promise.all([
+        resolveSuggestedCredits(suggestedComposerNames ?? []),
+        resolveSuggestedCredits(suggestedLyricistNames ?? []),
+      ]);
+
+      if (cancelled) return;
+      setComposerSuggestions(nextComposerSuggestions);
+      setLyricistSuggestions(nextLyricistSuggestions);
+
+      if (nextComposerSuggestions.length) {
+        setComposers((prev) => {
+          if (prev.length > 0) return prev;
+          return nextComposerSuggestions.reduce(addResolvedSuggestion, prev);
+        });
+      }
+
+      if (nextLyricistSuggestions.length) {
+        setLyricists((prev) => {
+          if (prev.length > 0) return prev;
+          return nextLyricistSuggestions.reduce(addResolvedSuggestion, prev);
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    (suggestedComposerNames ?? []).join("|"),
+    (suggestedLyricistNames ?? []).join("|"),
+  ]);
   // init from IDs; fallback resolve from names if IDs empty
   useEffect(() => {
     let cancelled = false;
@@ -490,6 +707,57 @@ export default function SongCreditsEditorClient({
 
   const payload = useMemo(() => buildCreditsPayload(composers, lyricists), [composers, lyricists]);
   const payloadJson = useMemo(() => JSON.stringify(payload), [payload]);
+  const hasSuggestions = composerSuggestions.length > 0 || lyricistSuggestions.length > 0;
+
+  function renderSuggestions(
+    title: string,
+    suggestions: SuggestedCredit[],
+    selected: SelectedArtist[],
+    onAdd: (suggestion: SuggestedCredit) => void,
+  ) {
+    if (!suggestions.length) return null;
+    return (
+      <div style={{ display: "grid", gap: 6 }}>
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", fontWeight: 700 }}>{title}</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {suggestions.map((suggestion) => {
+            const isSelected = suggestion.artist
+              ? selected.some((item) => item.id === suggestion.artist?.id)
+              : false;
+            return (
+              <button
+                key={`${title}-${suggestion.name}`}
+                type="button"
+                disabled={!suggestion.artist || isSelected}
+                onClick={() => onAdd(suggestion)}
+                title={
+                  suggestion.artist
+                    ? isSelected
+                      ? "Έχει ήδη προστεθεί"
+                      : "Προσθήκη στους συντελεστές"
+                    : "Δεν βρέθηκε ίδιος καλλιτέχνης. Αναζήτησέ τον ή δημιούργησέ τον."
+                }
+                style={{
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  borderRadius: 999,
+                  background: isSelected ? "#0f3d25" : suggestion.artist ? "#151515" : "#2a2211",
+                  color: "#fff",
+                  padding: "5px 9px",
+                  fontSize: 12,
+                  fontWeight: 750,
+                  opacity: suggestion.artist ? 1 : 0.82,
+                  cursor: suggestion.artist && !isSelected ? "pointer" : "default",
+                }}
+              >
+                {suggestion.name}
+                {isSelected ? " ✓" : suggestion.artist ? "" : " · δεν βρέθηκε"}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -504,6 +772,29 @@ export default function SongCreditsEditorClient({
     >
       {/* ✅ THE ONLY SOURCE OF TRUTH FOR SUBMIT */}
       <input type="hidden" name={hiddenInputName} value={payloadJson} readOnly />
+
+      {hasSuggestions ? (
+        <div
+          style={{
+            display: "grid",
+            gap: 8,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid rgba(56,189,248,0.25)",
+            background: "rgba(56,189,248,0.08)",
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: 13 }}>
+            Προτάσεις συντελεστών{suggestionSourceLabel ? ` από ${suggestionSourceLabel}` : ""}
+          </div>
+          {renderSuggestions("Συνθέτες", composerSuggestions, composers, (suggestion) =>
+            setComposers((prev) => addResolvedSuggestion(prev, suggestion)),
+          )}
+          {renderSuggestions("Στιχουργοί", lyricistSuggestions, lyricists, (suggestion) =>
+            setLyricists((prev) => addResolvedSuggestion(prev, suggestion)),
+          )}
+        </div>
+      ) : null}
 
       <div
         style={{

@@ -67,8 +67,7 @@ type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   iconOnly?: boolean;
 
   /**
-   * If true, forces label to show (overrides auto icon-only on small screens),
-   * unless iconOnly is true.
+   * If true, forces label to show only when the mobile icon-only rule is inactive.
    */
   showLabel?: boolean;
 
@@ -182,13 +181,12 @@ export default function Button(props: Props) {
   const hasIcon = Boolean(Icon);
 
   const forceIconOnly = Boolean(iconOnly);
-  const forceShowLabel = Boolean(showLabel);
-
-  // Auto: small screen + hasIcon => icon-only (unless showLabel is forced)
+  const forceShowLabel = showLabel === true;
+  // Mobile rule: icon buttons become icon-only unless the caller explicitly keeps the label.
   const autoIconOnly = isSmall && hasIcon && !forceShowLabel;
 
   const effectiveIconOnly = forceIconOnly ? true : autoIconOnly;
-  const effectiveShowLabel = forceIconOnly ? false : forceShowLabel ? true : !effectiveIconOnly;
+  const effectiveShowLabel = effectiveIconOnly ? false : showLabel !== false;
 
   // Accessibility:
   // - if icon-only, we must set aria-label (or render sr-only text)

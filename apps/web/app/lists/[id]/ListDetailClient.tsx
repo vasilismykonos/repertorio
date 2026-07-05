@@ -1,15 +1,22 @@
 // apps/web/app/lists/[id]/ListDetailClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import ActionBar from "@/app/components/ActionBar";
 import { A } from "@/app/components/buttons";
+import Button from "@/app/components/buttons/Button";
+import ListItemTonePicker, {
+  normalizeTonicitySign,
+  type ListItemSingerSuggestion,
+  type ListItemToneValue,
+} from "@/app/components/ListItemTonePicker";
 
 import type { ListDetailDto } from "./page";
 
-import { Crown, Download, Eye, Music2, Printer, Share2, Shield, X } from "lucide-react";
+import { Crown, Download, Eye, Music2, Printer, Shield, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type Role = ListDetailDto["role"];
 
@@ -23,10 +30,95 @@ type Props = {
   data: ListDetailDto;
 };
 
+type ListItemRow = ListDetailDto["items"][number];
+
 function navigateDocumentWhenOffline(event: React.MouseEvent<HTMLAnchorElement>, href: string) {
   if (typeof window === "undefined" || typeof navigator === "undefined" || navigator.onLine !== false) return;
   event.preventDefault();
   window.location.href = href;
+}
+
+function canUseListSongPreview() {
+  return typeof window !== "undefined" && window.matchMedia("(min-width: 1100px)").matches;
+}
+
+function songPreviewHref(href: string) {
+  return `${href}${href.includes("?") ? "&" : "?"}embed=1&listPreview=1`;
+}
+
+function nullableText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text ? text : null;
+}
+
+function lyricsPreviewText(value: unknown): string | null {
+  const text = nullableText(value);
+  if (!text) return null;
+
+  const line = text
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((part) => part.trim().replace(/\s+/g, " "))
+    .find((part) => part && !part.startsWith("[") && !part.startsWith("{"));
+
+  if (!line) return null;
+  return line.length > 96 ? `${line.slice(0, 93).trimEnd()}...` : line;
+}
+
+function isListRowInteractiveTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest("a, button, input, textarea, select, summary, [role='button'], [data-no-row-open='true']"),
+  );
+}
+
+function nullablePositiveInt(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function normalizeSuggestionTitle(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("el");
+}
+
+function readJsonResponse(res: Response): Promise<any> {
+  return res.text().then((text) => {
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  });
+}
+
+function toneValueFromItem(item: any): ListItemToneValue {
+  return {
+    selectedTonicity: nullableText(item?.selectedTonicity),
+    selectedTonicitySign: normalizeTonicitySign(item?.selectedTonicitySign),
+    selectedSingerTuneId: nullablePositiveInt(item?.selectedSingerTuneId),
+    selectedSingerTuneTitle: nullableText(item?.selectedSingerTuneTitle),
+    selectedSingerTuneTune: nullableText(item?.selectedSingerTuneTune),
+  };
+}
+
+function withToneValue(item: ListItemRow, nextTone: ListItemToneValue, saved?: any): ListItemRow {
+  return {
+    ...item,
+    selectedTonicity: nullableText(saved?.selectedTonicity) ?? nullableText(nextTone.selectedTonicity),
+    selectedTonicitySign:
+      normalizeTonicitySign(saved?.selectedTonicitySign) ?? normalizeTonicitySign(nextTone.selectedTonicitySign),
+    selectedSingerTuneId:
+      nullablePositiveInt(saved?.selectedSingerTuneId) ?? nullablePositiveInt(nextTone.selectedSingerTuneId),
+    selectedSingerTuneTitle:
+      nullableText(saved?.selectedSingerTuneTitle) ?? nullableText(nextTone.selectedSingerTuneTitle),
+    selectedSingerTuneTune:
+      nullableText(saved?.selectedSingerTuneTune) ?? nullableText(nextTone.selectedSingerTuneTune),
+  };
 }
 
 function groupIdValue(value: any): number | null {
@@ -190,18 +282,106 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
 
 export default function ListDetailClient({ listId, viewerUserId, data }: Props) {
   void viewerUserId;
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [selectedPreviewListItemId, setSelectedPreviewListItemId] = useState<number | null>(null);
+  const [items, setItems] = useState<ListItemRow[]>(() => data.items ?? []);
+  const [toneSavingListItemId, setToneSavingListItemId] = useState<number | null>(null);
+  const [toneStatus, setToneStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    setItems(data.items ?? []);
+  }, [data.items]);
 
   useEffect(() => {
     rememberRecentList(listId);
-    rememberRecentGroup(data?.groupId);
-  }, [listId, data?.groupId]);
+    const ids = Array.isArray((data as any)?.groupIds) && (data as any).groupIds.length
+      ? (data as any).groupIds
+      : [data?.groupId];
+    for (const id of ids) rememberRecentGroup(id);
+  }, [listId, data]);
 
-  const { title, groupTitle, marked, role, items } = data;
+  const { title, groupTitle, marked, role } = data;
+  const groupLabels = useMemo(() => {
+    const source = Array.isArray((data as any)?.groups) ? (data as any).groups : [];
+    const labels = source
+      .map((group: any) => String(group?.fullTitle || group?.title || "").trim())
+      .filter(Boolean);
+    if (!labels.length && groupTitle) labels.push(groupTitle);
+    return [...new Set(labels)];
+  }, [data, groupTitle]);
+  const groupMetaLabel = groupLabels.length ? `Tags: ${groupLabels.join(", ")}` : "";
 
   const canEdit = role === "OWNER" || role === "LIST_EDITOR" || role === "SONGS_EDITOR";
   const headerTitle = title || `Λίστα #${listId}`;
+
+  const singerSuggestions = useMemo<ListItemSingerSuggestion[]>(() => {
+    const seen = new Set<string>();
+    const out: ListItemSingerSuggestion[] = [];
+
+    for (const item of items ?? []) {
+      const title = nullableText((item as any).selectedSingerTuneTitle);
+      if (!title) continue;
+
+      const key = normalizeSuggestionTitle(title);
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      out.push({
+        title,
+        tune: nullableText((item as any).selectedSingerTuneTune) ?? nullableText((item as any).selectedTonicity),
+        singerTuneId: nullablePositiveInt((item as any).selectedSingerTuneId),
+      });
+    }
+
+    return out.slice(0, 8);
+  }, [items]);
+
+  async function updateItemTone(listItemId: number, nextTone: ListItemToneValue) {
+    if (!canEdit || toneSavingListItemId !== null) return;
+
+    const previousItems = items;
+    setToneStatus(null);
+    setToneSavingListItemId(listItemId);
+    setItems((prev) =>
+      prev.map((item) => (Number((item as any).listItemId) === listItemId ? withToneValue(item, nextTone) : item)),
+    );
+
+    try {
+      const res = await fetch(`/api/lists/${listId}/items/${listItemId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          selectedTonicity: nullableText(nextTone.selectedTonicity),
+          selectedTonicitySign: normalizeTonicitySign(nextTone.selectedTonicitySign),
+          selectedSingerTuneId: nullablePositiveInt(nextTone.selectedSingerTuneId),
+        }),
+        cache: "no-store",
+      });
+      const body = await readJsonResponse(res);
+
+      if (!res.ok) {
+        const message = body?.error || body?.message || `HTTP ${res.status}`;
+        throw new Error(String(message));
+      }
+
+      const saved = body?.item ?? body?.data ?? body;
+      setItems((prev) =>
+        prev.map((item) =>
+          Number((item as any).listItemId) === listItemId ? withToneValue(item, nextTone, saved) : item,
+        ),
+      );
+      setToneStatus("Η τονικότητα αποθηκεύτηκε.");
+      window.setTimeout(() => setToneStatus(null), 2200);
+    } catch (e: any) {
+      setItems(previousItems);
+      setToneStatus(e?.message ? `Σφάλμα: ${e.message}` : "Σφάλμα αποθήκευσης τονικότητας.");
+    } finally {
+      setToneSavingListItemId(null);
+    }
+  }
 
   const printRows = useMemo<PrintableListRow[]>(
     () =>
@@ -278,13 +458,13 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
     return map;
   }, [items]);
 
-  function buildSongHref(info: {
+  const buildSongHref = useCallback((info: {
     songId: number;
     pos: number;
     selectedTonicity: string | null;
     selectedTonicitySign: "+" | "-" | null;
     selectedSingerTuneId: number | null;
-  }) {
+  }) => {
     const params = new URLSearchParams({
       listId: String(listId),
       listPos: String(info.pos),
@@ -295,6 +475,125 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
     if (info.selectedSingerTuneId) params.set("singerTuneId", String(info.selectedSingerTuneId));
 
     return `/songs/${info.songId}?${params.toString()}`;
+  }, [listId]);
+
+  const songPreviewItems = useMemo(() => {
+    const rows: Array<{
+      listItemId: number;
+      songId: number;
+      pos: number;
+      title: string;
+      href: string;
+      embedHref: string;
+    }> = [];
+
+    for (const item of items ?? []) {
+      const listItemId = Number((item as any).listItemId);
+      const info = songIdByListItemId.get(listItemId);
+      if (!info?.songId) continue;
+
+      const href = buildSongHref(info);
+      rows.push({
+        listItemId,
+        songId: Number(info.songId),
+        pos: info.pos,
+        title: String((item as any).title || `Song #${info.songId}`),
+        href,
+        embedHref: songPreviewHref(href),
+      });
+    }
+
+    return rows;
+  }, [buildSongHref, items, songIdByListItemId]);
+
+  const songPreviewByListItemId = useMemo(
+    () => new Map(songPreviewItems.map((item) => [item.listItemId, item] as const)),
+    [songPreviewItems],
+  );
+
+  const requestedPreviewItem = useMemo(() => {
+    if (!songPreviewItems.length) return null;
+    const raw = searchParams.get("pos") ?? searchParams.get("listPos") ?? "";
+    const pos = Number(raw);
+    if (Number.isFinite(pos) && pos >= 0) {
+      return songPreviewItems.find((item) => item.pos === pos) ?? songPreviewItems[0];
+    }
+    return songPreviewItems[0];
+  }, [searchParams, songPreviewItems]);
+
+  useEffect(() => {
+    if (!songPreviewItems.length) {
+      setSelectedPreviewListItemId(null);
+      return;
+    }
+
+    setSelectedPreviewListItemId((current) => {
+      if (current && songPreviewByListItemId.has(current)) return current;
+      return requestedPreviewItem?.listItemId ?? songPreviewItems[0]?.listItemId ?? null;
+    });
+  }, [requestedPreviewItem, songPreviewByListItemId, songPreviewItems]);
+
+  const effectiveSelectedPreviewListItemId =
+    selectedPreviewListItemId !== null && songPreviewByListItemId.has(selectedPreviewListItemId)
+      ? selectedPreviewListItemId
+      : requestedPreviewItem?.listItemId ?? songPreviewItems[0]?.listItemId ?? null;
+  const selectedPreviewItem =
+    effectiveSelectedPreviewListItemId !== null
+      ? songPreviewByListItemId.get(effectiveSelectedPreviewListItemId) ?? null
+      : null;
+
+  function handleSongOpenInList(
+    event: React.MouseEvent<HTMLAnchorElement>,
+    previewItem: { listItemId: number; href: string },
+  ) {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    if (canUseListSongPreview()) {
+      event.preventDefault();
+      setSelectedPreviewListItemId(previewItem.listItemId);
+      return;
+    }
+
+    navigateDocumentWhenOffline(event, previewItem.href);
+  }
+
+  function handleSongRowOpen(
+    event: React.MouseEvent<HTMLLIElement>,
+    href: string,
+    previewItem: { listItemId: number; href: string } | null,
+  ) {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      isListRowInteractiveTarget(event.target)
+    ) {
+      return;
+    }
+
+    if (previewItem && canUseListSongPreview()) {
+      setSelectedPreviewListItemId(previewItem.listItemId);
+      return;
+    }
+
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      window.location.href = href;
+      return;
+    }
+
+    router.push(href);
   }
 
   function handlePrintPreview() {
@@ -359,8 +658,8 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
       ctx.font = `600 ${metaSize}px system-ui, -apple-system, Segoe UI, sans-serif`;
       const metaParts = [
         `${printRows.length} τραγούδια`,
-        groupTitle ? `Ομάδα: ${groupTitle}` : "Χωρίς ομάδα",
-      ];
+        groupMetaLabel,
+      ].filter(Boolean);
       ctx.fillText(metaParts.join(" · "), paddingX, topPadding + titleSize + 42);
 
       let y = topPadding + titleSize + 92;
@@ -434,55 +733,13 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
 
   const headerTitleFontSize = 22;
   const metaFontSize = 14;
-  const itemFontSize = 18;
-  const itemLineHeight = "24px";
+  const itemFontSize = 15;
+  const itemLineHeight = "20px";
 
   return (
-    <section style={{ padding: "1rem", maxWidth: "100%", overflowX: "hidden", boxSizing: "border-box" }}>
+    <section className="list-detail-page">
       <ActionBar
         left={A.backLink({ href: "/lists", label: "Πίσω" })}
-        title={
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              minWidth: 0,
-              maxWidth: "100%",
-              overflow: "hidden",
-            }}
-          >
-            {marked ? (
-              <span
-                aria-label="Αγαπημένη λίστα"
-                title="Αγαπημένη λίστα"
-                style={{
-                  color: "#f5a623",
-                  fontSize: 18,
-                  lineHeight: 1,
-                  textShadow: "0 1px 2px rgba(0,0,0,0.35)",
-                  flex: "0 0 auto",
-                }}
-              >
-                ★
-              </span>
-            ) : null}
-
-            <span
-              style={{
-                minWidth: 0,
-                maxWidth: "100%",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-              title={headerTitle}
-            >
-              {headerTitle}
-            </span>
-          </div>
-        }
         right={
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             {A.link({
@@ -492,49 +749,25 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
               variant: "secondary",
             })}
 
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              icon={Printer}
               onClick={handlePrintPreview}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 7,
-                padding: "8px 10px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.28)",
-                background: "rgba(255,255,255,0.08)",
-                color: "#fff",
-                fontWeight: 900,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
               title="Προεπισκόπηση εκτύπωσης"
             >
-              <Printer size={17} />
               Εκτύπωση
-            </button>
+            </Button>
 
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              action="share"
               onClick={handleShareImage}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 7,
-                padding: "8px 10px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.28)",
-                background: "rgba(255,255,255,0.08)",
-                color: "#fff",
-                fontWeight: 900,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
               title="Κοινοποίηση λίστας ως εικόνα"
             >
-              <Share2 size={17} />
               Κοινοποίηση
-            </button>
+            </Button>
 
             {canEdit
               ? A.link({
@@ -585,12 +818,11 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             </span>
           </span>
 
-          <span>
-            Ομάδα:{" "}
-            <strong style={{ color: "#fff", fontWeight: 800 }}>
-              {groupTitle ? groupTitle : "Χωρίς ομάδα"}
-            </strong>
-          </span>
+          {groupMetaLabel ? (
+            <span>
+              <strong style={{ color: "#fff", fontWeight: 800 }}>{groupMetaLabel}</strong>
+            </span>
+          ) : null}
         </div>
       </header>
 
@@ -608,12 +840,28 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
         </div>
       ) : null}
 
-      {!items || items.length === 0 ? (
-        <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 16 }}>
-          Η λίστα δεν περιέχει τραγούδια.
-        </p>
-      ) : (
-        <ul style={{ listStyleType: "none", padding: 0, margin: 0, display: "grid", gap: 8, maxWidth: "100%", minWidth: 0 }}>
+      {toneStatus ? (
+        <div
+          role="status"
+          style={{
+            marginBottom: 12,
+            color: toneStatus.startsWith("Σφάλμα") ? "#ffb4b4" : "rgba(255,255,255,0.86)",
+            fontSize: 13,
+            fontWeight: 800,
+          }}
+        >
+          {toneStatus}
+        </div>
+      ) : null}
+
+      <div className="list-detail-content">
+        <div className="list-detail-list-panel">
+          {!items || items.length === 0 ? (
+            <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 16 }}>
+              Η λίστα δεν περιέχει τραγούδια.
+            </p>
+          ) : (
+            <ul style={{ listStyleType: "none", padding: 0, margin: 0, display: "grid", gap: 8, maxWidth: "100%", minWidth: 0 }}>
           {items.map((item: any) => {
             const listItemId = Number(item.listItemId);
             const sortId = item.sortId ?? "";
@@ -622,6 +870,9 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             const info = songIdByListItemId.get(listItemId);
             const linkedSongId = info?.songId ? Number(info.songId) : null;
             const songHref = info && linkedSongId ? buildSongHref(info) : null;
+            const previewItem = songPreviewByListItemId.get(listItemId) ?? null;
+            const isSelectedPreview = effectiveSelectedPreviewListItemId === listItemId;
+            const lyricsPreview = lyricsPreviewText((item as any).lyrics);
             const selectedTonicityLabel = info?.selectedTonicity
               ? `${info.selectedTonicity}${info.selectedTonicitySign ?? ""}`
               : null;
@@ -631,8 +882,8 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
               : selectedTonicityLabel;
 
             const rowStyle: React.CSSProperties = {
-              border: "1px solid rgba(255,255,255,0.22)",
-              background: "rgba(255,255,255,0.06)",
+              border: isSelectedPreview ? "1px solid rgba(88,166,255,0.62)" : "1px solid rgba(255,255,255,0.22)",
+              background: isSelectedPreview ? "rgba(13,110,253,0.18)" : "rgba(255,255,255,0.06)",
               borderRadius: 16,
               padding: "10px 12px",
               boxShadow: "0 6px 18px rgba(0,0,0,0.22)",
@@ -640,6 +891,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
               minWidth: 0,
               boxSizing: "border-box",
               overflow: "hidden",
+              cursor: songHref ? "pointer" : undefined,
             };
 
             const contentStyle: React.CSSProperties = {
@@ -647,9 +899,11 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
               fontSize: itemFontSize,
               lineHeight: itemLineHeight,
               fontWeight: 800,
-              display: "flex",
-              gap: 10,
-              alignItems: "baseline",
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) auto",
+              alignItems: "center",
+              gap: "4px 10px",
+              width: "100%",
               maxWidth: "100%",
               minWidth: 0,
               boxSizing: "border-box",
@@ -657,6 +911,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
 
             const numberStyle: React.CSSProperties = {
               flex: "0 0 auto",
+              gridArea: "number",
               minWidth: 38,
               textAlign: "right",
               color: "rgba(255,255,255,0.78)",
@@ -666,9 +921,13 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
 
             const titleStyle: React.CSSProperties = {
               flex: "1 1 auto",
+              gridArea: "title",
+              display: "block",
               minWidth: 0,
               maxWidth: "100%",
               overflow: "hidden",
+              fontSize: 14,
+              lineHeight: "18px",
               whiteSpace: "nowrap",
               textOverflow: "ellipsis",
               textShadow: "0 1px 2px rgba(0,0,0,0.35)",
@@ -679,80 +938,157 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
-              fontWeight: 900,
+              fontSize: 14,
+              lineHeight: "18px",
+              fontWeight: 800,
+            };
+
+            const songLinkStyle: React.CSSProperties = {
+              gridColumn: 1,
+              gridRow: "1 / span 2",
+              display: "grid",
+              gridTemplateColumns: "38px minmax(0, 1fr)",
+              gridTemplateAreas: `"number title" ". lyrics"`,
+              alignItems: "center",
+              gap: "2px 8px",
+              flex: "1 1 auto",
+              width: "auto",
+              minWidth: 0,
+              maxWidth: "100%",
+              color: "inherit",
+              textDecoration: "none",
             };
 
             const selectionStyle: React.CSSProperties = {
+              gridColumn: 2,
+              gridRow: "1 / span 2",
+              justifySelf: "end",
+              alignSelf: "center",
               flex: "0 0 auto",
               minWidth: 0,
-              maxWidth: "52%",
+              maxWidth: "min(130px, 34vw)",
               color: "rgba(255,255,255,0.68)",
               fontSize: 13,
               fontWeight: 400,
               lineHeight: "17px",
               textShadow: "none",
+              display: "inline-flex",
+              flexDirection: "column-reverse",
+              alignItems: "center",
+              justifyContent: "center",
+              marginLeft: "auto",
+              gap: 4,
             };
 
             const singerSelectionStyle: React.CSSProperties = {
               flex: "1 1 auto",
               minWidth: 0,
+              maxWidth: "100%",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
+              textAlign: "center",
             };
 
             const tonicitySelectionStyle: React.CSSProperties = {
               flex: "0 0 auto",
+              display: "flex",
+              width: "100%",
+              alignItems: "center",
+              justifyContent: "center",
               whiteSpace: "nowrap",
             };
+            const toneControlVisible = Boolean(linkedSongId && (canEdit || selectedTonicityLabel || selectedSingerLabel));
 
             return (
-              <li key={listItemId} id={`item_${listItemId}`} style={rowStyle}>
+              <li
+                key={listItemId}
+                id={`item_${listItemId}`}
+                style={rowStyle}
+                onClick={songHref ? (event) => handleSongRowOpen(event, songHref, previewItem) : undefined}
+              >
                 {songHref && linkedSongId ? (
-                  <>
+                  <div className="list-song-row-content" style={contentStyle}>
                     <Link
+                      className="list-song-link"
                       href={songHref}
                       prefetch={false}
-                      onClick={(event) => navigateDocumentWhenOffline(event, songHref)}
-                      style={{ ...contentStyle, textDecoration: "none" }}
+                      onClick={(event) =>
+                        previewItem
+                          ? handleSongOpenInList(event, previewItem)
+                          : navigateDocumentWhenOffline(event, songHref)
+                      }
+                      style={songLinkStyle}
                     >
-                      <span style={numberStyle}>{sortId ? `${sortId}.` : "•"}</span>
+                      <span className="list-song-number" style={numberStyle}>{sortId ? `${sortId}.` : "•"}</span>
                       <span
                         className="list-song-line"
-                        style={{ ...titleStyle, display: "flex", alignItems: "baseline", gap: 8 }}
+                        style={titleStyle}
                       >
-                        <span style={titleTextStyle}>{titleText}</span>
-                        {selectionLabel ? (
-                          <span className="list-song-selection" style={selectionStyle} title={selectionLabel}>
-                            {selectedSingerLabel ? (
-                              <>
-                                <span style={singerSelectionStyle}>{selectedSingerLabel}</span>
-                                {selectedTonicityLabel ? (
-                                  <>
-                                    <span aria-hidden="true"> · </span>
-                                    <span style={tonicitySelectionStyle}>{selectedTonicityLabel}</span>
-                                  </>
-                                ) : null}
-                              </>
-                            ) : (
-                              <span style={tonicitySelectionStyle}>{selectedTonicityLabel}</span>
-                            )}
-                          </span>
-                        ) : null}
+                        <span className="list-song-title-text" style={titleTextStyle}>{titleText}</span>
                       </span>
+                      {lyricsPreview ? (
+                        <span className="list-song-lyrics-preview">{lyricsPreview}</span>
+                      ) : null}
                     </Link>
-                  </>
+                    {toneControlVisible ? (
+                      <span
+                        className="list-song-selection"
+                        style={selectionStyle}
+                        title={selectionLabel ?? "Επιλογή τόνου και τραγουδιστή"}
+                        data-no-row-open="true"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {selectedSingerLabel ? (
+                          <span className="list-song-singer" style={singerSelectionStyle}>{selectedSingerLabel}</span>
+                        ) : null}
+                        <span className="list-song-tone" style={tonicitySelectionStyle}>
+                          <ListItemTonePicker
+                            songId={linkedSongId}
+                            songOriginalKey={(item as any).songOriginalKey}
+                            songOriginalKeySign={(item as any).songOriginalKeySign}
+                            singerSuggestions={singerSuggestions}
+                            value={toneValueFromItem(item)}
+                            onChange={(nextTone) => updateItemTone(listItemId, nextTone)}
+                            disabled={!canEdit || toneSavingListItemId !== null}
+                            showSingerInButton={false}
+                            compact
+                          />
+                        </span>
+                      </span>
+                    ) : null}
+                  </div>
                 ) : (
-                  <div style={contentStyle}>
-                    <span style={numberStyle}>{sortId ? `${sortId}.` : "•"}</span>
+                  <div className="list-song-row-content" style={contentStyle}>
+                    <span className="list-song-number" style={numberStyle}>{sortId ? `${sortId}.` : "•"}</span>
                     <span style={{ flex: "1 1 auto", wordBreak: "break-word" }}>{titleText}</span>
                   </div>
                 )}
               </li>
             );
           })}
-        </ul>
-      )}
+            </ul>
+          )}
+        </div>
+
+        {songPreviewItems.length ? (
+          <aside className="list-song-preview-pane" aria-label="Προβολή τραγουδιού λίστας">
+            {selectedPreviewItem ? (
+              <>
+                <iframe
+                  key={selectedPreviewItem.embedHref}
+                  className="list-song-preview-frame"
+                  src={selectedPreviewItem.embedHref}
+                  title={`Τραγούδι: ${selectedPreviewItem.title}`}
+                  loading="lazy"
+                />
+              </>
+            ) : (
+              <div className="list-song-preview-empty">Επίλεξε τραγούδι από τη λίστα.</div>
+            )}
+          </aside>
+        ) : null}
+      </div>
 
       {printPreviewOpen ? (
         <div
@@ -766,14 +1102,28 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             <div className="list-print-modal__toolbar">
               <strong>Προεπισκόπηση εκτύπωσης</strong>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <button type="button" className="list-print-tool" onClick={handlePrint}>
-                  <Printer size={16} />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  icon={Printer}
+                  className="list-print-tool"
+                  onClick={handlePrint}
+                  title="Εκτύπωση"
+                >
                   Εκτύπωση
-                </button>
-                <button type="button" className="list-print-tool" onClick={handleShareImage}>
-                  <Download size={16} />
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  icon={Download}
+                  className="list-print-tool"
+                  onClick={handleShareImage}
+                  title="Αποθήκευση ως εικόνα"
+                >
                   Εικόνα
-                </button>
+                </Button>
                 <button
                   type="button"
                   className="list-print-close"
@@ -789,7 +1139,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
               <h1>{headerTitle}</h1>
               <div className="list-print-meta">
                 <span>{printRows.length} τραγούδια</span>
-                <span>{groupTitle ? `Ομάδα: ${groupTitle}` : "Χωρίς ομάδα"}</span>
+                {groupMetaLabel ? <span>{groupMetaLabel}</span> : null}
               </div>
 
               <ol className="list-print-items">
@@ -869,10 +1219,174 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
           padding: 7px;
         }
 
+        .list-song-row-content {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          align-items: center;
+          width: 100%;
+          gap: 4px 10px;
+        }
+
+        .list-song-link {
+          grid-column: 1;
+          grid-row: 1 / span 2;
+          display: grid;
+          grid-template-columns: 38px minmax(0, 1fr);
+          grid-template-areas:
+            "number title"
+            ". lyrics";
+          width: auto;
+          min-width: 0;
+          max-width: 100%;
+          align-items: center;
+          gap: 2px 8px;
+        }
+
+        .list-song-number {
+          grid-area: number;
+        }
+
+        .list-song-line {
+          grid-area: title;
+          display: block;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-size: 14px;
+          line-height: 18px;
+          white-space: nowrap;
+        }
+
+        .list-song-title-text {
+          font-size: 14px;
+          line-height: 18px;
+        }
+
+        .list-song-lyrics-preview {
+          grid-area: lyrics;
+          display: block;
+          min-width: 0;
+          margin-top: 1px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: rgba(255, 255, 255, 0.48);
+          font-size: 12.5px;
+          line-height: 16px;
+          font-weight: 600;
+          text-shadow: none;
+        }
+
         .list-song-selection {
+          grid-column: 2;
+          grid-row: 1 / span 2;
+          justify-self: end;
+          align-self: center;
           display: inline-flex;
-          align-items: baseline;
-          gap: 0;
+          flex-direction: column-reverse;
+          align-items: center;
+          justify-content: center;
+          flex: 0 0 auto;
+          width: auto;
+          max-width: min(130px, 34vw);
+          min-width: 0;
+          margin-left: auto;
+          gap: 4px;
+        }
+
+        .list-song-tone {
+          display: flex;
+          width: 100%;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .list-song-singer {
+          max-width: 100%;
+          text-align: center;
+        }
+
+        .list-detail-page {
+          width: min(1180px, calc(100% - 20px));
+          box-sizing: border-box;
+          margin: 0 auto;
+          padding: clamp(12px, 1.8vw, 24px) 0 34px;
+          overflow-x: hidden;
+        }
+
+        .list-detail-content {
+          display: block;
+          max-width: 100%;
+          min-width: 0;
+        }
+
+        .list-detail-list-panel {
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        .list-song-preview-pane {
+          display: none;
+        }
+
+        .list-song-preview-frame {
+          display: block;
+          width: 100%;
+          height: 100%;
+          border: 0;
+          background: #000;
+        }
+
+        .list-song-preview-empty {
+          min-height: 220px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 18px;
+          color: rgba(255, 255, 255, 0.72);
+          font-weight: 800;
+          text-align: center;
+        }
+
+        @media (min-width: 1100px) {
+          .list-detail-content {
+            display: grid;
+            grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
+            gap: 16px;
+            align-items: start;
+          }
+
+          .list-detail-list-panel {
+            position: sticky;
+            top: 12px;
+            height: calc(100vh - 24px);
+            min-height: 620px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            padding-right: 4px;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
+          }
+
+          .list-song-preview-pane {
+            display: block;
+            position: sticky;
+            top: 12px;
+            height: calc(100vh - 24px);
+            min-height: 620px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 18px;
+            background: #000;
+            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+          }
+        }
+
+        @media (max-width: 768px) {
+          .list-detail-page {
+            width: min(100% - 16px, 1180px);
+            padding-top: 12px;
+          }
         }
 
         .list-print-preview {
@@ -961,17 +1475,12 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
         }
 
         @media (max-width: 640px) {
-          .list-song-line {
-            flex-direction: column;
-            align-items: flex-start !important;
-            gap: 2px !important;
-            white-space: normal !important;
-          }
-
-          .list-song-selection {
-            max-width: 100% !important;
-            width: 100%;
-            min-width: 0;
+          .list-song-singer {
+            max-width: min(120px, 34vw);
+            font-size: 12px;
+            line-height: 15px;
+            color: rgba(255, 255, 255, 0.62);
+            white-space: nowrap;
           }
 
           .list-print-modal {

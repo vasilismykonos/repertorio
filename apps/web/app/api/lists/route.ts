@@ -7,6 +7,8 @@ type ListSummaryDto = {
   id: number;
   title: string;
   groupId: number | null;
+  groupIds?: number[];
+  groups?: ListGroupSummaryDto[];
   marked: boolean;
   role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
   itemsCount: number;
@@ -33,6 +35,7 @@ type CreateListBody = {
   title?: string;
   marked?: boolean;
   groupId?: number | string | null;
+  groupIds?: Array<number | string | null> | null;
 };
 
 export const dynamic = "force-dynamic";
@@ -43,6 +46,24 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 } as const;
+
+function parseGroupIds(value: CreateListBody["groupIds"]): number[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return [];
+  if (!Array.isArray(value)) return undefined;
+
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const item of value) {
+    if (item === null || item === undefined || item === "") continue;
+    const id = Number(item);
+    if (!Number.isFinite(id) || id <= 0 || !Number.isInteger(id)) return null;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
 
 type ListsIndexResponse = {
   items: ListSummaryDto[];
@@ -118,10 +139,17 @@ export async function POST(req: NextRequest) {
     body?.groupId === null || body?.groupId === undefined || body?.groupId === ""
       ? null
       : Number(body.groupId);
+  const groupIds = parseGroupIds(body?.groupIds);
 
   if (groupId !== null && (!Number.isFinite(groupId) || groupId <= 0)) {
     return NextResponse.json(
       { error: "Invalid groupId" },
+      { status: 400, headers: NO_STORE_HEADERS },
+    );
+  }
+  if (body?.groupIds !== undefined && (groupIds === undefined || groupIds === null)) {
+    return NextResponse.json(
+      { error: "Invalid groupIds" },
       { status: 400, headers: NO_STORE_HEADERS },
     );
   }
@@ -135,6 +163,7 @@ export async function POST(req: NextRequest) {
           title,
           marked: Boolean(body?.marked),
           groupId,
+          groupIds,
         }),
       },
     );

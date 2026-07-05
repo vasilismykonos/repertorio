@@ -125,7 +125,7 @@ export default function GroupsPageClient() {
           right={null}
         />
 
-        <h1 style={{ fontSize: 26, marginBottom: 12 }}>Ομάδες</h1>
+        <h1 style={{ fontSize: 26, marginBottom: 12 }}>Tags</h1>
 
         <div
           style={{
@@ -136,7 +136,7 @@ export default function GroupsPageClient() {
             background: "rgba(0,0,0,0.03)",
           }}
         >
-          Απαιτείται σύνδεση για προβολή και επεξεργασία ομάδων.
+          Απαιτείται σύνδεση για προβολή και επεξεργασία tags.
         </div>
       </>
     );
@@ -154,7 +154,7 @@ export default function GroupsPageClient() {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {A.newLink({
               href: "/lists/groups/new",
-              title: "Νέα ομάδα",
+              title: "Νέο tag",
               label: "Νέο",
               disabled: busy,
             })}
@@ -168,7 +168,7 @@ export default function GroupsPageClient() {
         }
       />
 
-      <h1 style={{ fontSize: 26, marginBottom: 12 }}>Ομάδες</h1>
+      <h1 style={{ fontSize: 26, marginBottom: 12 }}>Tags</h1>
 
       {err ? (
         <div
@@ -190,7 +190,7 @@ export default function GroupsPageClient() {
         {loading ? (
           <div style={{ opacity: 0.8 }}>Φόρτωση…</div>
         ) : sorted.length === 0 ? (
-          <div style={{ opacity: 0.8 }}>Δεν υπάρχουν ομάδες.</div>
+          <div style={{ opacity: 0.8 }}>Δεν υπάρχουν tags.</div>
         ) : (
           <div
             style={{

@@ -295,6 +295,7 @@ model ListGroup {
   updatedAt DateTime          @updatedAt
 
   lists     List[]
+  listLinks ListGroupList[]
   members   ListGroupMember[]
 
   // ✅ ΝΕΟ: assets στο group (κρατάμε “ModelName array” naming)
@@ -311,11 +312,25 @@ model List {
   updatedAt DateTime     @updatedAt
 
   group     ListGroup?   @relation(fields: [groupId], references: [id])
+  groupLinks ListGroupList[]
   items     ListItem[]
   members   ListMember[]
 
   // ✅ ΝΕΟ: assets στη list
   ListAsset ListAsset[]
+}
+
+model ListGroupList {
+  listId    Int
+  groupId   Int
+  createdAt DateTime @default(now())
+
+  list  List      @relation(fields: [listId], references: [id], onDelete: Cascade)
+  group ListGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([listId, groupId])
+  @@index([groupId])
+  @@index([listId])
 }
 
 model ListItem {

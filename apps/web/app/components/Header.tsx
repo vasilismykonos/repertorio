@@ -233,6 +233,20 @@ function HeaderInner({ appVersion }: HeaderProps) {
   );
 
   const openLastList = useCallback(() => {
+    if (!isLoggedIn) {
+      if (quickListNoticeTimerRef.current) {
+        clearTimeout(quickListNoticeTimerRef.current);
+        quickListNoticeTimerRef.current = null;
+      }
+
+      setQuickListNotice("Σύνδεση για τις λίστες");
+      openGuestLoginPrompt("/lists");
+      quickListNoticeTimerRef.current = setTimeout(() => {
+        setQuickListNotice(null);
+      }, 1800);
+      return;
+    }
+
     const listId =
       localStoragePositiveInt(LAST_VIEWED_LIST_KEY) ??
       localStoragePositiveInt(LIST_PICKER_LAST_SELECTED_STORAGE_KEY);
@@ -247,7 +261,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
       setQuickListNotice(null);
       router.push(listId ? `/lists/${listId}` : "/lists");
     }, 300);
-  }, [router]);
+  }, [isLoggedIn, openGuestLoginPrompt, router]);
 
   useEffect(() => {
     return () => {

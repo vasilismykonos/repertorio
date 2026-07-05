@@ -44,6 +44,7 @@ type Props = {
 
   /** Ενημερώνει τον caller όταν επιλεγεί χρήστης. */
   onPickUser?: (user: UserPick) => void;
+  dropdownFixed?: boolean;
 };
 
 function getCaret(el: HTMLInputElement | HTMLTextAreaElement) {
@@ -165,6 +166,7 @@ export default function UserMentionsField(props: Props) {
     initialSuggestions = [],
     searchWithoutAt = false,
     onPickUser,
+    dropdownFixed = false,
   } = props;
 
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
@@ -177,11 +179,39 @@ export default function UserMentionsField(props: Props) {
   const [suggestions, setSuggestions] = useState<UserPick[]>([]);
   const [active, setActive] = useState<{ query: string; start: number; end: number } | null>(null);
   const [highlightIdx, setHighlightIdx] = useState(0);
+  const [fixedDropdownRect, setFixedDropdownRect] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
 
   const normalizedInitialSuggestions = useMemo(
     () => uniqUsers(initialSuggestions).slice(0, take),
     [initialSuggestions, take],
   );
+
+  function updateFixedDropdownRect() {
+    if (!dropdownFixed) return;
+    const input = inputRef.current as HTMLElement | null;
+    if (!input) return;
+    const rect = input.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 360;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 640;
+    const maxHeight = 260;
+    const sideGap = 8;
+    const topGap = 6;
+    const width = Math.max(160, Math.min(rect.width, viewportWidth - sideGap * 2));
+    const left = Math.max(sideGap, Math.min(rect.left, viewportWidth - width - sideGap));
+    const spaceBelow = viewportHeight - rect.bottom - sideGap;
+    const spaceAbove = rect.top - sideGap;
+    const openAbove = spaceBelow < 150 && spaceAbove > spaceBelow;
+    const availableHeight = Math.max(96, Math.min(maxHeight, (openAbove ? spaceAbove : spaceBelow) - topGap));
+    const top = openAbove
+      ? Math.max(sideGap, rect.top - availableHeight - topGap)
+      : Math.min(rect.bottom + topGap, viewportHeight - availableHeight - sideGap);
+    setFixedDropdownRect({ left, top, width, maxHeight: availableHeight });
+  }
 
   const close = () => {
     setOpen(false);
@@ -211,6 +241,7 @@ export default function UserMentionsField(props: Props) {
 
   function openInitialSuggestions() {
     if (disabled || normalizedInitialSuggestions.length === 0) return;
+    updateFixedDropdownRect();
     if (timerRef.current) window.clearTimeout(timerRef.current);
     lastQueryRef.current = "";
     setActive({ query: "", start: 0, end: 0 });
@@ -222,6 +253,7 @@ export default function UserMentionsField(props: Props) {
   }
 
   function onLocalChange(next: string) {
+    updateFixedDropdownRect();
     onChange(next);
     setErr(null);
 
@@ -287,13 +319,26 @@ export default function UserMentionsField(props: Props) {
 
   const hasDropdown = open && (loading || suggestions.length > 0 || !!err);
 
+  useEffect(() => {
+    if (!dropdownFixed || !hasDropdown) return;
+    updateFixedDropdownRect();
+    const onMove = () => updateFixedDropdownRect();
+    window.addEventListener("resize", onMove);
+    window.addEventListener("scroll", onMove, true);
+    return () => {
+      window.removeEventListener("resize", onMove);
+      window.removeEventListener("scroll", onMove, true);
+    };
+  }, [dropdownFixed, hasDropdown]);
+
   return (
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "relative", zIndex: hasDropdown ? 2601 : undefined }}>
       <InputTag
         ref={inputRef as any}
         value={value}
         onChange={(e: any) => onLocalChange(e.target.value)}
         onFocus={() => {
+          updateFixedDropdownRect();
           if (!String(value ?? "").trim()) openInitialSuggestions();
         }}
         onBlur={() => window.setTimeout(() => close(), 140)}
@@ -330,15 +375,16 @@ export default function UserMentionsField(props: Props) {
       {hasDropdown ? (
         <div
           style={{
-            position: "absolute",
-            zIndex: 50,
-            left: 0,
-            right: 0,
-            top: multiline ? 130 : 46,
+            position: dropdownFixed ? "fixed" : "absolute",
+            zIndex: dropdownFixed ? 2602 : 50,
+            left: dropdownFixed ? fixedDropdownRect?.left ?? 8 : 0,
+            right: dropdownFixed ? "auto" : 0,
+            top: dropdownFixed ? fixedDropdownRect?.top ?? 46 : multiline ? 130 : 46,
+            width: dropdownFixed ? fixedDropdownRect?.width ?? "calc(100vw - 16px)" : undefined,
             background: "#010101",
             border: "1px solid rgba(0,0,0,0.12)",
             borderRadius: 12,
-            boxShadow: "0 10px 30px rgba(0,0,0,0.12)",
+            boxShadow: "0 16px 42px rgba(0,0,0,0.38)",
             overflow: "hidden",
           }}
         >
@@ -349,7 +395,7 @@ export default function UserMentionsField(props: Props) {
           ) : suggestions.length === 0 ? (
             <div style={{ padding: 10, opacity: 0.8 }}>Δεν βρέθηκαν χρήστες.</div>
           ) : (
-            <div style={{ maxHeight: 260, overflowY: "auto" }}>
+            <div style={{ maxHeight: dropdownFixed ? fixedDropdownRect?.maxHeight ?? 260 : 260, overflowY: "auto" }}>
               {suggestions.map((u, idx) => {
                 const name = (u.displayName?.trim() || u.username || `user${u.id}`).trim();
                 const isActive = idx === highlightIdx;

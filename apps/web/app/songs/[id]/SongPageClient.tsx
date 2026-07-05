@@ -82,6 +82,8 @@ type SongListOption = {
   id: number;
   title: string;
   groupId: number | null;
+  groupIds?: number[];
+  groups?: ListGroupOption[];
   marked: boolean;
   role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
   itemsCount: number;
@@ -169,12 +171,36 @@ const LYRICS_BASE_FONT_SIZE = 15;
 const LYRICS_SCALE_MIN = 0.75;
 const LYRICS_SCALE_MAX = 2.2;
 
-function scrollToId(id: string) {
+function scrollToId(id: string, behavior: ScrollBehavior = "auto") {
   if (typeof window === "undefined") return;
   const el = document.getElementById(id);
   if (!el) return;
   const top = el.getBoundingClientRect().top + window.scrollY - HEADER_OFFSET_PX;
-  window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  window.scrollTo({ top: Math.max(0, top), behavior });
+}
+
+function scheduleInitialScrollToId(id: string, extraDelays: number[] = []) {
+  if (typeof window === "undefined") return () => {};
+
+  let cancelled = false;
+  let rafId: number | null = null;
+  const timers: number[] = [];
+
+  const run = () => {
+    if (cancelled) return;
+    scrollToId(id, "auto");
+  };
+
+  rafId = window.requestAnimationFrame(run);
+  extraDelays.forEach((delay) => {
+    timers.push(window.setTimeout(run, delay));
+  });
+
+  return () => {
+    cancelled = true;
+    if (rafId !== null) window.cancelAnimationFrame(rafId);
+    timers.forEach((timer) => window.clearTimeout(timer));
+  };
 }
 
 function hasMxlExtension(value: string | null | undefined): boolean {
@@ -280,7 +306,7 @@ function sortGroupsForPicker(items: ListGroupOption[]): ListGroupOption[] {
     out.push({
       ...group,
       id,
-      title: normalizeGroupTitle(group) || group.title || `Ομάδα #${id}`,
+      title: normalizeGroupTitle(group) || group.title || `Tag #${id}`,
     });
   }
 
@@ -612,6 +638,33 @@ function songHeaderMeta(song: SongDetail): string {
   return parts.join(" · ");
 }
 
+function openRoadVotePrompt(songId: number) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("rep:openRoadVote", { detail: { songId } }));
+}
+
+function renderRoadPrompt(song: SongDetail, onOpen?: () => void) {
+  const road = extractRoadFromCharacteristics(song.characteristics);
+
+  if (road) {
+    return (
+      <div className="songbook-road-prompt" aria-label="Δρόμος ή μακάμ τραγουδιού">
+        Δρόμος / Μακάμ: <strong>{road}</strong>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="songbook-road-prompt songbook-road-prompt--button"
+      onClick={onOpen ?? (() => openRoadVotePrompt(song.id))}
+    >
+      Ξέρεις τι δρόμος / μακάμ είναι;
+    </button>
+  );
+}
+
 function finalLyricsForSong(song: SongDetail): string {
   if (songIsOrganicForClient(song)) return "(Οργανικό)";
   if (!song.lyrics || song.lyrics.trim() === "") return "(Χωρίς διαθέσιμους στίχους)";
@@ -794,6 +847,7 @@ export default function SongPageClient(props: Props) {
 
   const router = useRouter();
   const sp = useSearchParams();
+  const isListPreviewEmbed = sp.get("listPreview") === "1";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1459,8 +1513,8 @@ export default function SongPageClient(props: Props) {
               ? "song-assets"
               : "song-title";
 
-    const t = window.setTimeout(() => scrollToId(id), 0);
-    return () => window.clearTimeout(t);
+    const retryDelays = pref === "CHORDS" || pref === "LYRICS" ? [80, 240, 520] : [];
+    return scheduleInitialScrollToId(id, retryDelays);
   }, [song.id, redirectDefault, hasChords, hasAssets, hasScores]);
 
   function togglePanel<K extends keyof PanelsOpen>(key: K) {
@@ -1595,6 +1649,56 @@ export default function SongPageClient(props: Props) {
         ? `/songs/${encodeURIComponent(String(song.id))}`
         : `${window.location.pathname}${window.location.search}`;
     void signIn("google", { callbackUrl });
+  }
+
+  function renderListNavigation(extraClassName = "") {
+    if (!listNav) return null;
+
+    const className = ["songbook-list-nav", extraClassName].filter(Boolean).join(" ");
+
+    return (
+      <div data-tour="nav-buttons" className={className}>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={goPrev}
+          disabled={!listNav.prevSongId || listNav.prevPos === null}
+          title={"\u03a0\u03c1\u03bf\u03b7\u03b3\u03bf\u03cd\u03bc\u03b5\u03bd\u03bf \u03c4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9"}
+          aria-label={"\u03a0\u03c1\u03bf\u03b7\u03b3\u03bf\u03cd\u03bc\u03b5\u03bd\u03bf \u03c4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9"}
+          icon={ChevronLeft}
+        />
+
+        <Button
+          type="button"
+          variant="secondary"
+          className="songbook-list-back-button"
+          onClick={goBackToList}
+          title={"\u0395\u03c0\u03b9\u03c3\u03c4\u03c1\u03bf\u03c6\u03ae \u03c3\u03c4\u03b7 \u03bb\u03af\u03c3\u03c4\u03b1"}
+          aria-label={"\u0395\u03c0\u03b9\u03c3\u03c4\u03c1\u03bf\u03c6\u03ae \u03c3\u03c4\u03b7 \u03bb\u03af\u03c3\u03c4\u03b1"}
+          icon={ListMusic}
+          showLabel
+        >
+          {"\u039b\u03af\u03c3\u03c4\u03b1"}
+        </Button>
+
+        <div
+          className="songbook-list-count"
+          title={"\u0398\u03ad\u03c3\u03b7 \u03c3\u03c4\u03b7 \u03bb\u03af\u03c3\u03c4\u03b1"}
+        >
+          {listNav.curPos + 1} / {listSongIds?.length ?? 0}
+        </div>
+
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={goNext}
+          disabled={!listNav.nextSongId || listNav.nextPos === null}
+          title={"\u0395\u03c0\u03cc\u03bc\u03b5\u03bd\u03bf \u03c4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9"}
+          aria-label={"\u0395\u03c0\u03cc\u03bc\u03b5\u03bd\u03bf \u03c4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9"}
+          icon={ChevronRight}
+        />
+      </div>
+    );
   }
 
   function renderDisplaySettingsControl() {
@@ -1739,12 +1843,17 @@ export default function SongPageClient(props: Props) {
 
     return base.filter((list) => {
       const title = normalizeListTitle(list).toLocaleLowerCase("el");
-      const groupTitle =
-        list.groupId === null
-          ? "χωρίς ομάδα"
-          : (listGroupTitleById.get(list.groupId) || "").toLocaleLowerCase("el");
+      const groupTitles = Array.isArray(list.groups)
+        ? list.groups
+            .map((group) => normalizeGroupTitle(group).toLocaleLowerCase("el"))
+            .filter(Boolean)
+        : [];
+      if (!groupTitles.length && list.groupId !== null) {
+        groupTitles.push((listGroupTitleById.get(list.groupId) || "").toLocaleLowerCase("el"));
+      }
+      if (!groupTitles.length) groupTitles.push("χωρίς tag");
 
-      return title.includes(q) || groupTitle.includes(q);
+      return title.includes(q) || groupTitles.some((groupTitle) => groupTitle.includes(q));
     });
   }, [availableLists, listGroupTitleById, listPickerQuery]);
 
@@ -1831,6 +1940,7 @@ export default function SongPageClient(props: Props) {
   async function handleCreateList(input: {
     title: string;
     groupId: number | null;
+    groupIds?: number[];
     marked: boolean;
   }): Promise<SongListOption> {
     const title = input.title.trim();
@@ -1845,6 +1955,7 @@ export default function SongPageClient(props: Props) {
       body: JSON.stringify({
         title,
         groupId: input.groupId,
+        groupIds: input.groupIds ?? (input.groupId ? [input.groupId] : []),
         marked: input.marked,
       }),
     });
@@ -1866,6 +1977,10 @@ export default function SongPageClient(props: Props) {
       id,
       title: normalizeListTitle(raw as Partial<SongListOption>) || title,
       groupId: toNullablePositiveInt((raw as any)?.groupId, input.groupId),
+      groupIds: Array.isArray((raw as any)?.groupIds)
+        ? (raw as any).groupIds.map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value) && value > 0)
+        : input.groupIds ?? (input.groupId ? [input.groupId] : []),
+      groups: Array.isArray((raw as any)?.groups) ? (raw as any).groups : [],
       marked: Boolean((raw as any)?.marked ?? input.marked),
       role: ((raw as any)?.role as SongListOption["role"]) || "OWNER",
       itemsCount: Number((raw as any)?.itemsCount ?? 0),
@@ -1876,11 +1991,16 @@ export default function SongPageClient(props: Props) {
 
     setAvailableLists((prev) => sortListsForPicker([...prev.filter((x) => x.id !== id), list]));
 
-    if (list.groupId !== null) {
+    const createdGroupIds = Array.isArray(list.groupIds) && list.groupIds.length
+      ? list.groupIds
+      : list.groupId !== null
+        ? [list.groupId]
+        : [];
+    if (createdGroupIds.length) {
       setAvailableListGroups((prev) =>
         sortGroupsForPicker(
           prev.map((group) =>
-            group.id === list.groupId
+            createdGroupIds.includes(group.id)
               ? { ...group, listsCount: Number(group.listsCount ?? 0) + 1 }
               : group,
           ),
@@ -2480,7 +2600,7 @@ export default function SongPageClient(props: Props) {
         }}
       >
         <ActionBar
-          left={<>{A.backLink({ href: backHref, title: backTitle, label: backLabel })}</>}
+          left={isListPreviewEmbed ? null : <>{A.backLink({ href: backHref, title: backTitle, label: backLabel })}</>}
           right={
             <>
               {viewSafeYoutubeUrl ? (
@@ -2513,39 +2633,13 @@ export default function SongPageClient(props: Props) {
         />
 
         <header style={{ marginBottom: 16 }}>
-          <div style={{ marginBottom: 8 }}>
-            <h1
-              style={{
-                fontSize: "1.8rem",
-                fontWeight: 700,
-                margin: 0,
-                lineHeight: 1.1,
-              }}
-            >
-              {viewSong.title}
-            </h1>
-
-            {songHeaderMeta(viewSong) ? (
-              <div
-                style={{
-                  marginTop: 4,
-                  fontSize: "0.9rem",
-                  lineHeight: 1.1,
-                  color: "#aaa",
-                }}
-              >
-                {songHeaderMeta(viewSong)}
-              </div>
-            ) : null}
-          </div>
-
           {viewNav ? (
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
-                marginTop: 10,
+                marginBottom: 10,
                 flexWrap: "wrap",
               }}
             >
@@ -2597,6 +2691,32 @@ export default function SongPageClient(props: Props) {
               />
             </div>
           ) : null}
+
+          <div style={{ marginBottom: 8 }}>
+            <h1
+              style={{
+                fontSize: "1.8rem",
+                fontWeight: 700,
+                margin: 0,
+                lineHeight: 1.1,
+              }}
+            >
+              {viewSong.title}
+            </h1>
+
+            {songHeaderMeta(viewSong) ? (
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: "0.9rem",
+                  lineHeight: 1.1,
+                  color: "#aaa",
+                }}
+              >
+                {songHeaderMeta(viewSong)}
+              </div>
+            ) : null}
+          </div>
         </header>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6, marginBottom: 14 }}>
@@ -2718,6 +2838,8 @@ export default function SongPageClient(props: Props) {
           versions={viewSong.versions}
         />
 
+        {panels.singerTunes ? renderRoadPrompt(viewSong) : null}
+
         <SongSingerTunesClient
           open={panels.singerTunes}
           songId={viewSong.id}
@@ -2741,6 +2863,7 @@ export default function SongPageClient(props: Props) {
               originalKeySign={viewSong.originalKeySign}
               urlTonicity={viewSelectedTonicity}
               urlTonicitySign={viewSelectedTonicitySign}
+              selectedSingerTuneId={viewSelectedSingerTuneId}
             />
           </section>
         ) : null}
@@ -2803,7 +2926,7 @@ export default function SongPageClient(props: Props) {
   return (
     <section
       ref={swipeViewportRef}
-      className="songbook-page"
+      className={isListPreviewEmbed ? "songbook-page songbook-page--list-preview" : "songbook-page"}
       style={{
         touchAction: "pan-y",
         position: "relative",
@@ -2832,9 +2955,11 @@ export default function SongPageClient(props: Props) {
           willChange: swipeIsActive ? "transform" : undefined,
         }}
       >
+      {listNav && !isListPreviewEmbed ? renderListNavigation("songbook-list-nav--mobile-top") : null}
+
       <div className="songbook-actionbar">
       <ActionBar
-        left={<>{A.backLink({ href: backHref, title: backTitle, label: backLabel })}</>}
+        left={isListPreviewEmbed ? null : <>{A.backLink({ href: backHref, title: backTitle, label: backLabel })}</>}
         right={
           <>
             {safeYoutubeUrl ? (
@@ -2894,23 +3019,10 @@ export default function SongPageClient(props: Props) {
       />
 
       <header id="song-title" className="songbook-hero">
-        <div className="songbook-hero-main">
-          <div className="songbook-title-copy">
-            <h1 className="songbook-title">{song.title}</h1>
-
-            {songHeaderMeta(song) ? (
-              <div className="songbook-subtitle">{songHeaderMeta(song)}</div>
-            ) : null}
-
-          </div>
-
-          {renderDisplaySettingsControl()}
-        </div>
-
-        {listNav ? (
+        {listNav && !isListPreviewEmbed ? (
           <div
             data-tour="nav-buttons"
-            className="songbook-list-nav"
+            className="songbook-list-nav songbook-list-nav--hero"
           >
             <Button
               type="button"
@@ -2925,10 +3037,12 @@ export default function SongPageClient(props: Props) {
             <Button
               type="button"
               variant="secondary"
+              className="songbook-list-back-button"
               onClick={goBackToList}
               title="Επιστροφή στη λίστα"
               aria-label="Επιστροφή στη λίστα"
               icon={ListMusic}
+              showLabel
             >
               Λίστα
             </Button>
@@ -2951,6 +3065,19 @@ export default function SongPageClient(props: Props) {
             />
           </div>
         ) : null}
+
+        <div className="songbook-hero-main">
+          <div className="songbook-title-copy">
+            <h1 className="songbook-title">{song.title}</h1>
+
+            {songHeaderMeta(song) ? (
+              <div className="songbook-subtitle">{songHeaderMeta(song)}</div>
+            ) : null}
+
+          </div>
+
+          {renderDisplaySettingsControl()}
+        </div>
       </header>
 
       {lastAddedList ? (
@@ -3059,6 +3186,13 @@ export default function SongPageClient(props: Props) {
 
       {activeTab === "song" ? (
         <div className="songbook-performance">
+          {panels.singerTunes
+            ? renderRoadPrompt(song, () => {
+                setPanels((prev) => (prev.chords ? prev : { ...prev, chords: true }));
+                window.setTimeout(() => openRoadVotePrompt(song.id), 0);
+              })
+            : null}
+
           {panels.singerTunes ? (
             <SongSingerTunesClient
               open
@@ -3085,6 +3219,7 @@ export default function SongPageClient(props: Props) {
                   originalKeySign={song.originalKeySign}
                   urlTonicity={effectiveUrlTonicity}
                   urlTonicitySign={effectiveUrlTonicitySign}
+                  selectedSingerTuneId={effectiveSelectedSingerTuneId}
                 />
               </section>
             ) : null}

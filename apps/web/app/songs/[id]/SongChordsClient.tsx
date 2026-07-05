@@ -16,6 +16,7 @@ type SongChordsClientProps = {
   originalKeySign?: "+" | "-" | null;
   urlTonicity?: string | null;
   urlTonicitySign?: "+" | "-" | null;
+  selectedSingerTuneId?: number | null;
 };
 
 const CHORDS = [
@@ -1010,6 +1011,20 @@ export default function SongChordsClient({
   }
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onOpenRoadVote = (event: Event) => {
+      const detail = (event as CustomEvent<{ songId?: number | null }>).detail;
+      const requestedSongId = Number(detail?.songId);
+      if (Number.isFinite(requestedSongId) && songId && requestedSongId !== songId) return;
+      openRoadVoteDialog();
+    };
+
+    window.addEventListener("rep:openRoadVote", onOpenRoadVote as EventListener);
+    return () => window.removeEventListener("rep:openRoadVote", onOpenRoadVote as EventListener);
+  }, [songId, storedRoad, roadVotes, roadVotesLoading, harmonyAnalysis, transportedChordsText]);
+
+  useEffect(() => {
     if (!roadVoteOpen || !shouldAskRoadVote || roadVotes || roadVotesLoading) return;
     void loadRoadVotes();
   }, [roadVoteOpen, shouldAskRoadVote, roadVotes, roadVotesLoading]);
@@ -1240,58 +1255,38 @@ export default function SongChordsClient({
       className="song-chords-container"
       style={{ marginBottom: 0 }}
     >
-      {baseChord && (
-        <div className="tonicities-wrapper" style={{ marginTop: 4, marginBottom: 4 }}>
-          <div className="tonicities-row">
-            {NATURAL_TONICITIES.map((ton) => {
-              const selected = selectedTonicity === ton;
-              const label = `${ton}${lastSign ?? ""}`;
-
-              return (
+      {baseChord ? (
+        <>
+          <div className="tonicities-wrapper" style={{ marginTop: 4, marginBottom: 4 }}>
+            <div className="tonicities-row">
+              {NATURAL_TONICITIES.map((tonicity) => (
                 <button
-                  key={ton}
+                  key={tonicity}
                   type="button"
-                  className={"tonicity-button" + (selected ? " selected" : "")}
-                  data-tonicity={ton}
-                  onClick={() => applySelectedTonicity(ton)}
+                  className={selectedTonicity === tonicity ? "tonicity-button selected" : "tonicity-button"}
+                  onClick={() => applySelectedTonicity(tonicity)}
                 >
-                  {label}
+                  {tonicity}
+                  {lastSign ?? ""}
                 </button>
-              );
-            })}
-          </div>
-
-          <div className="tonicities-row">
-            {SHARP_TONICITIES.map((ton) => {
-              const selected = selectedTonicity === ton;
-              const label = `${ton}${lastSign ?? ""}`;
-
-              return (
+              ))}
+            </div>
+            <div className="tonicities-row sharp-tonicities">
+              {SHARP_TONICITIES.map((tonicity) => (
                 <button
-                  key={ton}
+                  key={tonicity}
                   type="button"
-                  className={"tonicity-button" + (selected ? " selected" : "")}
-                  data-tonicity={ton}
-                  onClick={() => applySelectedTonicity(ton)}
+                  className={selectedTonicity === tonicity ? "tonicity-button selected" : "tonicity-button"}
+                  onClick={() => applySelectedTonicity(tonicity)}
                 >
-                  {label}
+                  {tonicity}
+                  {lastSign ?? ""}
                 </button>
-              );
-            })}
+              ))}
+            </div>
           </div>
-          <div className="song-road-row">
-            {storedRoad ? (
-              <span className="song-road-known">
-                Δρόμος / Μακάμ: <strong>{storedRoad}</strong>
-              </span>
-            ) : songId ? (
-              <button type="button" className="song-road-question" onClick={openRoadVoteDialog}>
-                Ξέρεις τι δρόμος / μακάμ είναι;
-              </button>
-            ) : null}
-          </div>
-        </div>
-      )}
+        </>
+      ) : null}
 
       <div className="chords-shell">
         <div
@@ -1334,9 +1329,7 @@ export default function SongChordsClient({
             {harmonyAnalysis.road} · {harmonyAnalysis.tonic}
             {harmonyAnalysis.tonicSign ?? ""} · {harmonyAnalysis.confidence}%
           </div>
-        ) : (
-          <div className="harmony-summary">Άμεση ανάλυση στη συσκευή, χωρίς αναμονή server</div>
-        )}
+        ) : null}
       </div>
 
       {analysisOpen && (
@@ -1737,6 +1730,35 @@ export default function SongChordsClient({
           font-weight: bold;
         }
 
+        @media (max-width: 640px) {
+          .tonicities-row {
+            flex-wrap: nowrap;
+            gap: 3px;
+            width: 100%;
+          }
+
+          .tonicity-button {
+            flex: 0 1 34px;
+            min-width: 0;
+            padding: 4px 1px;
+            font-size: 0.76rem;
+            line-height: 1;
+            white-space: nowrap;
+          }
+        }
+
+        @media (max-width: 360px) {
+          .tonicities-row {
+            gap: 2px;
+          }
+
+          .tonicity-button {
+            flex-basis: 32px;
+            padding-inline: 0;
+            font-size: 0.72rem;
+          }
+        }
+
         .song-road-row {
           display: flex;
           align-items: center;
@@ -1785,10 +1807,11 @@ export default function SongChordsClient({
 	          display: inline-flex;
 	          align-items: center;
 	          gap: 6px;
+	          flex-wrap: wrap;
 	          min-width: 0;
 	        }
 
-	        .harmony-button {
+		        .harmony-button {
 	          border: 1px solid #444;
 	          background: #191919;
           color: #fff;

@@ -113,6 +113,13 @@ function cn(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
+function pickAriaLabel(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
 export default function LinkButton(props: Props) {
   const {
     href,
@@ -127,6 +134,7 @@ export default function LinkButton(props: Props) {
     title,
     disabled,
     onClick,
+    "aria-label": ariaLabelProp,
     ...rest
   } = props;
 
@@ -139,7 +147,7 @@ export default function LinkButton(props: Props) {
 
   const hasIcon = !!Icon;
 
-  // Βάση λογικής: σε μικρή οθόνη ή αν το ζητήσεις ρητά => icon-only
+  // Mobile rule: any link button with an icon becomes icon-only on small screens.
   const baseIconOnly = !!iconOnly || isSmall;
 
   // ΤΕΛΙΚΑ: icon-only ΜΟΝΟ αν υπάρχει icon
@@ -149,7 +157,7 @@ export default function LinkButton(props: Props) {
   // Αλλιώς → δείχνουμε label by default, εκτός αν showLabel === false.
   const effectiveShowLabel = effectiveIconOnly ? false : showLabel ?? true;
 
-  const effectiveTitle = isSmall ? undefined : title;
+  const srLabel = !effectiveShowLabel ? pickAriaLabel(ariaLabelProp, title, children) : undefined;
 
   const handleClick: React.MouseEventHandler<HTMLAnchorElement> = (e) => {
     if (disabled) {
@@ -164,7 +172,8 @@ export default function LinkButton(props: Props) {
     <Link
       href={disabled ? "#" : href}
       onClick={handleClick}
-      title={effectiveTitle}
+      title={title}
+      aria-label={effectiveIconOnly ? pickAriaLabel(ariaLabelProp, title, children) : ariaLabelProp}
       aria-disabled={disabled ? "true" : undefined}
       data-action={action}
       data-icon-only={effectiveIconOnly ? "true" : undefined}
@@ -182,7 +191,8 @@ export default function LinkButton(props: Props) {
         {Icon ? <Icon size={18} strokeWidth={2} style={{ display: "block" }} /> : null}
       </span>
 
-      <span className="btn__label">{children}</span>
+      {effectiveShowLabel ? <span className="btn__label">{children}</span> : null}
+      {!effectiveShowLabel && srLabel ? <span className="btn__sr">{srLabel}</span> : null}
     </Link>
   );
 }

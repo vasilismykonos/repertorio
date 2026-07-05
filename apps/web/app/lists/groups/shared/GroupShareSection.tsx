@@ -69,21 +69,21 @@ function roleMeta(role: GroupRole): {
     case "OWNER":
       return {
         label: "Δημιουργός",
-        hint: "Ορίζει δικαιώματα & διαχειρίζεται την ομάδα και τα μέλη.",
+        hint: "Ορίζει δικαιώματα & διαχειρίζεται το tag και τα μέλη.",
         icon: <Crown size={16} />,
         tone: "gold",
       };
     case "LIST_EDITOR":
       return {
         label: "Διαχειριστής",
-        hint: "Μπορεί να διαχειρίζεται μέλη της ομάδας.",
+        hint: "Μπορεί να διαχειρίζεται μέλη του tag.",
         icon: <Shield size={16} />,
         tone: "blue",
       };
     default:
       return {
         label: "Χρήστης",
-        hint: "Μπορεί να βλέπει την ομάδα.",
+        hint: "Μπορεί να βλέπει το tag.",
         icon: <Eye size={16} />,
         tone: "gray",
       };
@@ -627,7 +627,7 @@ export default function GroupShareSection(props: { groupId: number; groupRole: G
 
     if (raw.includes("@")) {
       if (isAlreadyMemberByEmail(raw)) {
-        setMembersErr("Το email είναι ήδη μέλος της ομάδας.");
+        setMembersErr("Το email είναι ήδη μέλος του tag.");
         return;
       }
       await upsertMember({ email: raw, role: addMemberRole });
@@ -786,7 +786,7 @@ export default function GroupShareSection(props: { groupId: number; groupRole: G
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 950, fontSize: 16 }}>
-              Κοινή χρήση ομάδας{" "}
+              Κοινή χρήση tag{" "}
               <span style={{ opacity: 0.7, fontWeight: 800, fontSize: 12 }}>
                 ({groupRole ? roleLabel(groupRole) : ""})
               </span>

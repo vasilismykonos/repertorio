@@ -27,6 +27,13 @@ export type ListDetailDto = {
   groupId: number | null;
   groupTitle: string | null;
   groupFullTitle: string | null;
+  groupIds?: number[];
+  groups?: Array<{
+    id: number;
+    title: string;
+    fullTitle: string | null;
+    listsCount?: number;
+  }>;
 
   marked: boolean;
   role:

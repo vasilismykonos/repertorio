@@ -41,6 +41,17 @@ type LyricsSearchCandidate = {
   lyrics: string;
   confidence: number;
   preview?: string;
+  composerNames?: string[];
+  lyricistNames?: string[];
+  singerNames?: string[];
+  year?: string | null;
+  metadata?: {
+    composerNames?: string[];
+    lyricistNames?: string[];
+    singerNames?: string[];
+    year?: string | null;
+    infoLines?: string[];
+  };
 };
 
 export type SongForEdit = {
@@ -92,6 +103,38 @@ function splitNames(v: string | null | undefined): string[] {
     .split(/[,/]/g)
     .map((x) => x.trim().replace(/\s+/g, " "))
     .filter(Boolean);
+}
+
+function cleanCandidateNames(values: unknown): string[] {
+  const arr = Array.isArray(values) ? values : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of arr) {
+    const name = String(value ?? "").trim().replace(/\s+/g, " ");
+    if (!name) continue;
+    const key = name.toLocaleLowerCase("el-GR");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+function candidateComposerNames(candidate: LyricsSearchCandidate): string[] {
+  return cleanCandidateNames(candidate.composerNames ?? candidate.metadata?.composerNames);
+}
+
+function candidateLyricistNames(candidate: LyricsSearchCandidate): string[] {
+  return cleanCandidateNames(candidate.lyricistNames ?? candidate.metadata?.lyricistNames);
+}
+
+function candidateSingerNames(candidate: LyricsSearchCandidate): string[] {
+  return cleanCandidateNames(candidate.singerNames ?? candidate.metadata?.singerNames);
+}
+
+function candidateYear(candidate: LyricsSearchCandidate): string | null {
+  const year = String(candidate.year ?? candidate.metadata?.year ?? "").match(/\b(?:18|19|20)\d{2}\b/)?.[0];
+  return year ?? null;
 }
 
 function deriveFirstLyricsFromLyrics(lyrics: string | null | undefined): string {
@@ -298,6 +341,14 @@ export default function SongEditForm({
   const [lyricsSearchLoading, setLyricsSearchLoading] = useState(false);
   const [lyricsSearchError, setLyricsSearchError] = useState<string | null>(null);
   const [lyricsSearchResults, setLyricsSearchResults] = useState<LyricsSearchCandidate[]>([]);
+  const [lyricsSearchPhrase, setLyricsSearchPhrase] = useState("");
+  const [infoSearchOpen, setInfoSearchOpen] = useState(false);
+  const [infoSearchLoading, setInfoSearchLoading] = useState(false);
+  const [infoSearchError, setInfoSearchError] = useState<string | null>(null);
+  const [infoSearchResults, setInfoSearchResults] = useState<LyricsSearchCandidate[]>([]);
+  const [suggestedComposerNames, setSuggestedComposerNames] = useState<string[]>([]);
+  const [suggestedLyricistNames, setSuggestedLyricistNames] = useState<string[]>([]);
+  const [creditSuggestionSourceLabel, setCreditSuggestionSourceLabel] = useState<string | null>(null);
   const [isInstrumental, setIsInstrumental] = useState(Boolean(song.isInstrumental));
   const [makamLive, setMakamLive] = useState(extractMakamFromCharacteristics(song.characteristics));
   const [makamSearchOpen, setMakamSearchOpen] = useState(false);
@@ -498,44 +549,115 @@ export default function SongEditForm({
     form?.requestSubmit();
   }
 
-  async function handleLyricsSearch() {
+  async function fetchExternalSongCandidates(
+    emptyMessage: string,
+    options: { requireLyricsMatch?: boolean; lyricsHintOverride?: string } = {},
+  ): Promise<LyricsSearchCandidate[]> {
     const title = titleLive.trim();
     if (title.length < 2) {
-      setLyricsSearchOpen(true);
-      setLyricsSearchError("Συμπλήρωσε πρώτα τίτλο τραγουδιού.");
-      setLyricsSearchResults([]);
-      return;
+      throw new Error("Συμπλήρωσε πρώτα τίτλο τραγουδιού.");
     }
 
+    const params = new URLSearchParams({ title });
+    const lyricsHint = (options.lyricsHintOverride?.trim() || lyricsLive.trim()).slice(0, 600);
+    if (lyricsHint) params.set("hint", lyricsHint);
+
+    const appendedContext = new Set<string>();
+    const appendContextNames = (key: "composer" | "lyricist" | "singer", values: unknown) => {
+      const names = Array.isArray(values) ? values : [];
+      for (const value of names) {
+        const name = String(value ?? "").trim().replace(/\s+/g, " ");
+        if (!name) continue;
+        const dedupeKey = `${key}:${name.toLocaleLowerCase("el-GR")}`;
+        if (appendedContext.has(dedupeKey)) continue;
+        appendedContext.add(dedupeKey);
+        params.append(key, name);
+      }
+    };
+
+    appendContextNames("composer", initialComposerNames);
+    appendContextNames("lyricist", initialLyricistNames);
+
+    const creditsInput = document.querySelector<HTMLInputElement>('input[name="creditsJson"]');
+    if (creditsInput?.value) {
+      try {
+        const creditsObj = JSON.parse(creditsInput.value);
+        appendContextNames("composer", creditsObj?.composerNames);
+        appendContextNames("lyricist", creditsObj?.lyricistNames);
+      } catch {
+        // Ignore malformed transient form state; title and lyrics hint are still enough to search.
+      }
+    }
+
+    if (options.requireLyricsMatch) {
+      if (lyricsHint.length < 20) {
+        throw new Error("Πρόσθεσε πρώτα λίγους στίχους, για να βρεθούν στοιχεία για το σωστό τραγούδι.");
+      }
+      params.set("requireHintMatch", "1");
+    }
+
+    const res = await fetch(`/api/songs/lyrics-search?${params.toString()}`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(json?.message || "Αποτυχία αναζήτησης.");
+    }
+
+    const items = Array.isArray(json?.items) ? json.items : [];
+    if (items.length === 0) {
+      throw new Error(emptyMessage);
+    }
+    return items;
+  }
+
+  async function handleLyricsSearch() {
     setLyricsSearchOpen(true);
     setLyricsSearchLoading(true);
     setLyricsSearchError(null);
 
     try {
-      const params = new URLSearchParams({ title });
-      const lyricsHint = lyricsLive.trim().slice(0, 600);
-      if (lyricsHint) params.set("hint", lyricsHint);
-
-      const res = await fetch(`/api/songs/lyrics-search?${params.toString()}`, {
-        cache: "no-store",
-        credentials: "include",
-      });
-      const json = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        throw new Error(json?.message || "Αποτυχία αναζήτησης στίχων.");
-      }
-
-      const items = Array.isArray(json?.items) ? json.items : [];
+      const items = await fetchExternalSongCandidates(
+        "Δεν βρέθηκαν αξιόπιστα αποτελέσματα. Δοκίμασε πιο ακριβή τίτλο.",
+        { lyricsHintOverride: lyricsSearchPhrase },
+      );
       setLyricsSearchResults(items);
-      if (items.length === 0) {
-        setLyricsSearchError("Δεν βρέθηκαν αξιόπιστα αποτελέσματα. Δοκίμασε πιο ακριβή τίτλο.");
-      }
     } catch (err: any) {
       setLyricsSearchResults([]);
       setLyricsSearchError(err?.message || "Αποτυχία αναζήτησης στίχων.");
     } finally {
       setLyricsSearchLoading(false);
+    }
+  }
+
+  async function handleInfoSearch() {
+    setInfoSearchOpen(true);
+    setInfoSearchLoading(true);
+    setInfoSearchError(null);
+
+    try {
+      const items = await fetchExternalSongCandidates(
+        "Δεν βρέθηκαν αξιόπιστα στοιχεία info. Δοκίμασε πιο ακριβή τίτλο ή πρόσθεσε λίγους στίχους.",
+        { requireLyricsMatch: true },
+      );
+      const infoItems = items.filter(
+        (candidate) =>
+          candidateComposerNames(candidate).length > 0 ||
+          candidateLyricistNames(candidate).length > 0 ||
+          candidateSingerNames(candidate).length > 0 ||
+          Boolean(candidateYear(candidate)),
+      );
+      setInfoSearchResults(infoItems);
+      if (!infoItems.length) {
+        setInfoSearchError("Βρέθηκαν στίχοι, αλλά όχι αξιόπιστα στοιχεία συντελεστών.");
+      }
+    } catch (err: any) {
+      setInfoSearchResults([]);
+      setInfoSearchError(err?.message || "Αποτυχία αναζήτησης info.");
+    } finally {
+      setInfoSearchLoading(false);
     }
   }
 
@@ -551,6 +673,119 @@ export default function SongEditForm({
     setIsInstrumental(false);
     setLyricsSearchOpen(false);
     setLyricsSearchError(null);
+  }
+
+  function applyInfoCandidate(candidate: LyricsSearchCandidate) {
+    const composerNames = candidateComposerNames(candidate);
+    const lyricistNames = candidateLyricistNames(candidate);
+    if (composerNames.length || lyricistNames.length) {
+      setSuggestedComposerNames(composerNames);
+      setSuggestedLyricistNames(lyricistNames);
+      setCreditSuggestionSourceLabel(candidate.sourceLabel);
+    }
+    setInfoSearchOpen(false);
+    setInfoSearchError(null);
+  }
+
+  function renderLyricsCandidateMetadata(candidate: LyricsSearchCandidate) {
+    const rows = [
+      ["Συνθέτης", candidateComposerNames(candidate).join(", ")],
+      ["Στιχουργός", candidateLyricistNames(candidate).join(", ")],
+      ["Ερμηνευτής", candidateSingerNames(candidate).join(", ")],
+      ["Έτος", candidateYear(candidate) ?? ""],
+    ].filter(([, value]) => value);
+
+    if (!rows.length) return null;
+
+    return (
+      <dl className="song-edit-lyrics-search-meta">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+
+  function renderExternalSearchModal({
+    open,
+    title,
+    loading,
+    loadingText,
+    error,
+    results,
+    showPreview,
+    showMetadata,
+    onClose,
+    renderActions,
+    extraControls,
+  }: {
+    open: boolean;
+    title: string;
+    loading: boolean;
+    loadingText: string;
+    error: string | null;
+    results: LyricsSearchCandidate[];
+    showPreview: boolean;
+    showMetadata: boolean;
+    onClose: () => void;
+    renderActions: (candidate: LyricsSearchCandidate) => React.ReactNode;
+    extraControls?: React.ReactNode;
+  }) {
+    if (!open) return null;
+
+    return (
+      <div
+        className="song-edit-search-modal-backdrop"
+        role="presentation"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
+      >
+        <div
+          className="song-edit-search-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+        >
+          <div className="song-edit-lyrics-search-results" aria-live="polite">
+            <div className="song-edit-lyrics-search-head">
+              <strong>{title}</strong>
+              <button type="button" onClick={onClose} aria-label={`Κλείσιμο ${title}`}>
+                Κλείσιμο
+              </button>
+            </div>
+            {extraControls ? <div className="song-edit-search-modal-controls">{extraControls}</div> : null}
+
+            {loading ? (
+              <p>{loadingText}</p>
+            ) : error ? (
+              <p className="song-edit-lyrics-search-error">{error}</p>
+            ) : null}
+
+            {results.length > 0 ? (
+              <div className="song-edit-lyrics-search-list">
+                {results.map((candidate) => (
+                  <article key={`${candidate.source}-${candidate.url}`} className="song-edit-lyrics-search-item">
+                    <div className="song-edit-lyrics-search-title">
+                      <strong>{candidate.title}</strong>
+                      <span>{candidate.sourceLabel} · {candidate.confidence}%</span>
+                    </div>
+                    {showMetadata ? renderLyricsCandidateMetadata(candidate) : null}
+                    {showPreview && candidate.preview ? <pre>{candidate.preview}</pre> : null}
+                    <div className="song-edit-lyrics-search-actions">
+                      {renderActions(candidate)}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   function buildSaveErrorMessage(status: number, statusText: string, responseText: string) {
@@ -762,6 +997,116 @@ export default function SongEditForm({
         }
         .song-edit-input-light::placeholder {
           color: rgba(0,0,0,0.55) !important;
+        }
+        .song-edit-lyrics-search-meta {
+          display: grid;
+          gap: 4px;
+          margin: 8px 0;
+          padding: 8px 10px;
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 8px;
+          background: rgba(255,255,255,0.04);
+          font-size: 13px;
+        }
+        .song-edit-lyrics-search-meta div {
+          display: flex;
+          gap: 8px;
+          min-width: 0;
+        }
+        .song-edit-lyrics-search-meta dt {
+          min-width: 82px;
+          margin: 0;
+          color: rgba(255,255,255,0.65);
+          font-weight: 700;
+        }
+        .song-edit-lyrics-search-meta dd {
+          min-width: 0;
+          margin: 0;
+          overflow-wrap: anywhere;
+          color: #fff;
+        }
+        .song-edit-search-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 1400;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          background: rgba(0,0,0,0.72);
+        }
+        .song-edit-search-modal {
+          width: min(760px, calc(100vw - 24px));
+          max-height: min(82vh, 760px);
+          overflow: auto;
+          border: 1px solid rgba(255,255,255,0.14);
+          border-radius: 14px;
+          background: #101010;
+          color: #fff;
+          box-shadow: 0 24px 80px rgba(0,0,0,0.48);
+          padding: 14px;
+        }
+        .song-edit-search-modal .song-edit-lyrics-search-results {
+          margin: 0;
+        }
+        .song-edit-search-modal-controls {
+          margin: 10px 0 12px;
+        }
+        .song-edit-lyrics-phrase-form {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+        .song-edit-lyrics-phrase-form input {
+          min-width: 0;
+          flex: 1;
+          height: 38px;
+          border: 1px solid rgba(255,255,255,0.18);
+          border-radius: 10px;
+          background: #fff;
+          color: #111;
+          padding: 0 12px;
+          font: inherit;
+        }
+        .song-edit-lyrics-phrase-form button {
+          min-height: 38px;
+          border: 1px solid rgba(255,255,255,0.18);
+          border-radius: 10px;
+          background: #0d6efd;
+          color: #fff;
+          font-weight: 800;
+          padding: 0 14px;
+          cursor: pointer;
+        }
+        .song-edit-lyrics-phrase-form button:disabled {
+          opacity: 0.6;
+          cursor: wait;
+        }
+        .song-edit-info-search-top {
+          display: flex;
+          justify-content: flex-end;
+          margin: 0 0 14px;
+        }
+        @media (max-width: 640px) {
+          .song-edit-search-modal-backdrop {
+            align-items: flex-end;
+            padding: 10px;
+          }
+          .song-edit-search-modal {
+            width: 100%;
+            max-height: 88vh;
+            border-radius: 14px 14px 8px 8px;
+          }
+          .song-edit-lyrics-phrase-form {
+            align-items: stretch;
+            flex-direction: column;
+          }
+          .song-edit-lyrics-phrase-form button {
+            width: 100%;
+          }
+          .song-edit-info-search-top {
+            justify-content: flex-start;
+          }
         }
       `}</style>
 
@@ -997,48 +1342,6 @@ export default function SongEditForm({
                     style={isInstrumental ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
                   />
 
-                  {lyricsSearchOpen ? (
-                    <div className="song-edit-lyrics-search-results" aria-live="polite">
-                      <div className="song-edit-lyrics-search-head">
-                        <strong>Υποψήφιοι στίχοι</strong>
-                        <button
-                          type="button"
-                          onClick={() => setLyricsSearchOpen(false)}
-                          aria-label="Κλείσιμο αποτελεσμάτων στίχων"
-                        >
-                          Κλείσιμο
-                        </button>
-                      </div>
-
-                      {lyricsSearchLoading ? (
-                        <p>Αναζήτηση σε stixoi.info και rebetiko.sealabs.net...</p>
-                      ) : lyricsSearchError ? (
-                        <p className="song-edit-lyrics-search-error">{lyricsSearchError}</p>
-                      ) : null}
-
-                      {lyricsSearchResults.length > 0 ? (
-                        <div className="song-edit-lyrics-search-list">
-                          {lyricsSearchResults.map((candidate) => (
-                            <article key={`${candidate.source}-${candidate.url}`} className="song-edit-lyrics-search-item">
-                              <div className="song-edit-lyrics-search-title">
-                                <strong>{candidate.title}</strong>
-                                <span>{candidate.sourceLabel} · {candidate.confidence}%</span>
-                              </div>
-                              {candidate.preview ? <pre>{candidate.preview}</pre> : null}
-                              <div className="song-edit-lyrics-search-actions">
-                                <button type="button" onClick={() => applyLyricsCandidate(candidate)}>
-                                  Χρήση στίχων
-                                </button>
-                                <a href={candidate.url} target="_blank" rel="noreferrer">
-                                  Άνοιγμα πηγής
-                                </a>
-                              </div>
-                            </article>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
               </div>
             </div>
@@ -1249,6 +1552,17 @@ export default function SongEditForm({
           >
             <div className="song-edit-section song-edit-section-main">
               <h2 className="song-edit-section-title">Πληροφορίες</h2>
+              <div className="song-edit-info-search-top">
+                <button
+                  type="button"
+                  className="song-edit-lyrics-search-button"
+                  onClick={() => void handleInfoSearch()}
+                  disabled={infoSearchLoading}
+                  title="Αναζήτηση συνθέτη, στιχουργού και άλλων στοιχείων με βάση τους τρέχοντες στίχους"
+                >
+                  {infoSearchLoading ? "Ψάχνω..." : "Εύρεση info"}
+                </button>
+              </div>
 
               <div className="song-edit-compact-grid">
                 <div className="song-edit-field">
@@ -1336,6 +1650,9 @@ export default function SongEditForm({
                   initialLyricistArtistIds={initialLyricistArtistIds}
                   initialComposerNames={initialComposerNames}
                   initialLyricistNames={initialLyricistNames}
+                  suggestedComposerNames={suggestedComposerNames}
+                  suggestedLyricistNames={suggestedLyricistNames}
+                  suggestionSourceLabel={creditSuggestionSourceLabel}
                   hiddenInputName="creditsJson"
                 />
               </div>
@@ -1361,6 +1678,68 @@ export default function SongEditForm({
           </section>
         </form>
       </section>
+      {renderExternalSearchModal({
+        open: lyricsSearchOpen,
+        title: "Υποψήφιοι στίχοι",
+        loading: lyricsSearchLoading,
+        loadingText: "Αναζήτηση σε stixoi.info, rebetiko.sealabs.net και greeklyrics.gr...",
+        error: lyricsSearchError,
+        results: lyricsSearchResults,
+        showPreview: true,
+        showMetadata: false,
+        onClose: () => setLyricsSearchOpen(false),
+        extraControls: (
+          <form
+            className="song-edit-lyrics-phrase-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleLyricsSearch();
+            }}
+          >
+            <input
+              type="search"
+              value={lyricsSearchPhrase}
+              onChange={(event) => setLyricsSearchPhrase(event.currentTarget.value)}
+              placeholder="Προαιρετική φράση στίχου"
+              aria-label="Προαιρετική φράση στίχου"
+            />
+            <button type="submit" disabled={lyricsSearchLoading}>
+              Αναζήτηση
+            </button>
+          </form>
+        ),
+        renderActions: (candidate) => (
+          <>
+            <button type="button" onClick={() => applyLyricsCandidate(candidate)}>
+              Χρήση στίχων
+            </button>
+            <a href={candidate.url} target="_blank" rel="noreferrer">
+              Άνοιγμα πηγής
+            </a>
+          </>
+        ),
+      })}
+      {renderExternalSearchModal({
+        open: infoSearchOpen,
+        title: "Υποψήφια στοιχεία info",
+        loading: infoSearchLoading,
+        loadingText: "Αναζήτηση στοιχείων σε stixoi.info, rebetiko.sealabs.net και greeklyrics.gr...",
+        error: infoSearchError,
+        results: infoSearchResults,
+        showPreview: false,
+        showMetadata: true,
+        onClose: () => setInfoSearchOpen(false),
+        renderActions: (candidate) => (
+          <>
+            <button type="button" onClick={() => applyInfoCandidate(candidate)}>
+              Χρήση info
+            </button>
+            <a href={candidate.url} target="_blank" rel="noreferrer">
+              Άνοιγμα πηγής
+            </a>
+          </>
+        ),
+      })}
     </main>
   );
 }

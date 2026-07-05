@@ -40,6 +40,10 @@ type Props = {
   songOriginalKeySign?: TonicitySign | null;
   singerSuggestions?: ListItemSingerSuggestion[];
   disabled?: boolean;
+  showSingerInButton?: boolean;
+  forceExplicitStyle?: boolean;
+  buttonClassName?: string;
+  compact?: boolean;
 };
 
 const NATURAL_TONICITIES = TONICITY_VALUES.filter((tone) => !tone.includes("#"));
@@ -184,6 +188,10 @@ export default function ListItemTonePicker({
   songOriginalKeySign,
   singerSuggestions = [],
   disabled,
+  showSingerInButton = true,
+  forceExplicitStyle = false,
+  buttonClassName = "",
+  compact = false,
 }: Props) {
   const originalTonicity = useMemo(
     () => originalKeyCodeToTonicity(songOriginalKey),
@@ -193,8 +201,12 @@ export default function ListItemTonePicker({
 
   const selectedSingerTuneTitle = normalizeText(value.selectedSingerTuneTitle);
   const selectedSingerTuneTune = normalizeTonicityValue(value.selectedSingerTuneTune);
+  const selectedListTonicity = normalizeTonicityValue(value.selectedTonicity);
+  const selectedSingerTuneId = normalizePositiveInt(value.selectedSingerTuneId);
+  const displayTonicity = selectedListTonicity ?? (selectedSingerTuneId ? selectedSingerTuneTune : null);
+  const displaySign = displayTonicity ? normalizeTonicitySign(value.selectedTonicitySign) : null;
   const effectiveTonicity =
-    normalizeTonicityValue(value.selectedTonicity) ??
+    selectedListTonicity ??
     selectedSingerTuneTune ??
     originalTonicity;
   const effectiveSign =
@@ -543,12 +555,12 @@ export default function ListItemTonePicker({
     }
   }
 
-  const buttonToneLabel = effectiveTonicity
-    ? toneButtonLabel(effectiveTonicity, effectiveSign)
+  const buttonToneLabel = displayTonicity
+    ? toneButtonLabel(displayTonicity, displaySign)
     : "Τόνος";
   const hasExplicitSelection = Boolean(
-    normalizeTonicityValue(value.selectedTonicity) ||
-      normalizePositiveInt(value.selectedSingerTuneId),
+    selectedListTonicity ||
+      selectedSingerTuneId,
   );
   const toneButtonsDisabled = !draftSign;
   const hasSingerRows = (singerRows?.length ?? 0) > 0;
@@ -557,14 +569,19 @@ export default function ListItemTonePicker({
     <>
       <button
         type="button"
-        className={"tone-current" + (hasExplicitSelection ? " explicit" : "")}
+        className={[
+          "tone-current",
+          hasExplicitSelection || forceExplicitStyle ? "explicit" : "",
+          compact ? "compact" : "",
+          buttonClassName,
+        ].filter(Boolean).join(" ")}
         onClick={openPicker}
         disabled={disabled}
         title="Αλλαγή τόνου ή φωνής λίστας"
         aria-haspopup="dialog"
       >
         <span className="tone-current-main">{buttonToneLabel}</span>
-        {selectedSingerTuneTitle ? (
+        {showSingerInButton && selectedSingerTuneTitle ? (
           <span className="tone-current-sub">{selectedSingerTuneTitle}</span>
         ) : null}
       </button>
@@ -683,7 +700,7 @@ export default function ListItemTonePicker({
             <div className="tone-section">
               <div className="tone-section-title">Τόνος χωρίς φωνή</div>
               <div className="tone-grid">
-                <div className="tone-row">
+                <div className="tone-row tone-row-natural">
                   {NATURAL_TONICITIES.map((tone) => (
                     <button
                       key={tone}
@@ -697,7 +714,7 @@ export default function ListItemTonePicker({
                   ))}
                 </div>
 
-                <div className="tone-row">
+                <div className="tone-row tone-row-sharp">
                   {SHARP_TONICITIES.map((tone) => (
                     <button
                       key={tone}
@@ -728,6 +745,7 @@ export default function ListItemTonePicker({
                 showMentionLinks={false}
                 initialSuggestions={mentionSuggestions}
                 searchWithoutAt={true}
+                dropdownFixed={true}
                 onPickUser={onPickTitleUser}
               />
             </div>
@@ -790,6 +808,15 @@ export default function ListItemTonePicker({
           background: #ff4747;
         }
 
+        .tone-current.compact {
+          min-width: 54px;
+          max-width: 92px;
+          min-height: 30px;
+          padding: 5px 8px;
+          border-radius: 9px;
+          font-size: 0.88rem;
+        }
+
         .tone-current:disabled {
           opacity: 0.5;
           cursor: default;
@@ -807,7 +834,7 @@ export default function ListItemTonePicker({
         }
 
         .tone-dialog {
-          width: min(560px, calc(100vw - 32px));
+          width: min(640px, calc(100vw - 24px));
           max-height: min(86vh, 720px);
           overflow: auto;
           box-sizing: border-box;
@@ -878,20 +905,21 @@ export default function ListItemTonePicker({
 
         .tone-grid {
           display: grid;
-          gap: 8px;
+          gap: 6px;
         }
 
         .tone-row {
           display: flex;
           flex-wrap: wrap;
-          gap: 8px;
+          gap: 6px;
         }
 
         .tone-row button {
-          min-width: 54px;
+          min-width: 52px;
           min-height: 34px;
-          padding: 5px 9px;
+          padding: 5px 8px;
           font-size: 1rem;
+          white-space: nowrap;
         }
 
         .singer-chip {
@@ -971,16 +999,39 @@ export default function ListItemTonePicker({
         @media (max-width: 520px) {
           .tone-overlay {
             align-items: flex-start;
-            padding-top: 64px;
+            padding: 64px 6px 10px;
           }
 
           .tone-dialog {
+            width: calc(100vw - 12px);
             max-height: calc(100vh - 84px);
+            padding: 8px;
+          }
+
+          .tone-grid {
+            gap: 5px;
+          }
+
+          .tone-row {
+            gap: 4px;
+          }
+
+          .tone-row-natural {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            gap: 3px;
+          }
+
+          .tone-row-sharp {
+            gap: 4px;
           }
 
           .tone-row button {
-            min-width: 50px;
-            font-size: 0.95rem;
+            min-width: 0;
+            min-height: 32px;
+            padding: 4px 3px;
+            border-radius: 8px;
+            font-size: clamp(0.76rem, 3.15vw, 0.86rem);
           }
 
           .singer-chip span {

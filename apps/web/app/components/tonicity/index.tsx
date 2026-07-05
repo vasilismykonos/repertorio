@@ -159,6 +159,29 @@ export function TonicityPills(props: TonicityPillsProps) {
           gap: 8px; /* ίδιο “feel” με τα chips */
           margin-bottom: 8px;
         }
+        @media (max-width: 640px) {
+          .tp-row {
+            flex-wrap: nowrap;
+            gap: 3px;
+          }
+          .tp-row button {
+            flex: 0 1 34px;
+            min-width: 0;
+            padding: 4px 2px !important;
+            font-size: 0.76rem !important;
+            line-height: 1 !important;
+          }
+        }
+        @media (max-width: 360px) {
+          .tp-row {
+            gap: 2px;
+          }
+          .tp-row button {
+            flex-basis: 32px;
+            padding-inline: 0 !important;
+            font-size: 0.72rem !important;
+          }
+        }
         button:hover {
           filter: brightness(1.08);
         }

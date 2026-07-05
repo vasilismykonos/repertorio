@@ -844,7 +844,7 @@ export default function ListEditMembersPanel({ listId, viewerUserId, canManageMe
 
       <div style={cardStyle}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-          <SectionTitle title="Κοινή χρήση" />
+          <SectionTitle title="Δικαιώματα" />
         </div>
 
         {membersErr ? (

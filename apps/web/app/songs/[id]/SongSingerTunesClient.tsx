@@ -111,13 +111,15 @@ export default function SongSingerTunesClient(props: {
       const online = browserOnline();
       const meta = await readOfflineMeta().catch(() => null);
       const canUseOfflineUser = hasOfflineUser(meta) && !online;
-      const cachedRows = await readOfflineSingerTunes(songId).catch(() => null);
+      const cachedRows = !online
+        ? await readOfflineSingerTunes(songId).catch(() => null)
+        : null;
 
       if (!cancelled) {
         setErr(null);
         setAuthRequired(false);
         setUsingOfflineUser(!online && canUseOfflineUser);
-        setRows(Array.isArray(cachedRows) ? (cachedRows as SingerTuneRow[]) : null);
+        setRows(!online && Array.isArray(cachedRows) ? (cachedRows as SingerTuneRow[]) : null);
       }
 
       if (!online) {
@@ -156,9 +158,10 @@ export default function SongSingerTunesClient(props: {
         }
       } catch (e: any) {
         if (!cancelled) {
-          if (Array.isArray(cachedRows)) {
-            setRows(cachedRows as SingerTuneRow[]);
-            setUsingOfflineUser(hasOfflineUser(meta));
+          const fallbackRows = await readOfflineSingerTunes(songId).catch(() => null);
+          if (Array.isArray(fallbackRows) && hasOfflineUser(meta)) {
+            setRows(fallbackRows as SingerTuneRow[]);
+            setUsingOfflineUser(true);
             setErr(null);
           } else {
             setRows([]);

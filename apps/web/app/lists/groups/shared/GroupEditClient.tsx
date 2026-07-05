@@ -177,7 +177,7 @@ export default function GroupEditClient(props: {
     }
 
     if (!groupId) {
-      setErr("Μη έγκυρο id ομάδας.");
+      setErr("Μη έγκυρο id tag.");
       setLoading(false);
       return;
     }
@@ -201,7 +201,7 @@ export default function GroupEditClient(props: {
 
     const found = (r.data.items ?? []).find((x) => x.id === groupId) ?? null;
     if (!found) {
-      setErr("Η ομάδα δεν βρέθηκε ή δεν έχεις πρόσβαση.");
+      setErr("Το tag δεν βρέθηκε ή δεν έχεις πρόσβαση.");
       setOriginal(null);
       setLoading(false);
       return;
@@ -270,7 +270,7 @@ export default function GroupEditClient(props: {
     if (mode !== "edit" || !groupId) return;
     if (!canDelete) return;
 
-    const ok = window.confirm("Διαγραφή αυτής της ομάδας;");
+    const ok = window.confirm("Διαγραφή αυτού του tag;");
     if (!ok) return;
 
     setErr(null);
@@ -305,7 +305,7 @@ export default function GroupEditClient(props: {
           right={null}
         />
         <h1 style={{ fontSize: 26, marginBottom: 12 }}>
-          {mode === "edit" ? "Επεξεργασία ομάδας" : "Νέα ομάδα"}
+          {mode === "edit" ? "Επεξεργασία tag" : "Νέο tag"}
         </h1>
         <div
           style={{
@@ -351,7 +351,7 @@ export default function GroupEditClient(props: {
       />
 
       <h1 style={{ fontSize: 26, marginBottom: 12, color: "#fff" }}>
-        {mode === "edit" ? "Επεξεργασία ομάδας" : "Νέα ομάδα"}
+        {mode === "edit" ? "Επεξεργασία tag" : "Νέο tag"}
       </h1>
 
       {loading ? (

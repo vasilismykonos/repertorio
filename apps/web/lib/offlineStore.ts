@@ -1002,9 +1002,28 @@ export async function searchOfflineSongs(filters: any): Promise<{ total: number;
   return { total, items: matched.slice(skip, skip + take), aggs: buildOfflineAggs(matched) };
 }
 
+function listGroupIds(list: any): string[] {
+  const ids = new Set<string>();
+  if (Array.isArray(list?.groupIds)) {
+    for (const value of list.groupIds) {
+      const id = String(value ?? "").trim();
+      if (id) ids.add(id);
+    }
+  }
+  if (!ids.size && list?.groupId != null) ids.add(String(list.groupId));
+  return Array.from(ids);
+}
+
 function normalizeListForSearch(list: any, groupsById: Map<string, any>): string {
-  const group = groupsById.get(String(list?.groupId ?? ""));
-  return normalizeText([list?.title, list?.name, list?.listTitle, list?.list_title, group?.title, group?.fullTitle].join(" "));
+  const groups = Array.isArray(list?.groups) ? list.groups : [];
+  const groupText = [
+    ...groups.flatMap((group: any) => [group?.title, group?.fullTitle]),
+    ...listGroupIds(list).flatMap((id) => {
+      const group = groupsById.get(id);
+      return [group?.title, group?.fullTitle];
+    }),
+  ];
+  return normalizeText([list?.title, list?.name, list?.listTitle, list?.list_title, ...groupText].join(" "));
 }
 
 export function buildOfflineListsPage(snapshot: OfflineListsSnapshot, args: {
@@ -1032,13 +1051,17 @@ export function buildOfflineListsPage(snapshot: OfflineListsSnapshot, args: {
   const searched = search ? allItems.filter((list: any) => normalizeListForSearch(list, groupsById).includes(search)) : allItems.slice();
   const byGroup = new Map<string, number>();
   for (const list of searched) {
-    const key = list?.groupId == null ? "null" : String(list.groupId);
-    byGroup.set(key, (byGroup.get(key) || 0) + 1);
+    const ids = listGroupIds(list);
+    if (!ids.length) {
+      byGroup.set("null", (byGroup.get("null") || 0) + 1);
+      continue;
+    }
+    for (const id of ids) byGroup.set(id, (byGroup.get(id) || 0) + 1);
   }
 
   let filtered = searched;
-  if (groupId === "null") filtered = searched.filter((list: any) => list?.groupId == null);
-  else if (groupId) filtered = searched.filter((list: any) => String(list?.groupId ?? "") === groupId);
+  if (groupId === "null") filtered = searched.filter((list: any) => listGroupIds(list).length === 0);
+  else if (groupId) filtered = searched.filter((list: any) => listGroupIds(list).includes(groupId));
 
   const recentListId = Math.trunc(Number(args.recentListId || 0));
   if (Number.isFinite(recentListId) && recentListId > 0) {
