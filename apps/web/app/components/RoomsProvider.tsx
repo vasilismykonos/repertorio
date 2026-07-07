@@ -438,7 +438,12 @@ export function RoomsProvider({ children }: { children: React.ReactNode }) {
         if (type === "presence_counts" || type === "presence") {
           const counts = normalizePresenceCounts(data);
           setPresence(counts);
-          window.dispatchEvent(new CustomEvent(PRESENCE_COUNTS_EVENT, { detail: counts }));
+          const room = String((data as any).room || joinedRoomRef.current || currentRoom || "").trim();
+          window.dispatchEvent(
+            new CustomEvent(PRESENCE_COUNTS_EVENT, {
+              detail: room ? { ...counts, room } : counts,
+            }),
+          );
           return;
         }
 

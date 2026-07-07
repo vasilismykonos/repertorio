@@ -52,6 +52,36 @@ body {
   flex-direction: column;
 }
 
+html[data-view-mode="mobile"] {
+  background: #050505;
+}
+
+html[data-view-mode="mobile"] body {
+  width: min(100vw, 430px);
+  max-width: 430px;
+  min-height: 100vh;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  overflow-x: hidden;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 34px rgba(0, 0, 0, 0.45);
+}
+
+html[data-view-mode="mobile"] .site-header,
+html[data-view-mode="mobile"] .site-footer {
+  width: min(100vw, 430px);
+  max-width: 430px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+html[data-view-mode="desktop"] body {
+  min-width: 1180px;
+}
+
+html[data-view-mode="desktop"] #sidebar.site-sidebar {
+  max-width: 340px !important;
+}
+
 main {
   flex: 1; /* fills the vertical space */
 }

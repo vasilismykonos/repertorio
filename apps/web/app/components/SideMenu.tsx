@@ -22,9 +22,23 @@ import {
   Bell,
   CheckCheck,
   History,
+  Monitor,
   Paperclip,
+  Smartphone,
 } from "lucide-react";
 import type { OfflineRuntimeStatus } from "@/lib/offlineSync";
+import {
+  readNetworkMode,
+  setNetworkMode as writeNetworkMode,
+  subscribeNetworkMode,
+  type NetworkMode,
+} from "@/lib/networkMode";
+import {
+  readViewMode,
+  setViewMode as writeViewMode,
+  subscribeViewMode,
+  type ViewMode,
+} from "@/lib/viewMode";
 import { APP_CHANGELOG, APP_VERSION } from "@/lib/appVersion";
 import {
   formatNotificationDate,
@@ -52,7 +66,9 @@ type Props = {
 
   // offline
   offlineStatus?: OfflineRuntimeStatus;
+  networkMode?: NetworkMode;
   offlineActionBusy?: boolean;
+  onSetNetworkMode?: (mode: NetworkMode) => void;
   onForceOfflineSync?: () => void;
   onSetOfflineSyncEnabled?: (enabled: boolean) => void;
   onClearOfflineData?: () => void;
@@ -105,30 +121,7 @@ function formatOfflineDate(iso: string | null | undefined): string {
   }).format(date);
 }
 
-const STORAGE_KEY_ROOM = "repertorio_current_room";
-const ROOM_CHANGED_EVENT = "repertorio_current_room_changed";
-const ROOMS_API_BASE = "/rooms-api";
 const API_BASE = "/api/v1";
-
-type StatusRoomUser = {
-  device_id?: string;
-  user_id?: number;
-  username?: string | null;
-};
-
-type StatusRoom = {
-  room: string;
-  userCount?: number;
-  uniqueUsers?: number;
-  sessions?: number;
-  hasPassword: boolean;
-  users?: StatusRoomUser[];
-};
-
-type StatusResponse = {
-  ok: boolean;
-  rooms?: StatusRoom[];
-};
 
 type MeResponse = {
   id: number;
@@ -155,33 +148,6 @@ type OnlinePresenceResponse = {
   error?: string;
 };
 
-function roomPresenceCount(room: StatusRoom): number | null {
-  if (typeof room.uniqueUsers === "number" && Number.isFinite(room.uniqueUsers)) {
-    return room.uniqueUsers;
-  }
-
-  const users = Array.isArray(room.users) ? room.users : [];
-  if (users.length > 0) {
-    const unique = new Set<string>();
-    users.forEach((user, index) => {
-      if (typeof user.user_id === "number" && Number.isFinite(user.user_id)) {
-        unique.add(`u:${user.user_id}`);
-      } else if (user.device_id) {
-        unique.add(`d:${user.device_id}`);
-      } else {
-        unique.add(`row:${index}`);
-      }
-    });
-    return unique.size;
-  }
-
-  if (typeof room.userCount === "number" && Number.isFinite(room.userCount)) {
-    return room.userCount;
-  }
-
-  return null;
-}
-
 function formatOnlineAgo(secondsAgo: number): string {
   const seconds = Number(secondsAgo);
   if (!Number.isFinite(seconds) || seconds < 15) return "τώρα";
@@ -203,10 +169,16 @@ export default function SideMenu(props: Props) {
     userId,
     avatarNode,
     offlineStatus,
+    networkMode: networkModeProp = "auto",
     offlineActionBusy = false,
+    onSetNetworkMode,
     onForceOfflineSync,
     onSetOfflineSyncEnabled,
     onClearOfflineData,
+    isInRoom,
+    currentRoomName,
+    roomUserCount,
+    roomLoading,
     onNewSong,
     isAdmin: isAdminProp,
     appVersion,
@@ -233,6 +205,11 @@ export default function SideMenu(props: Props) {
   const displayVersion = appVersion || APP_VERSION;
   const mySongsHref = isLoggedIn && userId ? `/songs?createdByUserId=${encodeURIComponent(String(userId))}` : "/songs";
   const progress = offlineStatus?.progress || null;
+  const [menuNetworkMode, setMenuNetworkMode] = useState<NetworkMode>(() => readNetworkMode());
+  const [viewMode, setMenuViewMode] = useState<ViewMode>(() => readViewMode());
+  const effectiveNetworkMode: NetworkMode =
+    menuNetworkMode === "offline" || offlineStatus?.online === false ? "offline" : networkModeProp;
+  const isOfflineModeActive = effectiveNetworkMode === "offline";
   const progressPercent = progress
     ? Math.max(
         0,
@@ -249,9 +226,17 @@ export default function SideMenu(props: Props) {
     : 0;
   const controlsDisabled = offlineActionBusy || Boolean(offlineStatus?.syncing);
 
-  const [currentRoomNameLocal, setCurrentRoomNameLocal] = useState<string | null>(null);
-  const [roomUserCountLocal, setRoomUserCountLocal] = useState<number | null>(null);
-  const [roomLoadingLocal, setRoomLoadingLocal] = useState(false);
+  const handleNetworkModeClick = (mode: NetworkMode) => {
+    setMenuNetworkMode(mode);
+    writeNetworkMode(mode);
+    onSetNetworkMode?.(mode);
+  };
+
+  const handleViewModeClick = (mode: ViewMode) => {
+    setMenuViewMode(mode);
+    writeViewMode(mode);
+  };
+
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<OnlinePresenceUser[]>([]);
   const [onlineLoading, setOnlineLoading] = useState(false);
@@ -295,93 +280,8 @@ export default function SideMenu(props: Props) {
     return () => window.removeEventListener(OPEN_NOTIFICATIONS_EVENT, openNotifications);
   }, [onRefreshNotifications]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const readRoom = () => {
-      try {
-        const stored = window.localStorage.getItem(STORAGE_KEY_ROOM);
-        const name = stored && stored.trim() !== "" ? stored.trim() : null;
-        setCurrentRoomNameLocal(name);
-      } catch {
-        setCurrentRoomNameLocal(null);
-      }
-    };
-
-    readRoom();
-
-    const onStorageOrCustom = (event: StorageEvent | Event) => {
-      if (event instanceof StorageEvent) {
-        if (event.key === STORAGE_KEY_ROOM) readRoom();
-        return;
-      }
-      if ((event as any).type === ROOM_CHANGED_EVENT) readRoom();
-    };
-
-    window.addEventListener("storage", onStorageOrCustom as any);
-    window.addEventListener(ROOM_CHANGED_EVENT, onStorageOrCustom as any);
-
-    let pollId: number | null = null;
-    if (isOpen) pollId = window.setInterval(readRoom, 700);
-
-    return () => {
-      window.removeEventListener("storage", onStorageOrCustom as any);
-      window.removeEventListener(ROOM_CHANGED_EVENT, onStorageOrCustom as any);
-      if (pollId != null) window.clearInterval(pollId);
-    };
-  }, [isOpen]);
-
-  const isInRoomLocal = isLoggedIn && !!currentRoomNameLocal;
-
-  useEffect(() => {
-    if (!isLoggedIn || !currentRoomNameLocal) {
-      setRoomUserCountLocal(null);
-      setRoomLoadingLocal(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    const fetchCount = async () => {
-      try {
-        setRoomLoadingLocal(true);
-
-        const res = await fetch(`${ROOMS_API_BASE}/status`, { cache: "no-store" });
-        if (!res.ok) throw new Error("Rooms status HTTP error");
-
-        const data = (await res.json()) as StatusResponse;
-        if (cancelled) return;
-
-        if (!data?.ok || !Array.isArray(data.rooms)) {
-          setRoomUserCountLocal(null);
-          return;
-        }
-
-        const match = data.rooms.find(
-          (r) => r.room && r.room.toLowerCase() === currentRoomNameLocal.toLowerCase(),
-        );
-
-        if (!match) {
-          setRoomUserCountLocal(0);
-          return;
-        }
-
-        setRoomUserCountLocal(roomPresenceCount(match));
-      } catch {
-        if (!cancelled) setRoomUserCountLocal(null);
-      } finally {
-        if (!cancelled) setRoomLoadingLocal(false);
-      }
-    };
-
-    fetchCount();
-    const id = window.setInterval(fetchCount, 5000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [isLoggedIn, currentRoomNameLocal]);
+  const effectiveRoomName = currentRoomName?.trim() || null;
+  const isInRoomLocal = isLoggedIn && !isOfflineModeActive && isInRoom && !!effectiveRoomName;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -444,6 +344,9 @@ export default function SideMenu(props: Props) {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [isOpen, offlineStatus?.online]);
+
+  useEffect(() => subscribeNetworkMode(setMenuNetworkMode), []);
+  useEffect(() => subscribeViewMode(setMenuViewMode), []);
 
   // Canonical admin detection μέσω /users/me (+ self-heal)
   const [isAdminResolved, setIsAdminResolved] = useState<boolean>(false);
@@ -591,9 +494,9 @@ export default function SideMenu(props: Props) {
 
   const tiles: Tile[] = useMemo(() => {
     const roomBadge =
-      isInRoomLocal && typeof roomUserCountLocal === "number"
-        ? roomUserCountLocal
-        : isInRoomLocal && roomLoadingLocal
+      isInRoomLocal && typeof roomUserCount === "number"
+        ? roomUserCount
+        : isInRoomLocal && roomLoading
           ? "…"
           : null;
 
@@ -662,8 +565,8 @@ export default function SideMenu(props: Props) {
     mySongsHref,
     isLoggedIn,
     isInRoomLocal,
-    roomUserCountLocal,
-    roomLoadingLocal,
+    roomUserCount,
+    roomLoading,
     onClose,
     onNewSong,
     effectiveIsAdmin,
@@ -687,11 +590,11 @@ export default function SideMenu(props: Props) {
                   <span className={cx("smh-dot", isLoggedIn && "on")} />
                   {statusText}
 
-                  {isInRoomLocal && currentRoomNameLocal ? (
+                  {isInRoomLocal && effectiveRoomName ? (
                     <span className="smh-room">
                       <Recycle size={14} strokeWidth={2.6} />
-                      <span className="smh-room-name" title={currentRoomNameLocal}>
-                        {currentRoomNameLocal}
+                      <span className="smh-room-name" title={effectiveRoomName}>
+                        {effectiveRoomName}
                       </span>
                     </span>
                   ) : null}
@@ -712,11 +615,11 @@ export default function SideMenu(props: Props) {
                 <span className={cx("smh-dot", isLoggedIn && "on")} />
                 {statusText}
 
-                {isInRoomLocal && currentRoomNameLocal ? (
+                {isInRoomLocal && effectiveRoomName ? (
                   <span className="smh-room">
                     <Recycle size={14} strokeWidth={2.6} />
-                    <span className="smh-room-name" title={currentRoomNameLocal}>
-                      {currentRoomNameLocal}
+                    <span className="smh-room-name" title={effectiveRoomName}>
+                      {effectiveRoomName}
                     </span>
                   </span>
                 ) : null}
@@ -743,7 +646,58 @@ export default function SideMenu(props: Props) {
           <div className="smh-offline" title={offlineStatus.error || undefined}>
             <div className="smh-offline-row strong">
               <span className={cx("smh-dot", offlineStatus.online && "on")} />
-              <span>{offlineStatus.online ? "Online" : "Offline"}</span>
+              <div
+                role="group"
+                aria-label="Λειτουργία σύνδεσης"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: 2,
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(0,0,0,0.22)",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleNetworkModeClick("auto")}
+                  aria-pressed={effectiveNetworkMode !== "offline"}
+                  title="Χρήση internet όταν υπάρχει σύνδεση"
+                  style={{
+                    border: 0,
+                    borderRadius: 999,
+                    padding: "4px 8px",
+                    background: effectiveNetworkMode !== "offline" ? "#16a34a" : "transparent",
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 900,
+                    lineHeight: 1,
+                    cursor: "pointer",
+                  }}
+                >
+                  Online
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNetworkModeClick("offline")}
+                  aria-pressed={effectiveNetworkMode === "offline"}
+                  title="Χρήση αποθηκευμένων offline δεδομένων"
+                  style={{
+                    border: 0,
+                    borderRadius: 999,
+                    padding: "4px 8px",
+                    background: effectiveNetworkMode === "offline" ? "#ff4747" : "transparent",
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 900,
+                    lineHeight: 1,
+                    cursor: "pointer",
+                  }}
+                >
+                  Offline
+                </button>
+              </div>
               <button
                 type="button"
                 className="smh-version-pill"
@@ -841,6 +795,39 @@ export default function SideMenu(props: Props) {
             </div>
           </div>
         ) : null}
+
+        <div className="smh-view-mode">
+          <div className="smh-view-mode-head">
+            <span className="smh-view-mode-title">
+              {viewMode === "mobile" ? <Smartphone size={15} /> : <Monitor size={15} />}
+              <span>Προβολή</span>
+            </span>
+            <span className="smh-view-mode-current">
+              {viewMode === "desktop" ? "Desktop" : viewMode === "mobile" ? "Mobile" : "Auto"}
+            </span>
+          </div>
+
+          <div className="smh-view-mode-options" role="group" aria-label="Επιβολή προβολής">
+            {(["auto", "mobile", "desktop"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={cx("smh-view-mode-btn", viewMode === mode && "active")}
+                onClick={() => handleViewModeClick(mode)}
+                aria-pressed={viewMode === mode}
+                title={
+                  mode === "desktop"
+                    ? "Επιβολή desktop προβολής"
+                    : mode === "mobile"
+                      ? "Επιβολή mobile προβολής"
+                      : "Αυτόματη προβολή ανάλογα με τη συσκευή"
+                }
+              >
+                {mode === "desktop" ? "Desktop" : mode === "mobile" ? "Mobile" : "Auto"}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {versionHistoryOpen ? (
           <div className="smh-version-history" role="dialog" aria-label="Ιστορικό αλλαγών">
@@ -1350,6 +1337,19 @@ export default function SideMenu(props: Props) {
             z-index: 2147483647 !important;
           }
 
+          #sidebar.site-sidebar.visible {
+            right: 0 !important;
+            left: auto !important;
+            transform: translateX(0) !important;
+          }
+
+          @media (max-width: 420px) {
+            #sidebar.site-sidebar {
+              width: min(340px, calc(100vw - 12px)) !important;
+              max-width: min(340px, calc(100vw - 12px)) !important;
+            }
+          }
+
           .smh-top {
             display: flex;
             align-items: center;
@@ -1511,6 +1511,79 @@ export default function SideMenu(props: Props) {
           .smh-offline-row.muted {
             color: rgba(255, 255, 255, 0.62);
             justify-content: space-between;
+          }
+
+          .smh-view-mode {
+            margin-top: 10px;
+            display: grid;
+            gap: 8px;
+            padding: 9px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.045);
+            min-width: 0;
+            overflow: hidden;
+          }
+
+          .smh-view-mode-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            min-width: 0;
+          }
+
+          .smh-view-mode-title,
+          .smh-view-mode-current {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            min-width: 0;
+            color: rgba(255, 255, 255, 0.82);
+            font-size: 12px;
+            font-weight: 900;
+            line-height: 1;
+          }
+
+          .smh-view-mode-current {
+            color: rgba(255, 255, 255, 0.56);
+            font-size: 11px;
+          }
+
+          .smh-view-mode-options {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 4px;
+            min-width: 0;
+          }
+
+          .smh-view-mode-btn {
+            min-width: 0;
+            height: 30px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(0, 0, 0, 0.18);
+            color: rgba(255, 255, 255, 0.78);
+            cursor: pointer;
+            font-size: 10.5px;
+            font-weight: 900;
+            line-height: 1;
+            padding: 0 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .smh-view-mode-btn.active {
+            border-color: rgba(10, 132, 255, 0.52);
+            background: #0a84ff;
+            color: #fff;
+            box-shadow: 0 8px 18px rgba(10, 132, 255, 0.22);
+          }
+
+          .smh-view-mode-btn:focus-visible {
+            outline: 2px solid rgba(10, 132, 255, 0.72);
+            outline-offset: 2px;
           }
 
           .smh-syncing {

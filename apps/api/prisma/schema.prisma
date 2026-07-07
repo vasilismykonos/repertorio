@@ -21,6 +21,7 @@ model User {
 
   listGroupMembers          ListGroupMember[]
   listMembers               ListMember[]
+  listShareLinksCreated     ListShareLink[]        @relation("ListShareLinkCreatedBy")
 
   createdSongs              Song[]                 @relation("SongCreatedBy")
   songSingerTunesAsCreator  SongSingerTune[]       @relation("SongSingerTuneCreatedBy")
@@ -315,6 +316,7 @@ model List {
   groupLinks ListGroupList[]
   items     ListItem[]
   members   ListMember[]
+  shareLinks ListShareLink[]
 
   // ✅ ΝΕΟ: assets στη list
   ListAsset ListAsset[]
@@ -368,6 +370,26 @@ model ListMember {
   user   User           @relation(fields: [userId], references: [id])
 
   @@unique([listId, userId])
+}
+
+model ListShareLink {
+  id              Int            @id @default(autoincrement())
+  token           String         @unique
+  listId          Int
+  createdByUserId Int
+  role            ListMemberRole
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  lastUsedAt      DateTime?
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+
+  list            List           @relation(fields: [listId], references: [id], onDelete: Cascade)
+  createdBy       User           @relation("ListShareLinkCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([listId])
+  @@index([createdByUserId])
+  @@index([token])
 }
 
 model ListGroupMember {

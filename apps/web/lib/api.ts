@@ -1,4 +1,5 @@
 // apps/web/lib/api.ts
+import { isForcedOfflineMode } from "./networkMode";
 
 /**
  * Βασικό URL για εσωτερικές κλήσεις από τον Next server προς το Nest API.
@@ -26,6 +27,8 @@ const API_BROWSER_BASE_URL: string = (
   process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1"
 ).replace(/\/$/, "");
 
+const CLIENT_READ_TIMEOUT_MS = 4500;
+
 /**
  * Επιστρέφει true αν το path είναι absolute URL.
  */
@@ -45,6 +48,40 @@ function normalizePath(path: string): string {
  */
 function getMethod(options: RequestInit): string {
   return String(options.method || "GET").toUpperCase();
+}
+
+function shouldUseClientReadTimeout(options: RequestInit): boolean {
+  if (typeof window === "undefined") return false;
+  if (options.signal) return false;
+
+  const method = getMethod(options);
+  return method === "GET" || method === "HEAD";
+}
+
+async function fetchWithClientReadTimeout(
+  input: RequestInfo | URL,
+  options: RequestInit,
+): Promise<Response> {
+  if (!shouldUseClientReadTimeout(options)) {
+    return fetch(input, options);
+  }
+
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), CLIENT_READ_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if ((error as any)?.name === "AbortError") {
+      throw new Error(`Network timeout after ${CLIENT_READ_TIMEOUT_MS}ms for ${String(input)}`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 /**
@@ -88,6 +125,7 @@ export async function fetchJson<T = any>(
 ): Promise<T> {
   const finalOptionsBase = applyServerNoStoreDefaults(options);
   const method = getMethod(finalOptionsBase);
+  const shouldFailFastForOfflineMode = shouldUseClientReadTimeout(finalOptionsBase) && isForcedOfflineMode();
 
   // Συνθέτουμε headers χωρίς να “σπάμε” caller headers.
   // Content-Type: application/json έχει νόημα κυρίως σε requests με body,
@@ -101,7 +139,10 @@ export async function fetchJson<T = any>(
   }
 
   if (isAbsoluteUrl(path)) {
-    const res = await fetch(path, {
+    if (shouldFailFastForOfflineMode) {
+      throw new Error(`Forced offline mode for ${path}`);
+    }
+    const res = await fetchWithClientReadTimeout(path, {
       ...finalOptionsBase,
       headers,
     });
@@ -130,8 +171,11 @@ export async function fetchJson<T = any>(
   }
 
   const url = `${base}${normalizePath(path)}`;
+  if (shouldFailFastForOfflineMode) {
+    throw new Error(`Forced offline mode for ${url}`);
+  }
 
-  const res = await fetch(url, {
+  const res = await fetchWithClientReadTimeout(url, {
     ...finalOptionsBase,
     headers,
   });

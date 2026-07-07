@@ -3,10 +3,12 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
 import { readOfflineCurrentUser, type OfflineCurrentUser } from "./offlineStore";
+import { isForcedOfflineMode, NETWORK_MODE_CHANGED_EVENT, subscribeNetworkMode } from "./networkMode";
 
 type AuthStatus = "authenticated" | "unauthenticated" | "loading";
 
 function browserOnline() {
+  if (isForcedOfflineMode()) return false;
   return typeof navigator === "undefined" || typeof navigator.onLine === "undefined"
     ? true
     : navigator.onLine;
@@ -42,11 +44,18 @@ export function useOfflineIdentity() {
 
     window.addEventListener("online", onNetworkChange);
     window.addEventListener("offline", onNetworkChange);
+    window.addEventListener(NETWORK_MODE_CHANGED_EVENT, onNetworkChange);
+    const unsubscribeNetworkMode = subscribeNetworkMode(() => {
+      setOnline(browserOnline());
+      void load();
+    });
 
     return () => {
       cancelled = true;
       window.removeEventListener("online", onNetworkChange);
       window.removeEventListener("offline", onNetworkChange);
+      window.removeEventListener(NETWORK_MODE_CHANGED_EVENT, onNetworkChange);
+      unsubscribeNetworkMode();
     };
   }, []);
 

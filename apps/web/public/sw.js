@@ -1,4 +1,4 @@
-const APP_VERSION = "3.0.138";
+const APP_VERSION = "3.0.156";
 const VERSION = `repertorio-${APP_VERSION}`;
 const STATIC_CACHE = `repertorio-static-${VERSION}`;
 const PAGE_CACHE = `repertorio-pages-${VERSION}`;
@@ -14,8 +14,23 @@ const WARM_PAGE_URLS = [
   `${LIST_DETAIL_SHELL_PATH}?offlineShell=1`,
 ];
 const AUTOMATIC_PAGE_SHELL_WARMUP_DELAY_MS = 5 * 1000;
+const PAGE_NETWORK_TIMEOUT_MS = 2500;
+const FORCED_OFFLINE_PAGE_UPDATE_TIMEOUT_MS = 900;
+const ASSET_NETWORK_TIMEOUT_MS = 3500;
+const APP_CHUNK_NETWORK_TIMEOUT_MS = 1200;
+const WARMUP_NETWORK_TIMEOUT_MS = 2500;
 
 let automaticPageShellWarmupStarted = false;
+let forcedOfflineMode = false;
+
+function cookieNetworkMode(request) {
+  const cookie = request.headers.get("cookie") || "";
+  return /(?:^|;\s*)repertorio_network_mode=offline(?:;|$)/.test(cookie) ? "offline" : "auto";
+}
+
+function isForcedOfflineRequest(request) {
+  return forcedOfflineMode || cookieNetworkMode(request) === "offline";
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -47,6 +62,17 @@ self.addEventListener("message", (event) => {
   const data = event.data || {};
   if (data.type === "SKIP_WAITING") {
     self.skipWaiting();
+    return;
+  }
+  if (data.type === "NETWORK_MODE") {
+    forcedOfflineMode = data.mode === "offline";
+    return;
+  }
+  if (data.type === "NETWORK_MODE_GET") {
+    event.source?.postMessage({
+      type: "NETWORK_MODE_STATE",
+      mode: forcedOfflineMode ? "offline" : "auto",
+    });
     return;
   }
   if (data.type !== "CACHE_PAGES") return;
@@ -125,6 +151,21 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function fetchWithTimeout(request, timeoutMs) {
+  if (typeof AbortController === "undefined") {
+    return fetch(request);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(request, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function scheduleAutomaticPageShellWarmup() {
   if (automaticPageShellWarmupStarted) return;
   automaticPageShellWarmupStarted = true;
@@ -193,7 +234,7 @@ async function cacheFirst(request, cacheName) {
   const cached = await cache.match(request, { ignoreSearch });
   if (cached) return cached;
 
-  const response = await fetch(request);
+  const response = await fetchWithTimeout(request, ASSET_NETWORK_TIMEOUT_MS);
   if (response && response.ok) {
     cache.put(request, response.clone()).catch(() => null);
   }
@@ -204,15 +245,23 @@ async function networkFirstAsset(request, url) {
   const cache = await caches.open(STATIC_CACHE);
   const ignoreSearch = url.pathname.startsWith("/_next/static/");
   const cached = await cache.match(request, { ignoreSearch });
+  const isAppChunk = url.pathname.startsWith("/_next/static/");
+
+  if (isForcedOfflineRequest(request) && cached && !isAppChunk) return cached;
 
   try {
-    const networkRequest = url.pathname.startsWith("/_next/static/")
+    const networkRequest = isAppChunk
       ? new Request(request, { cache: "reload" })
       : request;
-    const response = await fetch(networkRequest);
+    const timeoutMs = isForcedOfflineRequest(request) && isAppChunk
+      ? APP_CHUNK_NETWORK_TIMEOUT_MS
+      : ASSET_NETWORK_TIMEOUT_MS;
+    const response = await fetchWithTimeout(networkRequest, timeoutMs);
     if (response && response.ok) {
       await cache.put(request, response.clone());
+      return response;
     }
+    if (cached) return cached;
     return response;
   } catch {
     if (cached) return cached;
@@ -223,14 +272,35 @@ async function networkFirstAsset(request, url) {
 async function networkFirstPage(request, url) {
   const cache = await caches.open(PAGE_CACHE);
   const key = normalizedPageRequest(url);
+  const forcedOffline = isForcedOfflineRequest(request);
+
+  if (forcedOffline) {
+    try {
+      const updateRequest = new Request(request, { cache: "reload" });
+      const response = await fetchWithTimeout(updateRequest, FORCED_OFFLINE_PAGE_UPDATE_TIMEOUT_MS);
+      const contentType = response.headers.get("content-type") || "";
+      if (response && response.ok && contentType.includes("text/html")) {
+        await cache.put(key, response.clone());
+        cacheAssetsFromHtml(response.clone(), url).catch(() => null);
+        return response;
+      }
+    } catch {
+      // Forced offline stays fast: use the cached page if the quick update is not available.
+    }
+    const offlineResponse = await matchCachedPage(cache, key, url);
+    if (offlineResponse) return offlineResponse;
+  }
 
   try {
-    const response = await fetch(request);
+    const response = await fetchWithTimeout(request, PAGE_NETWORK_TIMEOUT_MS);
     const contentType = response.headers.get("content-type") || "";
     if (response && response.ok && contentType.includes("text/html")) {
       await cache.put(key, response.clone());
       cacheAssetsFromHtml(response.clone(), url).catch(() => null);
+      return response;
     }
+    const cached = await cache.match(key);
+    if (cached) return cached;
     return response;
   } catch {
     const cached = await cache.match(key);
@@ -244,6 +314,19 @@ async function networkFirstPage(request, url) {
 
     return offlineFallbackResponse(url);
   }
+}
+
+async function matchCachedPage(cache, key, url) {
+  const cached = await cache.match(key);
+  if (cached) return cached;
+
+  const detailShell = await matchDetailShell(cache, url);
+  if (detailShell) return detailShell;
+
+  const home = await cache.match(normalizedPageRequest(new URL(self.location.origin + "/")));
+  if (home) return home;
+
+  return null;
 }
 
 function escapeHtml(value) {
@@ -302,7 +385,7 @@ async function cacheAssetUrl(assetCache, url) {
   if (cached) return;
 
   try {
-    const response = await fetch(request);
+    const response = await fetchWithTimeout(request, ASSET_NETWORK_TIMEOUT_MS);
     if (response && response.ok) await assetCache.put(request, response.clone());
   } catch {
     // Keep the existing cached asset for offline use.
@@ -363,7 +446,7 @@ async function cachePages(urls) {
         credentials: "include",
         headers: { Accept: "text/html" },
       });
-      const response = await fetch(request);
+      const response = await fetchWithTimeout(request, WARMUP_NETWORK_TIMEOUT_MS);
       const contentType = response.headers.get("content-type") || "";
       if (response.ok && contentType.includes("text/html")) {
         await cache.put(key, response.clone());

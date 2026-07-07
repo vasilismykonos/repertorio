@@ -15,7 +15,7 @@ import ListItemTonePicker, {
 
 import type { ListDetailDto } from "./page";
 
-import { Crown, Download, Eye, Music2, Printer, Shield, X } from "lucide-react";
+import { Copy, Crown, Download, Eye, Link2, LogOut, Music2, Printer, Shield, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Role = ListDetailDto["role"];
@@ -31,6 +31,7 @@ type Props = {
 };
 
 type ListItemRow = ListDetailDto["items"][number];
+type ShareLinkRole = "VIEWER" | "SONGS_EDITOR";
 
 function navigateDocumentWhenOffline(event: React.MouseEvent<HTMLAnchorElement>, href: string) {
   if (typeof window === "undefined" || typeof navigator === "undefined" || navigator.onLine !== false) return;
@@ -286,6 +287,12 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
   const searchParams = useSearchParams();
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [shareLinkOpen, setShareLinkOpen] = useState(false);
+  const [shareLinkRole, setShareLinkRole] = useState<ShareLinkRole>("VIEWER");
+  const [shareLinkBusy, setShareLinkBusy] = useState(false);
+  const [shareLinkError, setShareLinkError] = useState<string | null>(null);
+  const [shareLinkUrl, setShareLinkUrl] = useState<string | null>(null);
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [selectedPreviewListItemId, setSelectedPreviewListItemId] = useState<number | null>(null);
   const [items, setItems] = useState<ListItemRow[]>(() => data.items ?? []);
   const [toneSavingListItemId, setToneSavingListItemId] = useState<number | null>(null);
@@ -315,6 +322,8 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
   const groupMetaLabel = groupLabels.length ? `Tags: ${groupLabels.join(", ")}` : "";
 
   const canEdit = role === "OWNER" || role === "LIST_EDITOR" || role === "SONGS_EDITOR";
+  const canShareList = role === "OWNER" || role === "LIST_EDITOR";
+  const canLeaveList = role !== "OWNER" && Number(viewerUserId) > 0;
   const headerTitle = title || `Λίστα #${listId}`;
 
   const singerSuggestions = useMemo<ListItemSingerSuggestion[]>(() => {
@@ -729,6 +738,98 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
     }
   }
 
+  function openShareLinkDialog() {
+    setShareLinkOpen(true);
+    setShareLinkError(null);
+    setShareLinkCopied(false);
+  }
+
+  async function createShareLink() {
+    if (!canShareList || shareLinkBusy) return;
+
+    setShareLinkBusy(true);
+    setShareLinkError(null);
+    setShareLinkCopied(false);
+
+    try {
+      const res = await fetch(`/api/lists/${listId}/share-links`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ role: shareLinkRole }),
+      });
+      const body = await readJsonResponse(res);
+
+      if (!res.ok) {
+        throw new Error(
+          typeof body === "string"
+            ? body
+            : body?.message || body?.error || "Δεν δημιουργήθηκε σύνδεσμος κοινής χρήσης.",
+        );
+      }
+
+      const token = String(body?.token || "").trim();
+      if (!token) {
+        throw new Error("Δεν επιστράφηκε έγκυρος σύνδεσμος κοινής χρήσης.");
+      }
+
+      const url =
+        typeof window !== "undefined"
+          ? new URL(`/lists/share/${encodeURIComponent(token)}`, window.location.origin).toString()
+          : `/lists/share/${encodeURIComponent(token)}`;
+      setShareLinkUrl(url);
+      setShareStatus("Ο σύνδεσμος κοινής χρήσης δημιουργήθηκε.");
+
+      try {
+        await navigator.clipboard?.writeText(url);
+        setShareLinkCopied(true);
+      } catch {
+        // The link is still visible for manual copy if clipboard access is blocked.
+      }
+    } catch (err: any) {
+      setShareLinkError(String(err?.message || err || "Δεν δημιουργήθηκε σύνδεσμος κοινής χρήσης."));
+    } finally {
+      setShareLinkBusy(false);
+    }
+  }
+
+  async function copyShareLink() {
+    if (!shareLinkUrl) return;
+
+    try {
+      await navigator.clipboard?.writeText(shareLinkUrl);
+      setShareLinkCopied(true);
+    } catch {
+      setShareLinkError("Δεν ήταν δυνατή η αντιγραφή. Μπορείς να επιλέξεις τον σύνδεσμο χειροκίνητα.");
+    }
+  }
+
+  async function leaveList() {
+    if (!canLeaveList) return;
+    const ok = window.confirm("Θέλεις να αποχωρήσεις από αυτή τη λίστα;");
+    if (!ok) return;
+
+    setShareStatus("Αποχώρηση από τη λίστα...");
+    try {
+      const res = await fetch(`/api/lists/${listId}/members/${viewerUserId}`, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const body = await readJsonResponse(res);
+      if (!res.ok) {
+        throw new Error(
+          typeof body === "string" ? body : body?.message || body?.error || "Δεν ήταν δυνατή η αποχώρηση.",
+        );
+      }
+      router.push("/lists");
+    } catch (err: any) {
+      setShareStatus(String(err?.message || err || "Δεν ήταν δυνατή η αποχώρηση."));
+    }
+  }
+
   const listSongsHref = `/songs?skip=0&take=50&listIds=${encodeURIComponent(String(listId))}`;
 
   const headerTitleFontSize = 22;
@@ -766,8 +867,32 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
               onClick={handleShareImage}
               title="Κοινοποίηση λίστας ως εικόνα"
             >
-              Κοινοποίηση
+              Εικόνα
             </Button>
+
+            {canShareList ? (
+              <Button
+                type="button"
+                variant="secondary"
+                icon={Link2}
+                onClick={openShareLinkDialog}
+                title="Κοινή χρήση λίστας με σύνδεσμο"
+              >
+                Κοινή χρήση
+              </Button>
+            ) : null}
+
+            {canLeaveList ? (
+              <Button
+                type="button"
+                variant="secondary"
+                icon={LogOut}
+                onClick={leaveList}
+                title="Αποχώρηση από τη λίστα"
+              >
+                Αποχώρηση
+              </Button>
+            ) : null}
 
             {canEdit
               ? A.link({
@@ -1090,6 +1215,94 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
         ) : null}
       </div>
 
+      {shareLinkOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Κοινή χρήση λίστας"
+          className="list-share-link-modal"
+        >
+          <div className="list-share-link-modal__backdrop" onClick={() => setShareLinkOpen(false)} />
+          <div className="list-share-link-modal__panel">
+            <div className="list-share-link-modal__header">
+              <div>
+                <strong>Κοινή χρήση λίστας</strong>
+                <p>Δημιούργησε σύνδεσμο που δίνει πρόσβαση στη λίστα μετά από σύνδεση.</p>
+              </div>
+              <button
+                type="button"
+                className="list-share-link-close"
+                onClick={() => setShareLinkOpen(false)}
+                aria-label="Κλείσιμο"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="list-share-link-role-group" role="radiogroup" aria-label="Δικαίωμα σύνδεσμου">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={shareLinkRole === "VIEWER"}
+                className={shareLinkRole === "VIEWER" ? "is-active" : ""}
+                onClick={() => {
+                  setShareLinkRole("VIEWER");
+                  setShareLinkUrl(null);
+                  setShareLinkCopied(false);
+                }}
+              >
+                <span>Ανάγνωση</span>
+                <small>Μπορεί να βλέπει τη λίστα.</small>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={shareLinkRole === "SONGS_EDITOR"}
+                className={shareLinkRole === "SONGS_EDITOR" ? "is-active" : ""}
+                onClick={() => {
+                  setShareLinkRole("SONGS_EDITOR");
+                  setShareLinkUrl(null);
+                  setShareLinkCopied(false);
+                }}
+              >
+                <span>Επεξεργασία</span>
+                <small>Μπορεί να αλλάζει τα τραγούδια της λίστας.</small>
+              </button>
+            </div>
+
+            <div className="list-share-link-actions">
+              <Button
+                type="button"
+                variant="primary"
+                icon={Link2}
+                onClick={createShareLink}
+                disabled={shareLinkBusy}
+              >
+                {shareLinkBusy ? "Δημιουργία..." : "Δημιουργία συνδέσμου"}
+              </Button>
+            </div>
+
+            {shareLinkUrl ? (
+              <div className="list-share-link-result">
+                <label htmlFor="list-share-link-url">Σύνδεσμος</label>
+                <div>
+                  <input id="list-share-link-url" readOnly value={shareLinkUrl} onFocus={(event) => event.currentTarget.select()} />
+                  <Button type="button" variant="secondary" icon={Copy} onClick={copyShareLink}>
+                    {shareLinkCopied ? "Αντιγράφηκε" : "Αντιγραφή"}
+                  </Button>
+                </div>
+                <p>
+                  Όποιος ανοίξει τον σύνδεσμο θα συνδεθεί με Google, θα πάρει το δικαίωμα που επέλεξες και θα
+                  μεταφερθεί στη λίστα.
+                </p>
+              </div>
+            ) : null}
+
+            {shareLinkError ? <div className="list-share-link-error">{shareLinkError}</div> : null}
+          </div>
+        </div>
+      ) : null}
+
       {printPreviewOpen ? (
         <div
           role="dialog"
@@ -1217,6 +1430,165 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
 
         .list-print-close {
           padding: 7px;
+        }
+
+        .list-share-link-modal {
+          position: fixed;
+          inset: 0;
+          z-index: 10000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 18px;
+        }
+
+        .list-share-link-modal__backdrop {
+          position: absolute;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.72);
+        }
+
+        .list-share-link-modal__panel {
+          position: relative;
+          width: min(560px, 100%);
+          max-height: min(92vh, 760px);
+          overflow: auto;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          border-radius: 16px;
+          background: #141414;
+          color: #fff;
+          padding: 18px;
+          box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+        }
+
+        .list-share-link-modal__header {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+          margin-bottom: 16px;
+        }
+
+        .list-share-link-modal__header strong {
+          display: block;
+          font-size: 20px;
+          line-height: 26px;
+        }
+
+        .list-share-link-modal__header p {
+          margin: 6px 0 0;
+          color: rgba(255, 255, 255, 0.72);
+          font-size: 14px;
+          line-height: 20px;
+        }
+
+        .list-share-link-close {
+          flex: 0 0 auto;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 42px;
+          height: 42px;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.08);
+          color: #fff;
+          cursor: pointer;
+        }
+
+        .list-share-link-role-group {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .list-share-link-role-group button {
+          min-width: 0;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          border-radius: 13px;
+          background: rgba(255, 255, 255, 0.06);
+          color: #fff;
+          padding: 12px;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .list-share-link-role-group button.is-active {
+          border-color: rgba(255, 78, 89, 0.82);
+          background: rgba(255, 78, 89, 0.22);
+          box-shadow: inset 0 0 0 1px rgba(255, 78, 89, 0.25);
+        }
+
+        .list-share-link-role-group span {
+          display: block;
+          font-weight: 900;
+          font-size: 15px;
+          line-height: 20px;
+        }
+
+        .list-share-link-role-group small {
+          display: block;
+          margin-top: 4px;
+          color: rgba(255, 255, 255, 0.66);
+          font-weight: 700;
+          line-height: 18px;
+        }
+
+        .list-share-link-actions {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 16px;
+        }
+
+        .list-share-link-result {
+          margin-top: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          border-radius: 13px;
+          padding: 12px;
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .list-share-link-result label {
+          display: block;
+          margin-bottom: 8px;
+          font-weight: 900;
+          color: rgba(255, 255, 255, 0.92);
+        }
+
+        .list-share-link-result > div {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .list-share-link-result input {
+          min-width: 0;
+          width: 100%;
+          height: 42px;
+          border: 1px solid rgba(255, 255, 255, 0.22);
+          border-radius: 10px;
+          background: #fff;
+          color: #111827;
+          padding: 0 12px;
+          font-weight: 700;
+        }
+
+        .list-share-link-result p {
+          margin: 10px 0 0;
+          color: rgba(255, 255, 255, 0.64);
+          font-size: 13px;
+          line-height: 18px;
+        }
+
+        .list-share-link-error {
+          margin-top: 12px;
+          border: 1px solid rgba(255, 99, 99, 0.32);
+          border-radius: 10px;
+          background: rgba(255, 99, 99, 0.16);
+          color: #ffd0d0;
+          padding: 10px 12px;
+          font-weight: 800;
         }
 
         .list-song-row-content {
@@ -1481,6 +1853,33 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             line-height: 15px;
             color: rgba(255, 255, 255, 0.62);
             white-space: nowrap;
+          }
+
+          .list-share-link-modal {
+            padding: 10px;
+            align-items: center;
+          }
+
+          .list-share-link-modal__panel {
+            padding: 14px;
+            border-radius: 14px;
+          }
+
+          .list-share-link-role-group {
+            grid-template-columns: 1fr;
+          }
+
+          .list-share-link-actions {
+            justify-content: stretch;
+          }
+
+          .list-share-link-actions > button {
+            width: 100%;
+            justify-content: center;
+          }
+
+          .list-share-link-result > div {
+            grid-template-columns: 1fr;
           }
 
           .list-print-modal {

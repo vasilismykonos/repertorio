@@ -189,6 +189,15 @@ type UpsertListMemberBody = {
   role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
 };
 
+type CreateListShareLinkBody = {
+  role?: "SONGS_EDITOR" | "VIEWER";
+};
+
+function parseShareLinkRole(role: unknown): "SONGS_EDITOR" | "VIEWER" {
+  if (role === "SONGS_EDITOR" || role === "VIEWER") return role;
+  throw new BadRequestException("Body field 'role' must be VIEWER or SONGS_EDITOR.");
+}
+
 /* =========================
    Controller
 ========================= */
@@ -454,6 +463,35 @@ export class ListsController {
   ) {
     const userId = requireUserId(userIdStr);
     return this.listsService.getListDetail({ listId: id, userId });
+  }
+
+  /* =========================
+     List Share Links
+  ========================= */
+
+  @Post(":id/share-links")
+  async createListShareLink(
+    @Param("id", ParseIntPipe) id: number,
+    @Query("userId") userIdStr?: string,
+    @Body() body?: CreateListShareLinkBody,
+  ) {
+    const userId = requireUserId(userIdStr);
+    const role = parseShareLinkRole(body?.role ?? "VIEWER");
+    return this.listsService.createListShareLink({ userId, listId: id, role });
+  }
+
+  @Get("share-links/:token")
+  async getListShareLink(@Param("token") token: string) {
+    return this.listsService.getListShareLink({ token });
+  }
+
+  @Post("share-links/:token/accept")
+  async acceptListShareLink(
+    @Param("token") token: string,
+    @Query("userId") userIdStr?: string,
+  ) {
+    const userId = requireUserId(userIdStr);
+    return this.listsService.acceptListShareLink({ token, userId });
   }
 
   /* =========================

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, CloudOff, ListMusic, Mic, Recycle, RefreshCw, Search } from "lucide-react";
+import { Bell, ListMusic, Mic, Recycle, RefreshCw, Search } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { signIn, signOut } from "next-auth/react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
@@ -12,6 +12,12 @@ import {
   setOfflineSyncEnabled,
   useOfflineRuntime,
 } from "@/lib/offlineSync";
+import {
+  readNetworkMode,
+  setNetworkMode,
+  subscribeNetworkMode,
+  type NetworkMode,
+} from "@/lib/networkMode";
 import { useOfflineIdentity } from "@/lib/useOfflineIdentity";
 import { OPEN_NOTIFICATIONS_EVENT, useNotifications } from "@/app/hooks/useNotifications";
 import { useRooms } from "./RoomsProvider";
@@ -91,6 +97,11 @@ function positiveRoomCount(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function roomCountOrNull(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 function localStoragePositiveInt(key: string): number | null {
   if (typeof window === "undefined") return null;
   try {
@@ -113,9 +124,11 @@ function HeaderInner({ appVersion }: HeaderProps) {
   const [quickListNotice, setQuickListNotice] = useState<string | null>(null);
 
   const identity = useOfflineIdentity();
+  const [networkMode, setNetworkModeState] = useState<NetworkMode>(() => readNetworkMode());
   const isLoggedIn = identity.isAuthenticated;
   const userEmail = identity.userEmail;
   const offlineStatus = useOfflineRuntime(isLoggedIn, userEmail);
+  const isOfflineModeActive = networkMode === "offline" || offlineStatus.online === false;
   const [offlineActionBusy, setOfflineActionBusy] = useState(false);
   const notifications = useNotifications({
     enabled: isLoggedIn && !identity.isOfflineAuthenticated && offlineStatus.online !== false,
@@ -132,8 +145,8 @@ function HeaderInner({ appVersion }: HeaderProps) {
   const [roomLoading, setRoomLoading] = useState(false);
   const providerRoomName = roomsRuntime.currentRoom;
   const effectiveCurrentRoomName = providerRoomName || currentRoomName;
-  const providerRoomUserCount = positiveRoomCount(roomsRuntime.presence?.uniqueUsers);
-  const displayedRoomUserCount = providerRoomUserCount ?? roomUserCount ?? (providerRoomName ? 1 : null);
+  const providerRoomUserCount = roomCountOrNull(roomsRuntime.presence?.uniqueUsers);
+  const displayedRoomUserCount = providerRoomUserCount ?? roomUserCount;
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -199,6 +212,11 @@ function HeaderInner({ appVersion }: HeaderProps) {
 
   const handleSetOfflineSyncEnabled = useCallback(async (enabled: boolean) => {
     await setOfflineSyncEnabled(enabled);
+  }, []);
+
+  const handleSetNetworkMode = useCallback((mode: NetworkMode) => {
+    setNetworkMode(mode);
+    setNetworkModeState(mode);
   }, []);
 
   const handleClearOfflineData = useCallback(async () => {
@@ -267,6 +285,10 @@ function HeaderInner({ appVersion }: HeaderProps) {
     return () => {
       if (quickListNoticeTimerRef.current) clearTimeout(quickListNoticeTimerRef.current);
     };
+  }, []);
+
+  useEffect(() => {
+    return subscribeNetworkMode(setNetworkModeState);
   }, []);
 
   useEffect(() => {
@@ -345,7 +367,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
   }, [effectiveCurrentRoomName]);
 
   useEffect(() => {
-    if (!isLoggedIn || identity.isOfflineAuthenticated || !effectiveCurrentRoomName) {
+    if (!isLoggedIn || identity.isOfflineAuthenticated || isOfflineModeActive || !effectiveCurrentRoomName) {
       setRoomUserCount(null);
       setRoomLoading(false);
       return;
@@ -377,7 +399,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
           return;
         }
 
-        setRoomUserCount(positiveRoomCount(roomPresenceCount(match)));
+        setRoomUserCount(roomCountOrNull(roomPresenceCount(match)));
       } catch {
         if (!cancelled) setRoomUserCount(null);
       } finally {
@@ -392,7 +414,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [isLoggedIn, identity.isOfflineAuthenticated, effectiveCurrentRoomName]);
+  }, [isLoggedIn, identity.isOfflineAuthenticated, isOfflineModeActive, effectiveCurrentRoomName]);
 
   useEffect(() => {
     if (providerRoomUserCount != null) {
@@ -403,14 +425,14 @@ function HeaderInner({ appVersion }: HeaderProps) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!isLoggedIn || identity.isOfflineAuthenticated || !effectiveCurrentRoomName) return;
+    if (!isLoggedIn || identity.isOfflineAuthenticated || isOfflineModeActive || !effectiveCurrentRoomName) return;
 
     const onPresence = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail || {};
       const eventRoom = String(detail.room || "").trim();
       if (!eventRoom || eventRoom.toLowerCase() !== effectiveCurrentRoomName.toLowerCase()) return;
 
-      const count = positiveRoomCount(detail.uniqueUsers ?? detail.userCount ?? detail.onlineUsers);
+      const count = roomCountOrNull(detail.uniqueUsers ?? detail.userCount ?? detail.onlineUsers);
       setRoomUserCount(count);
       setRoomLoading(false);
     };
@@ -420,7 +442,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
       const eventRoom = String(detail.room || "").trim();
       if (!eventRoom || eventRoom.toLowerCase() !== effectiveCurrentRoomName.toLowerCase()) return;
 
-      const count = positiveRoomCount(detail.uniqueUsers ?? detail.userCount);
+      const count = roomCountOrNull(detail.uniqueUsers ?? detail.userCount);
       setRoomUserCount(count);
       setRoomLoading(false);
     };
@@ -431,7 +453,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
       window.removeEventListener(PRESENCE_COUNTS_EVENT, onPresence as EventListener);
       window.removeEventListener(ROOMS_UPDATE_COUNT_EVENT, onUpdateCount as EventListener);
     };
-  }, [isLoggedIn, identity.isOfflineAuthenticated, effectiveCurrentRoomName]);
+  }, [isLoggedIn, identity.isOfflineAuthenticated, isOfflineModeActive, effectiveCurrentRoomName]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -552,12 +574,13 @@ function HeaderInner({ appVersion }: HeaderProps) {
   );
 
   const isInRoom = isLoggedIn && !identity.isOfflineAuthenticated && !!effectiveCurrentRoomName;
+  const isRoomOnline = isInRoom && !isOfflineModeActive;
 
   return (
     <>
       <header className="site-header">
         <div className="header-container">
-          <div className="header-logo">
+          <div className="header-logo" style={{ position: "relative" }}>
             <Link href="/" style={{ display: "flex", alignItems: "center", textDecoration: "none" }}>
               <img
                 src="/images/default-logo.png"
@@ -575,6 +598,27 @@ function HeaderInner({ appVersion }: HeaderProps) {
                 Repertorio.net
               </span>
             </Link>
+            {isOfflineModeActive ? (
+              <span
+                aria-label="Offline"
+                title="Offline: χρήση αποθηκευμένων δεδομένων όπου υπάρχουν"
+                style={{
+                  position: "absolute",
+                  left: 42,
+                  top: 28,
+                  color: "#ff4747",
+                  fontSize: 10,
+                  fontWeight: 900,
+                  lineHeight: 1,
+                  letterSpacing: 0,
+                  textTransform: "lowercase",
+                  pointerEvents: "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                offline
+              </span>
+            ) : null}
           </div>
 
           <div className="header-search" style={{ width: "100%" }}>
@@ -708,33 +752,31 @@ function HeaderInner({ appVersion }: HeaderProps) {
           </div>
 
           <div className="header-buttons">
-            {(!offlineStatus.online || offlineStatus.syncing) ? (
+            {offlineStatus.syncing ? (
               <span
-                title={
-                  offlineStatus.syncing
-                    ? "\u03a3\u03c5\u03b3\u03c7\u03c1\u03bf\u03bd\u03b9\u03c3\u03bc\u03cc\u03c2 offline δεδομένων"
-                    : "Offline: χρήση αποθηκευμένων δεδομένων όπου υπάρχουν"
-                }
+                title="\u03a3\u03c5\u03b3\u03c7\u03c1\u03bf\u03bd\u03b9\u03c3\u03bc\u03cc\u03c2 offline δεδομένων"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: offlineStatus.syncing ? 0 : 6,
-                  color: offlineStatus.online ? "rgba(255,255,255,0.82)" : "#facc15",
+                  color: "rgba(255,255,255,0.82)",
                   fontWeight: 800,
                   fontSize: 12,
                   marginLeft: 8,
                   whiteSpace: "nowrap",
                 }}
               >
-                {offlineStatus.syncing ? <RefreshCw size={17} aria-hidden="true" /> : <CloudOff size={17} aria-hidden="true" />}
-                {!offlineStatus.syncing ? <span>Offline</span> : null}
+                <RefreshCw size={17} aria-hidden="true" />
               </span>
             ) : null}
 
             <Link
               href="/rooms"
               className="rooms-button"
-              title={effectiveCurrentRoomName ? `Rooms: ${effectiveCurrentRoomName}` : "Rooms"}
+              title={
+                effectiveCurrentRoomName
+                  ? `Rooms: ${effectiveCurrentRoomName}${isOfflineModeActive ? " (offline)" : ""}`
+                  : "Rooms"
+              }
             >
               <span
                 className="rooms-icon"
@@ -742,17 +784,17 @@ function HeaderInner({ appVersion }: HeaderProps) {
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 6,
-                  color: isInRoom ? "#7c3aed" : "rgba(255,255,255,0.55)",
+                  color: isRoomOnline ? "#7c3aed" : "rgba(255,255,255,0.48)",
                   fontWeight: 700,
                 }}
               >
                 <Recycle size={32} strokeWidth={2.6} />
 
-                {isInRoom && typeof displayedRoomUserCount === "number" ? (
+                {isRoomOnline && typeof displayedRoomUserCount === "number" ? (
                   <span style={{ fontSize: 22, lineHeight: 1 }}>{displayedRoomUserCount}</span>
                 ) : null}
 
-                {isInRoom && displayedRoomUserCount == null && roomLoading ? (
+                {isRoomOnline && displayedRoomUserCount == null && roomLoading ? (
                   <span style={{ fontSize: 22, lineHeight: 1 }}>…</span>
                 ) : null}
               </span>
@@ -977,7 +1019,9 @@ function HeaderInner({ appVersion }: HeaderProps) {
         userId={identity.userId}
         avatarNode={avatarNode}
         offlineStatus={offlineStatus}
+        networkMode={isOfflineModeActive ? "offline" : networkMode}
         offlineActionBusy={offlineActionBusy}
+        onSetNetworkMode={handleSetNetworkMode}
         onForceOfflineSync={handleForceOfflineSync}
         onSetOfflineSyncEnabled={handleSetOfflineSyncEnabled}
         onClearOfflineData={handleClearOfflineData}

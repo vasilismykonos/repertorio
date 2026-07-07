@@ -14,6 +14,11 @@ import {
   writeOfflineSongs,
   writeOfflineStaticFilters,
 } from "./offlineStore";
+import {
+  isForcedOfflineMode,
+  NETWORK_MODE_CHANGED_EVENT,
+  subscribeNetworkMode,
+} from "./networkMode";
 
 export const OFFLINE_STATUS_EVENT = "repertorio:offline-status";
 const OFFLINE_SYNC_ENABLED_KEY = "repertorio_offline_sync_enabled";
@@ -89,6 +94,7 @@ function isBrowser() {
 }
 
 function browserOnline() {
+  if (isForcedOfflineMode()) return false;
   return !isBrowser() || typeof navigator.onLine === "undefined" ? true : navigator.onLine;
 }
 
@@ -1066,9 +1072,14 @@ export function useOfflineRuntime(includeLists: boolean, userEmail?: string | nu
       }
     };
 
+    const unsubscribeNetworkMode = subscribeNetworkMode(() => {
+      void refreshOfflineStatus();
+    });
+
     window.addEventListener(OFFLINE_STATUS_EVENT, onStatus as EventListener);
     window.addEventListener("online", onNetworkChange);
     window.addEventListener("offline", onNetworkChange);
+    window.addEventListener(NETWORK_MODE_CHANGED_EVENT, onNetworkChange);
     window.addEventListener("storage", onStorage);
 
     void refreshOfflineStatus().then(apply).catch(() => null);
@@ -1094,7 +1105,9 @@ export function useOfflineRuntime(includeLists: boolean, userEmail?: string | nu
       window.removeEventListener(OFFLINE_STATUS_EVENT, onStatus as EventListener);
       window.removeEventListener("online", onNetworkChange);
       window.removeEventListener("offline", onNetworkChange);
+      window.removeEventListener(NETWORK_MODE_CHANGED_EVENT, onNetworkChange);
       window.removeEventListener("storage", onStorage);
+      unsubscribeNetworkMode();
     };
   }, [includeLists, userEmail]);
 

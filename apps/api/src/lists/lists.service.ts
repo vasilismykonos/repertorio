@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Optional,
 } from "@nestjs/common";
+import { randomBytes } from "crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { ElasticsearchSongsSyncService } from '../elasticsearch/elasticsearch-songs-sync.service';
 import { NotificationsService } from "../notifications/notifications.service";
@@ -64,6 +65,25 @@ export type ListsIndexResponse = {
 
   // facets for pills
   groups: ListGroupSummaryDto[];
+};
+
+export type ListShareLinkRole = "SONGS_EDITOR" | "VIEWER";
+
+export type ListShareLinkDto = {
+  token: string;
+  listId: number;
+  listTitle: string;
+  role: ListShareLinkRole;
+  createdAt: string | null;
+  expiresAt: string | null;
+};
+
+export type ListShareAcceptDto = {
+  listId: number;
+  listTitle: string;
+  role: ListRole;
+  grantedRole: ListShareLinkRole;
+  alreadyMember: boolean;
 };
 
 export type ListItemDto = {
@@ -429,6 +449,66 @@ export class ListsService {
 
     // safest fallback
     return "VIEWER";
+  }
+
+  private normalizeShareLinkRole(role: any): ListShareLinkRole {
+    const normalized = this.normalizeListRole(role);
+    if (normalized === "SONGS_EDITOR" || normalized === "VIEWER") {
+      return normalized;
+    }
+    throw new BadRequestException("Share link role must be VIEWER or SONGS_EDITOR.");
+  }
+
+  private listRoleRank(role: any): number {
+    const normalized = this.normalizeListRole(role);
+    if (normalized === "OWNER") return 4;
+    if (normalized === "LIST_EDITOR") return 3;
+    if (normalized === "SONGS_EDITOR") return 2;
+    return 1;
+  }
+
+  private strongestListRole(currentRole: any, requestedRole: ListShareLinkRole): ListRole {
+    const current = this.normalizeListRole(currentRole);
+    return this.listRoleRank(current) >= this.listRoleRank(requestedRole) ? current : requestedRole;
+  }
+
+  private makeShareToken(): string {
+    return randomBytes(24).toString("base64url");
+  }
+
+  private shareLinkToDto(row: any): ListShareLinkDto {
+    return {
+      token: String(row.token),
+      listId: Number(row.listId),
+      listTitle: String(row.list?.title ?? ""),
+      role: this.normalizeShareLinkRole(row.role),
+      createdAt: this.isoDateOrNull(row.createdAt),
+      expiresAt: this.isoDateOrNull(row.expiresAt),
+    };
+  }
+
+  private async getActiveShareLinkOrThrow(token: string) {
+    const cleanToken = String(token || "").trim();
+    if (!cleanToken || cleanToken.length < 12) {
+      throw new NotFoundException("Ο σύνδεσμος κοινής χρήσης δεν βρέθηκε.");
+    }
+
+    const row = await this.prisma.listShareLink.findUnique({
+      where: { token: cleanToken },
+      include: {
+        list: { select: { id: true, title: true } },
+      },
+    });
+
+    if (!row || row.revokedAt || !row.list) {
+      throw new NotFoundException("Ο σύνδεσμος κοινής χρήσης δεν βρέθηκε.");
+    }
+
+    if (row.expiresAt && new Date(row.expiresAt).getTime() <= Date.now()) {
+      throw new NotFoundException("Ο σύνδεσμος κοινής χρήσης έχει λήξει.");
+    }
+
+    return row;
   }
 
   private normalizeGroupRole(role: any): GroupRole {
@@ -1541,6 +1621,104 @@ async getListsIndex(params: {
     };
   }
 
+  async createListShareLink(params: {
+    userId: number;
+    listId: number;
+    role: ListShareLinkRole;
+  }): Promise<ListShareLinkDto> {
+    const { userId, listId } = params;
+    const role = this.normalizeShareLinkRole(params.role);
+
+    await this.assertCanManageListMembersOrThrow({ listId, userId });
+
+    const list = await this.prisma.list.findUnique({
+      where: { id: listId },
+      select: { id: true, title: true },
+    });
+    if (!list) throw new NotFoundException("Η λίστα δεν βρέθηκε.");
+
+    let token = "";
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const candidate = this.makeShareToken();
+      const existing = await this.prisma.listShareLink.findUnique({
+        where: { token: candidate },
+        select: { id: true },
+      });
+      if (!existing) {
+        token = candidate;
+        break;
+      }
+    }
+
+    if (!token) {
+      throw new BadRequestException("Δεν ήταν δυνατή η δημιουργία ασφαλούς συνδέσμου.");
+    }
+
+    const row = await this.prisma.listShareLink.create({
+      data: {
+        token,
+        listId,
+        createdByUserId: userId,
+        role,
+      },
+      include: {
+        list: { select: { id: true, title: true } },
+      },
+    });
+
+    return this.shareLinkToDto(row);
+  }
+
+  async getListShareLink(params: { token: string }): Promise<ListShareLinkDto> {
+    const row = await this.getActiveShareLinkOrThrow(params.token);
+    return this.shareLinkToDto(row);
+  }
+
+  async acceptListShareLink(params: {
+    token: string;
+    userId: number;
+  }): Promise<ListShareAcceptDto> {
+    const row = await this.getActiveShareLinkOrThrow(params.token);
+    const grantedRole = this.normalizeShareLinkRole(row.role);
+    const listId = Number(row.listId);
+    const userId = Number(params.userId);
+
+    if (!Number.isFinite(userId) || !Number.isInteger(userId) || userId <= 0) {
+      throw new BadRequestException("Invalid userId.");
+    }
+
+    const existingMembership = await this.prisma.listMember.findUnique({
+      where: { listId_userId: { listId, userId } },
+      select: { role: true },
+    });
+
+    const nextRole = existingMembership
+      ? this.strongestListRole(existingMembership.role, grantedRole)
+      : grantedRole;
+
+    await this.prisma.$transaction([
+      this.prisma.listMember.upsert({
+        where: { listId_userId: { listId, userId } },
+        update: { role: nextRole },
+        create: { listId, userId, role: nextRole },
+      }),
+      this.prisma.listShareLink.update({
+        where: { token: row.token },
+        data: { lastUsedAt: new Date() },
+      }),
+    ]);
+
+    await this.touchListUpdatedAt(listId);
+
+    return {
+      listId,
+      listTitle: String(row.list?.title ?? ""),
+      role: nextRole,
+      grantedRole,
+      alreadyMember: Boolean(existingMembership),
+    };
+  }
+
   async upsertListMember(params: {
     userId: number;
     listId: number;
@@ -1606,13 +1784,37 @@ async getListsIndex(params: {
   }): Promise<ListMembersResponse> {
     const { userId, listId, memberUserId } = params;
 
-    const managerRole = await this.assertCanManageListMembersOrThrow({ listId, userId });
-
     const n = Number(memberUserId);
     if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
       throw new BadRequestException("Invalid memberUserId.");
     }
 
+    const isSelfRemoval = Number(userId) === n;
+
+    if (isSelfRemoval) {
+      const membership = await this.prisma.listMember.findFirst({
+        where: { listId, userId },
+        select: { role: true },
+      });
+
+      if (!membership) {
+        throw new NotFoundException("Η λίστα δεν βρέθηκε.");
+      }
+
+      const selfRole = this.normalizeListRole(membership.role);
+      if (selfRole === "OWNER") {
+        throw new ForbiddenException("Ο δημιουργός δεν μπορεί να αποχωρήσει από τη λίστα.");
+      }
+
+      await this.prisma.listMember.deleteMany({
+        where: { listId, userId },
+      });
+      await this.touchListUpdatedAt(listId);
+
+      return { items: [] };
+    }
+
+    await this.assertCanManageListMembersOrThrow({ listId, userId });
     await this.ensureListExistsOrThrow(listId);
 
     // Allow LIST_EDITOR to remove any member, including the owner.

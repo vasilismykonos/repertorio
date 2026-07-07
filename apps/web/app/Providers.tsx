@@ -8,6 +8,7 @@ import RoomsSongSyncHandler from "./components/RoomsSongSyncHandler";
 import PresencePinger from "./components/PresencePinger";
 import UserHistoryTracker from "./components/UserHistoryTracker";
 import FloatingChatWidget from "./components/FloatingChatWidget";
+import { applyViewMode, subscribeViewMode } from "@/lib/viewMode";
 
 function FloatingChatMount() {
   const [hidden, setHidden] = useState(true);
@@ -20,9 +21,15 @@ function FloatingChatMount() {
   return hidden ? null : <FloatingChatWidget />;
 }
 
+function ViewModeMount() {
+  useEffect(() => subscribeViewMode(applyViewMode), []);
+  return null;
+}
+
 export default function Providers({ children }: { children: ReactNode }) {
   return (
     <SessionProvider>
+      <ViewModeMount />
       <PresencePinger />
       <UserHistoryTracker />
       <FloatingChatMount />

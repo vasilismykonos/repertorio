@@ -6,9 +6,188 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.138";
+export const APP_VERSION = "3.0.156";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.156",
+    date: "2026-07-07",
+    level: "patch",
+    title: "List leave action",
+    items: [
+      "Readers and song editors can now leave a shared list without needing member-management rights.",
+      "Shared list pages show a leave button for non-owner members.",
+    ],
+  },
+  {
+    version: "3.0.155",
+    date: "2026-07-07",
+    level: "minor",
+    title: "Secure list share links",
+    items: [
+      "Lists can now create share links with read-only or song-edit access.",
+      "Opening a share link asks for Google login when needed, grants the selected list permission, and redirects to the list.",
+    ],
+  },
+  {
+    version: "3.0.154",
+    date: "2026-07-06",
+    level: "patch",
+    title: "Single room counter source",
+    items: [
+      "The side menu Rooms badge now uses the same live room count as the header.",
+      "Removed the side menu's separate room status polling so it no longer shows a fallback 0.",
+    ],
+  },
+  {
+    version: "3.0.153",
+    date: "2026-07-06",
+    level: "patch",
+    title: "Manual desktop/mobile view",
+    items: [
+      "Added a menu control for Auto, Mobile, and Desktop view mode.",
+      "Desktop mode forces a wide viewport on mobile devices, while Mobile mode constrains the shell for compact viewing.",
+    ],
+  },
+  {
+    version: "3.0.152",
+    date: "2026-07-06",
+    level: "patch",
+    title: "Side menu room offline state",
+    items: [
+      "The side menu room badge now follows forced offline mode.",
+      "The side menu no longer polls live room presence while the app is in offline mode.",
+    ],
+  },
+  {
+    version: "3.0.151",
+    date: "2026-07-06",
+    level: "patch",
+    title: "Strict room counter",
+    items: [
+      "Removed the fallback room count from the header.",
+      "The room counter now shows a number only when it comes from live room presence or the rooms status API.",
+    ],
+  },
+  {
+    version: "3.0.150",
+    date: "2026-07-06",
+    level: "patch",
+    title: "Room counter offline state",
+    items: [
+      "The room icon is now grey in forced offline mode instead of looking connected.",
+      "Room presence events now carry the active room so the header counter follows the current room accurately.",
+    ],
+  },
+  {
+    version: "3.0.149",
+    date: "2026-07-06",
+    level: "patch",
+    title: "Offline selector state authority",
+    items: [
+      "The saved Online/Offline preference is now the single source of truth after refresh.",
+      "A stale service worker state can no longer switch the side menu back to Online while the app is in Offline mode.",
+    ],
+  },
+  {
+    version: "3.0.148",
+    date: "2026-07-06",
+    level: "patch",
+    title: "Offline refresh consistency",
+    items: [
+      "Forced offline refreshes now make a very short attempt to update the page shell before using cached HTML.",
+      "The header offline label and side menu selector now use the same active offline mode state.",
+    ],
+  },
+  {
+    version: "3.0.147",
+    date: "2026-07-06",
+    level: "patch",
+    title: "Offline app update reliability",
+    items: [
+      "Forced offline mode no longer permanently serves stale Next.js application chunks.",
+      "App chunks now try a short network refresh and fall back to cache, keeping offline fast while allowing updates.",
+    ],
+  },
+  {
+    version: "3.0.146",
+    date: "2026-07-05",
+    level: "patch",
+    title: "Direct offline mode save from menu",
+    items: [
+      "The Online/Offline selector now saves the mode directly from the side menu before notifying the header.",
+      "This avoids stale layout chunks losing the forced offline preference after refresh.",
+    ],
+  },
+  {
+    version: "3.0.145",
+    date: "2026-07-05",
+    level: "patch",
+    title: "Persistent offline mode preference",
+    items: [
+      "The Online/Offline preference is now also stored in a first-party cookie.",
+      "The service worker reads the saved mode during requests, so refreshes keep the menu and header consistent.",
+    ],
+  },
+  {
+    version: "3.0.144",
+    date: "2026-07-05",
+    level: "patch",
+    title: "Offline mode service worker restore",
+    items: [
+      "The page now asks the service worker for its current forced offline mode after refresh.",
+      "Refreshing while forced offline no longer resets the side menu selector to Online.",
+    ],
+  },
+  {
+    version: "3.0.143",
+    date: "2026-07-05",
+    level: "patch",
+    title: "Offline menu state consistency",
+    items: [
+      "The side menu now uses the same restored network mode state as the offline runtime after refresh.",
+      "The Online/Offline selector stays visually consistent with the current forced offline status.",
+    ],
+  },
+  {
+    version: "3.0.142",
+    date: "2026-07-05",
+    level: "patch",
+    title: "Network mode refresh state",
+    items: [
+      "The side menu now restores the saved Online/Offline selection immediately after refresh.",
+      "The selected Online button is green.",
+    ],
+  },
+  {
+    version: "3.0.141",
+    date: "2026-07-05",
+    level: "patch",
+    title: "Compact offline header label",
+    items: [
+      "The offline header indicator is now a small red label under the logo, so it does not push or overlap the search area.",
+    ],
+  },
+  {
+    version: "3.0.140",
+    date: "2026-07-05",
+    level: "patch",
+    title: "Manual online/offline mode",
+    items: [
+      "The side menu now lets the user switch between Online and Offline mode.",
+      "Offline mode makes cached pages, offline identity, sync status and browser reads prefer stored data even when the device still has a weak connection.",
+    ],
+  },
+  {
+    version: "3.0.139",
+    date: "2026-07-05",
+    level: "patch",
+    title: "Poor network offline fallback",
+    items: [
+      "Slow page and asset requests now fall back to cached offline content quickly when the connection is unstable.",
+      "Browser GET API reads use a short timeout so search and lists can use offline data instead of waiting on a bad network.",
+    ],
+  },
   {
     version: "3.0.138",
     date: "2026-07-05",
