@@ -42,6 +42,9 @@ const OPEN_LOGIN_PROMPT_EVENT = "repertorio_open_login_prompt";
 const GUEST_LOGIN_PROMPT_DISMISSED_UNTIL_KEY = "repertorio_guest_login_prompt_v3_dismissed_until";
 const GUEST_LOGIN_PROMPT_DELAY_MS = 3500;
 const GUEST_LOGIN_PROMPT_DISMISS_MS = 24 * 60 * 60 * 1000;
+const PUSH_PROMPT_DISMISSED_UNTIL_KEY = "repertorio_push_prompt_dismissed_until_v1";
+const PUSH_PROMPT_DELAY_MS = 2500;
+const PUSH_PROMPT_DISMISS_MS = 7 * 24 * 60 * 60 * 1000;
 const LAST_VIEWED_LIST_KEY = "repertorio:lastViewedListId";
 const LIST_PICKER_LAST_SELECTED_STORAGE_KEY = "repertorio_last_selected_list_id_v1";
 
@@ -121,6 +124,7 @@ function HeaderInner({ appVersion }: HeaderProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [guestLoginPromptOpen, setGuestLoginPromptOpen] = useState(false);
   const [guestLoginPromptCallbackUrl, setGuestLoginPromptCallbackUrl] = useState<string | null>(null);
+  const [pushPromptOpen, setPushPromptOpen] = useState(false);
   const [quickListNotice, setQuickListNotice] = useState<string | null>(null);
 
   const identity = useOfflineIdentity();
@@ -199,6 +203,27 @@ function HeaderInner({ appVersion }: HeaderProps) {
     const callbackUrl = guestLoginPromptCallbackUrl || getSameOriginCallbackUrl();
     void signIn("google", { callbackUrl });
   }, [getSameOriginCallbackUrl, guestLoginPromptCallbackUrl]);
+
+  const closePushPrompt = useCallback((durationMs = PUSH_PROMPT_DISMISS_MS) => {
+    setPushPromptOpen(false);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(PUSH_PROMPT_DISMISSED_UNTIL_KEY, String(Date.now() + durationMs));
+    } catch {
+      // Best-effort UX memory only.
+    }
+  }, []);
+
+  const handleEnablePushFromPrompt = useCallback(async () => {
+    const ok = await notifications.enablePushNotifications();
+    if (!ok) return;
+    setPushPromptOpen(false);
+    try {
+      window.localStorage.removeItem(PUSH_PROMPT_DISMISSED_UNTIL_KEY);
+    } catch {
+      // Best-effort UX memory only.
+    }
+  }, [notifications]);
 
   const handleForceOfflineSync = useCallback(async () => {
     if (offlineActionBusy) return;
@@ -328,6 +353,39 @@ function HeaderInner({ appVersion }: HeaderProps) {
 
     return () => window.clearTimeout(timer);
   }, [isLoggedIn, pathname]);
+
+  useEffect(() => {
+    if (!isLoggedIn || identity.isOfflineAuthenticated || offlineStatus.online === false) {
+      setPushPromptOpen(false);
+      return;
+    }
+    if (!notifications.pushSupported || notifications.pushSubscribed || notifications.pushPermission === "unsupported") {
+      if (notifications.pushSubscribed) setPushPromptOpen(false);
+      return;
+    }
+    if (typeof window === "undefined") return;
+
+    try {
+      const dismissedUntil = Number(window.localStorage.getItem(PUSH_PROMPT_DISMISSED_UNTIL_KEY) || "0");
+      if (Number.isFinite(dismissedUntil) && dismissedUntil > Date.now()) return;
+    } catch {
+      // Storage is optional; fall through to a single delayed prompt.
+    }
+
+    const timer = window.setTimeout(() => {
+      if (document.visibilityState !== "visible") return;
+      setPushPromptOpen(true);
+    }, PUSH_PROMPT_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    isLoggedIn,
+    identity.isOfflineAuthenticated,
+    offlineStatus.online,
+    notifications.pushPermission,
+    notifications.pushSubscribed,
+    notifications.pushSupported,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1002,6 +1060,152 @@ function HeaderInner({ appVersion }: HeaderProps) {
             </div>
             <small style={{ color: "rgba(255,255,255,0.55)", lineHeight: 1.35 }}>
               Μπορείς να συνεχίσεις κανονικά ως επισκέπτης.
+            </small>
+          </div>
+        </div>
+      ) : null}
+
+      {pushPromptOpen && isLoggedIn ? (
+        <div
+          role="presentation"
+          onClick={() => closePushPrompt()}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2580,
+            background: "rgba(0,0,0,0.52)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Ενεργοποίηση ειδοποιήσεων"
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(430px, 100%)",
+              borderRadius: 16,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "#171717",
+              color: "#fff",
+              boxShadow: "0 24px 70px rgba(0,0,0,0.45)",
+              padding: 18,
+              display: "grid",
+              gap: 14,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ display: "grid", gap: 8 }}>
+                <strong
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 18,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  <Bell size={19} />
+                  Ειδοποιήσεις στη συσκευή
+                </strong>
+                <span style={{ color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 1.45 }}>
+                  {notifications.pushPermission === "denied"
+                    ? "Οι ειδοποιήσεις είναι μπλοκαρισμένες από τον browser ή την εφαρμογή. Ενεργοποίησέ τες από τις ρυθμίσεις για να λαμβάνεις ενημερώσεις και μηνύματα chat."
+                    : "Ενεργοποίησε push για να λαμβάνεις ενημερώσεις και μηνύματα chat ακόμη κι όταν η εφαρμογή είναι κλειστή."}
+                </span>
+                {notifications.pushError ? (
+                  <span style={{ color: "#ff8f8f", fontSize: 12, lineHeight: 1.35 }}>
+                    {notifications.pushError}
+                  </span>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => closePushPrompt()}
+                aria-label="Κλείσιμο πρότασης ειδοποιήσεων"
+                title="Όχι τώρα"
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: 22,
+                  lineHeight: 1,
+                  flex: "0 0 auto",
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {notifications.pushPermission === "denied" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    closePushPrompt();
+                    openNotifications();
+                  }}
+                  style={{
+                    minHeight: 40,
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.18)",
+                    background: "#0a84ff",
+                    color: "#fff",
+                    padding: "0 14px",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                    flex: "1 1 170px",
+                  }}
+                >
+                  Προβολή ρυθμίσεων
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleEnablePushFromPrompt}
+                  disabled={notifications.pushBusy}
+                  style={{
+                    minHeight: 40,
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.18)",
+                    background: "#0a84ff",
+                    color: "#fff",
+                    padding: "0 14px",
+                    fontWeight: 900,
+                    cursor: notifications.pushBusy ? "default" : "pointer",
+                    flex: "1 1 170px",
+                    opacity: notifications.pushBusy ? 0.72 : 1,
+                  }}
+                >
+                  {notifications.pushBusy ? "Ενεργοποίηση..." : "Ενεργοποίηση"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => closePushPrompt()}
+                style={{
+                  minHeight: 40,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#fff",
+                  padding: "0 14px",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  flex: "1 1 120px",
+                }}
+              >
+                Όχι τώρα
+              </button>
+            </div>
+            <small style={{ color: "rgba(255,255,255,0.55)", lineHeight: 1.35 }}>
+              Η επιλογή ισχύει για αυτή τη συσκευή. Μπορείς πάντα να την αλλάξεις από το μενού Ενημερώσεις.
             </small>
           </div>
         </div>

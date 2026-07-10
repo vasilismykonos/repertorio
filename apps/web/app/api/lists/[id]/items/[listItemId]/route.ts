@@ -6,6 +6,7 @@ type UpdateListItemBody = {
   selectedTonicity?: string | null;
   selectedTonicitySign?: "+" | "-" | null;
   selectedSingerTuneId?: number | null;
+  tags?: string[] | string | null;
 };
 
 const NO_STORE_HEADERS = {
@@ -76,6 +77,10 @@ export async function PUT(
             body?.selectedSingerTuneId === null
               ? null
               : positiveInt(body?.selectedSingerTuneId) ?? undefined,
+          tags:
+            body?.tags === null || typeof body?.tags === "string" || Array.isArray(body?.tags)
+              ? body.tags
+              : undefined,
         }),
       },
     );

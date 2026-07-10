@@ -40,7 +40,9 @@ export type ListDetailDto = {
     | "OWNER"
     | "LIST_EDITOR"
     | "SONGS_EDITOR"
-    | "VIEWER";
+    | "VIEWER"
+    | "ADMIN";
+  adminView?: boolean;
 
   // items may exist in real payload (used by ListEditClient normalize)
   items?: any[];
@@ -111,6 +113,7 @@ export default async function ListEditPage({ params, searchParams }: PageProps) 
 
   // δικαίωμα επεξεργασίας
   const canEdit =
+    list.role === "ADMIN" ||
     list.role === "OWNER" ||
     list.role === "LIST_EDITOR" ||
     list.role === "SONGS_EDITOR";

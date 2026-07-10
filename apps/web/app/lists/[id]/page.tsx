@@ -15,6 +15,7 @@ export type ListItemDto = {
   listId: number;
   sortId: number;
   transport: number;
+  tags: string[];
   songId: number | null;
   title: string | null;
   songOriginalKey: string | null;
@@ -52,7 +53,9 @@ export type ListDetailDto = {
     | "OWNER"
     | "LIST_EDITOR"
     | "SONGS_EDITOR"
-    | "VIEWER";
+    | "VIEWER"
+    | "ADMIN";
+  adminView?: boolean;
   items: ListItemDto[];
 };
 

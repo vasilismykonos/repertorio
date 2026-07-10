@@ -169,9 +169,21 @@ function isStaticOrApiPath(path: string): boolean {
 }
 
 function isBot(userAgent: string): boolean {
-  return /bot|crawl|spider|slurp|bingpreview|facebookexternalhit|whatsapp|telegrambot|python|curl|wget|headless|monitor|mj12|semrush|ahrefs|baidu|yandex|claudebot|gptbot|bytespider|petalbot|dotbot|siteaudit|scan|scrapy|go-http-client|java|okhttp|httpclient/i.test(
+  return /bot|crawl|crawler|spider|slurp|bingpreview|facebookexternalhit|whatsapp|telegrambot|twitterbot|linkedinbot|python|curl|wget|headless|playwright|monitor|mj12|semrush|ahrefs|baidu|yandex|claudebot|gptbot|bytespider|petalbot|dotbot|siteaudit|scan|scrapy|go-http-client|java|okhttp|httpclient|oai-searchbot|ccbot|barkrowler|blexbot|dataforseo|serpstat/i.test(
     userAgent || "",
   );
+}
+
+function isLikelyHumanUserAgent(userAgent: string): boolean {
+  const ua = String(userAgent || "").trim();
+  if (!ua || ua === "-") return false;
+  if (isBot(ua)) return false;
+  if (/Nexus 5 Build\/MRA58N/i.test(ua)) return false;
+  if (/headless|phantom|selenium|webdriver|puppeteer|playwright|curl|wget|python|httpclient|go-http-client|java/i.test(ua)) {
+    return false;
+  }
+
+  return /mozilla\/5\.0/i.test(ua) && /(chrome|crios|safari|firefox|edg|opr|samsungbrowser)/i.test(ua);
 }
 
 function isInternalRequestPath(path: string): boolean {
@@ -199,6 +211,10 @@ function isScannerPath(path: string): boolean {
     p.includes("/.git") ||
     p.includes("actuator") ||
     p.includes("cgi-bin") ||
+    p.includes("vendor/phpunit") ||
+    p.includes("boaform") ||
+    p.includes("autodiscover") ||
+    p.includes("login.action") ||
     p.endsWith(".php") ||
     p.endsWith(".asp") ||
     p.endsWith(".aspx")
@@ -331,6 +347,7 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
     const referrer = m[7];
     const userAgent = m[8];
     const bot = isBot(userAgent);
+    const likelyHuman = isLikelyHumanUserAgent(userAgent);
     const internalRequest = isInternalRequestPath(path);
     const scannerRequest = isScannerPath(path);
 
@@ -357,7 +374,9 @@ function parseAccessLogs(logText: string, files: string[], lineLimit: number): T
 
     const pagePath = stripQuery(path);
     const isPageView =
+      likelyHuman &&
       !bot &&
+      !scannerRequest &&
       (method === "GET" || method === "HEAD") &&
       Number(status) >= 200 &&
       Number(status) < 400 &&

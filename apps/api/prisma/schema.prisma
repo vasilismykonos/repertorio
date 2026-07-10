@@ -349,6 +349,7 @@ model ListItem {
   selectedTonicity     String? @db.VarChar(32)
   selectedTonicitySign String? @db.Char(1)
   selectedSingerTuneId Int?
+  tags      String[] @default([])
 
   // ✅ ΝΕΟ: assets στο list item
   ListItemAsset ListItemAsset[]

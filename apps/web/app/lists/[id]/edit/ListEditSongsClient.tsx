@@ -11,6 +11,7 @@ import ListItemTonePicker, {
   type ListItemSingerSuggestion,
   type ListItemToneValue,
 } from "@/app/components/ListItemTonePicker";
+import { fetchJson } from "@/lib/api";
 
 type ListItemRow = {
   listItemId: number; // existing (>0) OR temp (<0)
@@ -28,6 +29,7 @@ type ListItemRow = {
   selectedSingerTuneId?: number | null;
   selectedSingerTuneTitle?: string | null;
   selectedSingerTuneTune?: string | null;
+  tags?: string[] | null;
 
   __isDraft?: boolean;
 };
@@ -44,6 +46,7 @@ type PersistedState = {
 
 const DEFAULT_SORT_DIRECTION: SortDirection = "desc";
 const DEFAULT_SORT_MODE: SortMode = "number";
+const AUTO_SAVE_DELAY_MS = 900;
 const DRAG_SCROLL_EDGE_PX = 92;
 const DRAG_SCROLL_MAX_STEP = 28;
 const DRAG_SCROLL_MIN_STEP = 5;
@@ -160,6 +163,46 @@ function nullableText(value: unknown): string | null {
   return t ? t : null;
 }
 
+function normalizeListItemTags(value: unknown): string[] {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,\n]/)
+      : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const item of source) {
+    const tag = String(item ?? "")
+      .trim()
+      .replace(/\s+/g, " ");
+    if (!tag) continue;
+
+    const key = tag.toLocaleLowerCase("el");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag.slice(0, 48));
+    if (out.length >= 12) break;
+  }
+
+  return out;
+}
+
+function hasTagsValue(value: unknown) {
+  return Array.isArray(value) || typeof value === "string";
+}
+
+function tagsInputValue(value: unknown) {
+  return normalizeListItemTags(value).join(", ");
+}
+
+function sameTags(a: unknown, b: unknown) {
+  const av = normalizeListItemTags(a);
+  const bv = normalizeListItemTags(b);
+  if (av.length !== bv.length) return false;
+  return av.every((tag, index) => tag === bv[index]);
+}
+
 function nullablePositiveInt(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : null;
@@ -188,8 +231,51 @@ function sameTuneSelection(a: Partial<ListItemRow> | null | undefined, b: Partia
   return (
     av.selectedTonicity === bv.selectedTonicity &&
     av.selectedTonicitySign === bv.selectedTonicitySign &&
-    nullablePositiveInt(a?.selectedSingerTuneId) === nullablePositiveInt(b?.selectedSingerTuneId)
+    nullablePositiveInt(a?.selectedSingerTuneId) === nullablePositiveInt(b?.selectedSingerTuneId) &&
+    sameTags(a?.tags, b?.tags)
   );
+}
+
+function savedItemFromApi(row: any, fallback: Partial<ListItemRow> = {}): ListItemRow {
+  return {
+    listItemId: Number(row?.listItemId ?? row?.id ?? fallback.listItemId),
+    listId: Number(row?.listId ?? fallback.listId),
+    sortId: Number(row?.sortId ?? fallback.sortId) || 0,
+    songId: nullablePositiveInt(row?.songId) ?? nullablePositiveInt(fallback.songId),
+    title: nullableText(row?.title) ?? nullableText(fallback.title),
+    songViews:
+      Number.isFinite(Number(row?.songViews))
+        ? Number(row.songViews)
+        : Number.isFinite(Number(fallback.songViews))
+          ? Number(fallback.songViews)
+          : null,
+    songOriginalKey: nullableText(row?.songOriginalKey) ?? nullableText(fallback.songOriginalKey),
+    songOriginalKeySign:
+      normalizeTonicitySign(row?.songOriginalKeySign) ?? normalizeTonicitySign(fallback.songOriginalKeySign),
+    transport: Number.isInteger(Number(row?.transport)) ? Number(row.transport) : Number(fallback.transport) || 0,
+    selectedTonicity: nullableText(row?.selectedTonicity),
+    selectedTonicitySign: normalizeTonicitySign(row?.selectedTonicitySign),
+    selectedSingerTuneId: nullablePositiveInt(row?.selectedSingerTuneId),
+    selectedSingerTuneTitle: nullableText(row?.selectedSingerTuneTitle),
+    selectedSingerTuneTune: nullableText(row?.selectedSingerTuneTune),
+    tags: normalizeListItemTags(row?.tags ?? fallback.tags),
+  };
+}
+
+function autosaveSignature(items: ListItemRow[], orderTouched: boolean) {
+  return JSON.stringify({
+    orderTouched,
+    items: (items ?? []).map((item) => ({
+      listItemId: Number(item.listItemId),
+      songId: nullablePositiveInt(item.songId),
+      sortId: Number(item.sortId) || 0,
+      selectedTonicity: nullableText(item.selectedTonicity),
+      selectedTonicitySign: normalizeTonicitySign(item.selectedTonicitySign),
+      selectedSingerTuneId: nullablePositiveInt(item.selectedSingerTuneId),
+      tags: normalizeListItemTags(item.tags),
+      draft: !!item.__isDraft || Number(item.listItemId) < 0,
+    })),
+  });
 }
 
 type Props = {
@@ -239,6 +325,9 @@ export default function ListEditSongsClient({
   const [sortMode, setSortMode] = useState<SortMode>(DEFAULT_SORT_MODE);
   const [orderTouched, setOrderTouched] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [autoSaveMessage, setAutoSaveMessage] = useState<string | null>(null);
+  const [tagInputByItemId, setTagInputByItemId] = useState<Record<string, string>>({});
 
   const [songQ, setSongQ] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -246,6 +335,12 @@ export default function ListEditSongsClient({
   const dragIdRef = useRef<number | null>(null);
   const dragAutoScrollRef = useRef<number | null>(null);
   const dragClientYRef = useRef<number | null>(null);
+  const latestItemsRef = useRef<ListItemRow[]>(initialNormalized);
+  const orderTouchedRef = useRef(false);
+  const autoSaveTimerRef = useRef<number | null>(null);
+  const autoSaveRunningRef = useRef(false);
+  const autoSaveQueuedRef = useRef(false);
+  const lastFailedAutoSaveSignatureRef = useRef<string | null>(null);
 
   // prevent double add in strict mode
   const pickedProcessedRef = useRef<Set<number>>(new Set());
@@ -277,6 +372,14 @@ export default function ListEditSongsClient({
     },
     [onLocalError],
   );
+
+  useEffect(() => {
+    latestItemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    orderTouchedRef.current = orderTouched;
+  }, [orderTouched]);
 
   const stopDragAutoScroll = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -451,6 +554,9 @@ export default function ListEditSongsClient({
                 nullableText(saved?.selectedSingerTuneTitle) ?? nullableText(srv.selectedSingerTuneTitle),
               selectedSingerTuneTune:
                 nullableText(saved?.selectedSingerTuneTune) ?? nullableText(srv.selectedSingerTuneTune),
+              tags: hasTagsValue(saved?.tags)
+                ? normalizeListItemTags(saved?.tags)
+                : normalizeListItemTags(srv.tags),
             });
           }
         } else {
@@ -580,6 +686,223 @@ export default function ListEditSongsClient({
     }
   }
 
+  async function saveSongChangesToServer(snapshotItems: ListItemRow[], options: { silent?: boolean } = {}) {
+    const snapshot = (snapshotItems ?? []).slice();
+
+    // 1) Delete removed server items.
+    const currentPositiveIds = positiveItemIds(snapshot);
+    const removedExistingIds = initialExistingIdsRef.current.filter((id) => !currentPositiveIds.includes(id));
+
+    for (const listItemId of removedExistingIds) {
+      await fetchJson(`/lists/${listId}/items/${listItemId}?userId=${encodeURIComponent(String(viewerUserId))}`, {
+        method: "DELETE",
+      });
+    }
+
+    // 2) Create draft items and replace negative ids with real server ids.
+    const tempToSaved = new Map<number, ListItemRow>();
+    for (const item of snapshot) {
+      const tempId = Number(item.listItemId);
+      if (!(tempId < 0 || item.__isDraft)) continue;
+      if (tempToSaved.has(tempId)) continue;
+
+      const songId = nullablePositiveInt(item.songId);
+      if (!songId) throw new Error("Δεν είναι δυνατή η αυτόματη αποθήκευση τραγουδιού χωρίς songId.");
+
+      const created = await fetchJson<any>(`/lists/${listId}/items?userId=${encodeURIComponent(String(viewerUserId))}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          songId,
+          title: nullableText(item.title) ?? undefined,
+          selectedTonicity: nullableText(item.selectedTonicity),
+          selectedTonicitySign: normalizeTonicitySign(item.selectedTonicitySign),
+          selectedSingerTuneId: nullablePositiveInt(item.selectedSingerTuneId),
+          tags: normalizeListItemTags(item.tags),
+        }),
+      });
+
+      const saved = savedItemFromApi(created, {
+        ...item,
+        listId,
+        sortId: item.sortId,
+      });
+      if (!nullablePositiveInt(saved.listItemId)) {
+        throw new Error("Η αυτόματη αποθήκευση δεν επέστρεψε έγκυρο listItemId.");
+      }
+      tempToSaved.set(tempId, saved);
+    }
+
+    const withRealIds: ListItemRow[] = [];
+    for (const item of snapshot) {
+      const id = Number(item.listItemId);
+      if (id < 0 || item.__isDraft) {
+        const saved = tempToSaved.get(id);
+        if (saved) {
+          withRealIds.push({ ...saved, sortId: Number(item.sortId) || saved.sortId, __isDraft: false });
+        }
+        continue;
+      }
+      withRealIds.push({ ...item, __isDraft: false });
+    }
+
+    // 3) Update tone/singer/tags on existing items when changed.
+    const updatedById = new Map<number, ListItemRow>();
+    for (const item of withRealIds) {
+      const listItemId = nullablePositiveInt(item.listItemId);
+      if (!listItemId) continue;
+
+      const initial = initialItemByIdRef.current.get(listItemId);
+      const wasCreatedNow = [...tempToSaved.values()].some((saved) => Number(saved.listItemId) === listItemId);
+      if (!wasCreatedNow && sameTuneSelection(item, initial)) continue;
+
+      const updated = await fetchJson<any>(
+        `/lists/${listId}/items/${listItemId}?userId=${encodeURIComponent(String(viewerUserId))}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            selectedTonicity: nullableText(item.selectedTonicity),
+            selectedTonicitySign: normalizeTonicitySign(item.selectedTonicitySign),
+            selectedSingerTuneId: nullablePositiveInt(item.selectedSingerTuneId),
+            tags: normalizeListItemTags(item.tags),
+          }),
+        },
+      );
+
+      updatedById.set(
+        listItemId,
+        savedItemFromApi(updated, {
+          ...item,
+          listId,
+          sortId: item.sortId,
+        }),
+      );
+    }
+
+    const updatedItems = withRealIds.map((item) => {
+      const listItemId = nullablePositiveInt(item.listItemId);
+      return listItemId && updatedById.has(listItemId)
+        ? { ...updatedById.get(listItemId)!, sortId: item.sortId, __isDraft: false }
+        : { ...item, tags: normalizeListItemTags(item.tags), __isDraft: false };
+    });
+
+    // 4) Store the current backend order. The component keeps state in
+    // backend order; visible sorting is derived separately.
+    const backendOrderItems = normalizeTopDownSortIds(sortItemsByMode(updatedItems, DEFAULT_SORT_MODE, "asc"));
+    const order = positiveItemIds(backendOrderItems);
+
+    if (order.length) {
+      await fetchJson(`/lists/${listId}/items/reorder?userId=${encodeURIComponent(String(viewerUserId))}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order }),
+      });
+    }
+
+    initialExistingIdsRef.current = order;
+    initialItemByIdRef.current = new Map(
+      backendOrderItems
+        .map((item) => [Number(item.listItemId), item] as const)
+        .filter(([id]) => Number.isFinite(id) && id > 0),
+    );
+
+    setOrderTouched(false);
+    setItems(backendOrderItems);
+    onOrderSaved?.(backendOrderItems);
+
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.removeItem(storageKey);
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!options.silent) {
+      setAutoSaveMessage("Αποθηκεύτηκε αυτόματα");
+      window.setTimeout(() => setAutoSaveMessage(null), 1800);
+    }
+  }
+
+  const runAutoSave = useCallback(async () => {
+    if (autoSaveRunningRef.current) {
+      autoSaveQueuedRef.current = true;
+      return;
+    }
+
+    const snapshot = latestItemsRef.current;
+    const signature = autosaveSignature(snapshot, orderTouchedRef.current);
+    if (lastFailedAutoSaveSignatureRef.current === signature) return;
+
+    autoSaveRunningRef.current = true;
+    setAutoSaving(true);
+    setAutoSaveMessage("Αυτόματη αποθήκευση…");
+
+    try {
+      await saveSongChangesToServer(snapshot, { silent: true });
+      lastFailedAutoSaveSignatureRef.current = null;
+      setError(null);
+      setAutoSaveMessage("Αποθηκεύτηκε αυτόματα");
+      if (typeof window !== "undefined") {
+        window.setTimeout(() => setAutoSaveMessage(null), 1800);
+      }
+    } catch (error: any) {
+      lastFailedAutoSaveSignatureRef.current = signature;
+      setError(error?.message || "Αποτυχία αυτόματης αποθήκευσης.");
+      setAutoSaveMessage("Η αυτόματη αποθήκευση απέτυχε");
+    } finally {
+      autoSaveRunningRef.current = false;
+      setAutoSaving(false);
+
+      if (autoSaveQueuedRef.current) {
+        autoSaveQueuedRef.current = false;
+        if (typeof window !== "undefined") {
+          window.setTimeout(() => void runAutoSave(), 250);
+        }
+      }
+    }
+  }, [listId, onOrderSaved, setError, storageKey, viewerUserId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!didMountRef.current) return;
+    if (!restoredOnceRef.current) return;
+
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+
+    if (!dirty || savingOrder) return;
+
+    const signature = autosaveSignature(items, orderTouched);
+    if (lastFailedAutoSaveSignatureRef.current === signature) return;
+
+    setAutoSaveMessage("Θα αποθηκευτεί αυτόματα…");
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      void runAutoSave();
+    }, AUTO_SAVE_DELAY_MS);
+
+    return () => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+  }, [dirty, items, orderTouched, runAutoSave, savingOrder]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window === "undefined") return;
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+  }, []);
+
   function onDragStart(e: React.DragEvent, listItemId: number) {
     dragIdRef.current = listItemId;
     dragClientYRef.current = null;
@@ -642,6 +965,32 @@ export default function ListEditSongsClient({
     );
   }
 
+  function updateItemTags(listItemId: number, rawTags: string) {
+    setError(null);
+    const key = String(listItemId);
+    setTagInputByItemId((prev) => ({ ...prev, [key]: rawTags }));
+    setItems((prev) =>
+      prev.map((item) =>
+        Number(item.listItemId) === Number(listItemId)
+          ? {
+              ...item,
+              tags: normalizeListItemTags(rawTags),
+            }
+          : item,
+      ),
+    );
+  }
+
+  function commitItemTagsInput(listItemId: number) {
+    const key = String(listItemId);
+    setTagInputByItemId((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
   const singerSuggestions = useMemo<ListItemSingerSuggestion[]>(() => {
     const seen = new Set<string>();
     const out: ListItemSingerSuggestion[] = [];
@@ -662,6 +1011,23 @@ export default function ListEditSongsClient({
     }
 
     return out.slice(0, 8);
+  }, [items]);
+
+  const tagSuggestions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+
+    for (const item of items ?? []) {
+      for (const tag of normalizeListItemTags(item.tags)) {
+        const key = tag.toLocaleLowerCase("el");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(tag);
+        if (out.length >= 24) return out;
+      }
+    }
+
+    return out;
   }, [items]);
 
   async function hydrateDraftSongKey(tempId: number, songId: number) {
@@ -723,6 +1089,7 @@ export default function ListEditSongsClient({
         sortId: maxSortId + 1,
         songId,
         title: title || null,
+        tags: [],
         __isDraft: true,
       };
 
@@ -920,6 +1287,37 @@ export default function ListEditSongsClient({
         </div>
       </div>
 
+      {autoSaveMessage ? (
+        <div
+          aria-live="polite"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            border: autoSaving ? "1px solid rgba(88,166,255,0.45)" : "1px solid rgba(25,135,84,0.45)",
+            background: autoSaving ? "rgba(88,166,255,0.12)" : "rgba(25,135,84,0.12)",
+            color: "#fff",
+            padding: "7px 10px",
+            borderRadius: 999,
+            fontSize: 13,
+            fontWeight: 800,
+            marginBottom: 10,
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 999,
+              background: autoSaving ? "#58a6ff" : "#2ea043",
+              boxShadow: autoSaving ? "0 0 0 4px rgba(88,166,255,0.12)" : "0 0 0 4px rgba(46,160,67,0.12)",
+            }}
+          />
+          {autoSaveMessage}
+        </div>
+      ) : null}
+
       {err ? (
         <div
           style={{
@@ -983,6 +1381,9 @@ export default function ListEditSongsClient({
             const isDraft = !!it.__isDraft || Number(it.listItemId) < 0;
             const titleText = String(it.title ?? "").trim() || (it.songId ? `Song #${it.songId}` : "Song");
             const displayNumber = Number.isFinite(Number(it.sortId)) && Number(it.sortId) > 0 ? Number(it.sortId) : idx + 1;
+            const itemTags = normalizeListItemTags(it.tags);
+            const tagInputKey = String(it.listItemId);
+            const tagListId = `list-item-tags-${tagInputKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 
             return (
               <li
@@ -1063,7 +1464,71 @@ export default function ListEditSongsClient({
                     />
                   </div>
 
-                  <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13 }} />
+                  <div
+                    style={{
+                      marginTop: 8,
+                      display: "grid",
+                      gridTemplateColumns: "minmax(0, 1fr)",
+                      gap: 6,
+                      color: "rgba(255,255,255,0.7)",
+                      fontSize: 13,
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={tagInputByItemId[tagInputKey] ?? tagsInputValue(it.tags)}
+                      onChange={(event) => updateItemTags(Number(it.listItemId), event.currentTarget.value)}
+                      onBlur={() => commitItemTagsInput(Number(it.listItemId))}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          commitItemTagsInput(Number(it.listItemId));
+                        }
+                      }}
+                      list={tagSuggestions.length ? tagListId : undefined}
+                      placeholder="Tags τραγουδιού λίστας"
+                      style={{
+                        width: "100%",
+                        minWidth: 0,
+                        boxSizing: "border-box",
+                        border: "1px solid rgba(255,255,255,0.24)",
+                        borderRadius: 10,
+                        background: "#fff",
+                        color: "#111",
+                        padding: "8px 10px",
+                        fontSize: 14,
+                        fontWeight: 700,
+                        outline: "none",
+                      }}
+                    />
+                    {tagSuggestions.length ? (
+                      <datalist id={tagListId}>
+                        {tagSuggestions.map((tag) => (
+                          <option key={tag} value={tag} />
+                        ))}
+                      </datalist>
+                    ) : null}
+                    {itemTags.length ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {itemTags.map((tag) => (
+                          <span
+                            key={tag}
+                            style={{
+                              border: "1px solid rgba(255,255,255,0.24)",
+                              borderRadius: 999,
+                              background: "rgba(255,255,255,0.08)",
+                              color: "rgba(255,255,255,0.88)",
+                              padding: "3px 8px",
+                              fontSize: 12,
+                              fontWeight: 800,
+                            }}
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div style={{ display: "flex", gap: 8, flex: "0 0 auto" }}>

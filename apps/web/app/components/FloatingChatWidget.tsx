@@ -5,7 +5,8 @@ import { ArrowLeft, Bell, CheckCheck, MessageCircle, Search, Send, X } from "luc
 
 const OPEN_DRAG_PX = 36;
 const PANEL_USERS_TAKE = 5;
-const CHAT_PUSH_PROMPT_DISMISSED_KEY = "repertorio_chat_push_prompt_dismissed";
+const PUSH_PROMPT_DISMISSED_UNTIL_KEY = "repertorio_push_prompt_dismissed_until_v1";
+const PUSH_PROMPT_DISMISS_MS = 7 * 24 * 60 * 60 * 1000;
 
 type OnlineUser = {
   id: number | string;
@@ -149,9 +150,14 @@ export default function FloatingChatWidget() {
       setPushPromptVisible(false);
       return;
     }
-    if (window.localStorage.getItem(CHAT_PUSH_PROMPT_DISMISSED_KEY) === "1") {
-      setPushPromptVisible(false);
-      return;
+    try {
+      const dismissedUntil = Number(window.localStorage.getItem(PUSH_PROMPT_DISMISSED_UNTIL_KEY) || "0");
+      if (Number.isFinite(dismissedUntil) && dismissedUntil > Date.now()) {
+        setPushPromptVisible(false);
+        return;
+      }
+    } catch {
+      // Storage is optional; fall through to the prompt.
     }
     const supported = "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
     if (!supported) {
@@ -208,7 +214,7 @@ export default function FloatingChatWidget() {
         });
       }
       await savePushSubscription(subscription);
-      window.localStorage.removeItem(CHAT_PUSH_PROMPT_DISMISSED_KEY);
+      window.localStorage.removeItem(PUSH_PROMPT_DISMISSED_UNTIL_KEY);
       setPushPromptVisible(false);
     } catch {
       setPushError("Δεν ενεργοποιήθηκαν οι ειδοποιήσεις.");
@@ -219,7 +225,7 @@ export default function FloatingChatWidget() {
 
   function dismissChatPushPrompt() {
     try {
-      window.localStorage.setItem(CHAT_PUSH_PROMPT_DISMISSED_KEY, "1");
+      window.localStorage.setItem(PUSH_PROMPT_DISMISSED_UNTIL_KEY, String(Date.now() + PUSH_PROMPT_DISMISS_MS));
     } catch {
       // ignore
     }

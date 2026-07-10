@@ -6,9 +6,40 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.156";
+export const APP_VERSION = "3.0.159";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.159",
+    date: "2026-07-11",
+    level: "patch",
+    title: "Reliable list editing",
+    items: [
+      "List edit pages now auto-save song additions, removals, order changes, tags, selected tone, and selected singer choices.",
+      "Admins can open a list by direct link in admin view without changing the list membership rules for regular users.",
+      "List songs can now have their own tags for grouping inside a list.",
+    ],
+  },
+  {
+    version: "3.0.158",
+    date: "2026-07-09",
+    level: "patch",
+    title: "Push permission prompt",
+    items: [
+      "Signed-in users are now prompted to enable device push notifications when notifications or chat cannot notify them in the background.",
+      "The chat push prompt now shares the same dismiss window, so users are not asked twice after choosing later.",
+    ],
+  },
+  {
+    version: "3.0.157",
+    date: "2026-07-09",
+    level: "patch",
+    title: "Cleaner traffic and bot filtering",
+    items: [
+      "Admin traffic statistics now separate likely human page views from bots, scanners, and internal requests more strictly.",
+      "Robots rules now keep private/API routes out of crawlers and block heavy non-essential crawlers.",
+    ],
+  },
   {
     version: "3.0.156",
     date: "2026-07-07",

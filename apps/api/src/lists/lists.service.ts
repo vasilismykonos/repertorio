@@ -91,6 +91,7 @@ export type ListItemDto = {
   listId: number;
   sortId: number;
   transport: number;
+  tags: string[];
 
   songId: number | null;
   title: string | null;
@@ -132,9 +133,11 @@ export type ListDetailDto = {
   updatedAt: string | null;
   /**
    * Ο ρόλος του τρέχοντος χρήστη στη λίστα. Βλέπε ListSummaryDto.role
-   * για τη λίστα των πιθανών τιμών.
+   * για τους ρόλους μελών. ADMIN σημαίνει direct πρόσβαση διαχειριστή
+   * χωρίς membership στη λίστα.
    */
-  role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER";
+  role: "OWNER" | "LIST_EDITOR" | "SONGS_EDITOR" | "VIEWER" | "ADMIN";
+  adminView?: boolean;
 
   items: ListItemDto[];
 };
@@ -280,6 +283,31 @@ export class ListsService {
     return t.length > 0 ? t.slice(0, 32) : null;
   }
 
+  private normalizeListItemTags(value: unknown): string[] {
+    const source = Array.isArray(value)
+      ? value
+      : typeof value === "string"
+        ? value.split(/[,\n]/)
+        : [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+
+    for (const item of source) {
+      const tag = String(item ?? "")
+        .trim()
+        .replace(/\s+/g, " ");
+      if (!tag) continue;
+
+      const key = tag.toLocaleLowerCase("el");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(tag.slice(0, 48));
+      if (out.length >= 12) break;
+    }
+
+    return out;
+  }
+
   private tonicitySignOrNull(value: unknown): "+" | "-" | null {
     return value === "+" || value === "-" ? value : null;
   }
@@ -364,6 +392,7 @@ export class ListsService {
       listId: Number(it.listId),
       sortId: Number(it.sortId) || 0,
       transport: Number.isInteger(it.transport) ? Number(it.transport) : 0,
+      tags: this.normalizeListItemTags(it.tags),
       songId: it.songId ?? null,
       title: effectiveTitle,
       songViews: Number.isFinite(Number(it.song?.views)) ? Number(it.song?.views) : 0,
@@ -1015,7 +1044,6 @@ async getListsIndex(params: {
   }): Promise<ListDetailDto> {
     const { listId, userId } = params;
 
-    // ✅ View access = membership (όπως όλοι)
     const list = await this.prisma.list.findUnique({
       where: { id: listId },
       include: {
@@ -1044,12 +1072,17 @@ async getListsIndex(params: {
     });
 
     if (!list) throw new NotFoundException("Η λίστα δεν βρέθηκε.");
-    if (!(list as any).members?.length) {
-      // ✅ αν δεν είσαι member, για εσένα “δεν υπάρχει”
+
+    const memberRows = (list as any).members ?? [];
+    const isMember = memberRows.length > 0;
+    const { isAdmin } = isMember ? { isAdmin: false } : await this.getUserContext(userId);
+
+    if (!isMember && !isAdmin) {
       throw new NotFoundException("Η λίστα δεν βρέθηκε.");
     }
 
-    const role = this.computeHighestListRole((list as any).members);
+    const role = isMember ? this.computeHighestListRole(memberRows) : "ADMIN";
+    const adminView = !isMember && isAdmin;
     const title = list.title ?? "";
     const singerTuneVisibility = await this.getSingerTuneVisibilityForViewer(userId);
     const listGroups = this.groupsFromListRecord(list);
@@ -1071,6 +1104,7 @@ async getListsIndex(params: {
       marked: !!list.marked,
       updatedAt: this.isoDateOrNull((list as any).updatedAt),
       role,
+      adminView,
 
       items: (list.items ?? []).map((it: any) =>
         this.listItemToDto(it, singerTuneVisibility),
@@ -1171,6 +1205,7 @@ async getListsIndex(params: {
     selectedTonicity?: string | null;
     selectedTonicitySign?: string | null;
     selectedSingerTuneId?: number | null;
+    tags?: string[] | string | null;
   }): Promise<AddListItemResponse> {
     const { listId, userId, songId } = params;
 
@@ -1226,6 +1261,7 @@ async getListsIndex(params: {
         selectedTonicity: selectedTonicityToStore,
         selectedTonicitySign: selectedTonicitySignToStore,
         selectedSingerTuneId: selectedSingerTune?.id ?? null,
+        tags: this.normalizeListItemTags(params.tags),
       },
       include: {
         song: true,
@@ -1263,6 +1299,7 @@ async getListsIndex(params: {
     selectedTonicity?: string | null;
     selectedTonicitySign?: string | null;
     selectedSingerTuneId?: number | null;
+    tags?: string[] | string | null;
   }): Promise<UpdateListItemResponse> {
     const { listId, listItemId, userId } = params;
 
@@ -1297,6 +1334,7 @@ async getListsIndex(params: {
         selectedTonicity: selectedTonicityToStore,
         selectedTonicitySign: selectedTonicitySignToStore,
         selectedSingerTuneId: selectedSingerTune?.id ?? null,
+        ...(params.tags !== undefined ? { tags: this.normalizeListItemTags(params.tags) } : {}),
       },
       include: {
         song: true,

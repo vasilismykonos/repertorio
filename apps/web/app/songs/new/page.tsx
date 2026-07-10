@@ -33,7 +33,21 @@ function roleLabel(role?: string | null): string {
   return role;
 }
 
-export default async function NewSongPage() {
+function readSearchParam(
+  searchParams: Record<string, string | string[] | undefined> | undefined,
+  key: string,
+): string | null {
+  const raw = searchParams?.[key];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const text = String(value ?? "").trim();
+  return text ? text.slice(0, 500) : null;
+}
+
+export default async function NewSongPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   const currentUser: CurrentUser | null = await getCurrentUserFromApi().catch(
     () => null,
   );
@@ -53,13 +67,13 @@ export default async function NewSongPage() {
 
   const blankSong: SongEditFormSong = {
     id: 0,
-    title: "",
+    title: readSearchParam(searchParams, "title") ?? "",
     firstLyrics: null,
     lyrics: null,
     isInstrumental: false,
 
-    composerName: null,
-    lyricistName: null,
+    composerName: readSearchParam(searchParams, "composerName"),
+    lyricistName: readSearchParam(searchParams, "lyricistName"),
 
     tags: [],
     assets: [],

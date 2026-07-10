@@ -27,7 +27,10 @@ function stripTrailingCount(label: string): string {
 }
 
 function normalizeListItemsForEdit(list: ListDetailDto) {
-  const items = (list.items ?? []).slice();
+  const items = (list.items ?? []).map((item: any) => ({
+    ...item,
+    tags: normalizeListItemTags(item?.tags),
+  }));
   items.sort((a: any, b: any) => {
     const aSort = Number(a.sortId) || 0;
     const bSort = Number(b.sortId) || 0;
@@ -103,6 +106,38 @@ function nullableSign(value: any): "+" | "-" | null {
   return value === "+" || value === "-" ? value : null;
 }
 
+function normalizeListItemTags(value: any): string[] {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,\n]/)
+      : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const item of source) {
+    const tag = String(item ?? "")
+      .trim()
+      .replace(/\s+/g, " ");
+    if (!tag) continue;
+
+    const key = tag.toLocaleLowerCase("el");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag.slice(0, 48));
+    if (out.length >= 12) break;
+  }
+
+  return out;
+}
+
+function sameTags(a: any, b: any) {
+  const av = normalizeListItemTags(a);
+  const bv = normalizeListItemTags(b);
+  if (av.length !== bv.length) return false;
+  return av.every((tag, index) => tag === bv[index]);
+}
+
 function itemTuneSnapshot(item: any) {
   return {
     selectedTonicity: nullableText(item?.selectedTonicity),
@@ -117,7 +152,8 @@ function sameItemTuneSelection(a: any, b: any) {
   return (
     av.selectedTonicity === bv.selectedTonicity &&
     av.selectedTonicitySign === bv.selectedTonicitySign &&
-    av.selectedSingerTuneId === bv.selectedSingerTuneId
+    av.selectedSingerTuneId === bv.selectedSingerTuneId &&
+    sameTags(a?.tags, b?.tags)
   );
 }
 
@@ -176,14 +212,15 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
   const [permissionsOpen, setPermissionsOpen] = useState(false);
 
   // Μόνο ο OWNER ή ο LIST_EDITOR μπορεί να διαχειρίζεται τα μέλη της λίστας.
-  const canManageMembers = list.role === "OWNER" || list.role === "LIST_EDITOR";
+  const isAdminView = list.role === "ADMIN" || Boolean((list as any).adminView);
+  const canManageMembers = isAdminView || list.role === "OWNER" || list.role === "LIST_EDITOR";
 
   // Determine which parts of the list can be edited based on the viewer's role.
   // Only OWNER or LIST_EDITOR may edit list metadata (title, group, favorite flag).
-  const canEditListMeta = list.role === "OWNER" || list.role === "LIST_EDITOR";
+  const canEditListMeta = isAdminView || list.role === "OWNER" || list.role === "LIST_EDITOR";
   // SONGS_EDITOR may edit songs but not list metadata.  OWNER and LIST_EDITOR can edit songs too.
   const canEditSongs =
-    list.role === "OWNER" || list.role === "LIST_EDITOR" || list.role === "SONGS_EDITOR";
+    isAdminView || list.role === "OWNER" || list.role === "LIST_EDITOR" || list.role === "SONGS_EDITOR";
 
   // ---------------------------
   // GROUP OPTIONS
@@ -310,7 +347,7 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
   const canSave = !saving && !deleting && (metaChangesAllowed || songChangesAllowed);
 
   // Only the OWNER may delete a list.
-  const canDelete = !saving && !deleting && list.role === "OWNER";
+  const canDelete = !saving && !deleting && (isAdminView || list.role === "OWNER");
 
   useEffect(() => {
     if (!permissionsOpen || typeof document === "undefined") return;
@@ -349,6 +386,7 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
           selectedTonicity: nullableText(draft?.selectedTonicity),
           selectedTonicitySign: nullableSign(draft?.selectedTonicitySign),
           selectedSingerTuneId: toPositiveInt(draft?.selectedSingerTuneId),
+          tags: normalizeListItemTags(draft?.tags),
         }),
       },
     );
@@ -454,6 +492,7 @@ export default function ListEditClient({ viewerUserId, list, groups, initialPick
               selectedTonicity: nullableText(it?.selectedTonicity),
               selectedTonicitySign: nullableSign(it?.selectedTonicitySign),
               selectedSingerTuneId: toPositiveInt(it?.selectedSingerTuneId),
+              tags: normalizeListItemTags(it?.tags),
             }),
           },
         );

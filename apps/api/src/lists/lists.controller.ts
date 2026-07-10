@@ -143,6 +143,7 @@ type AddListItemBody = {
   selectedTonicity?: string | null;
   selectedTonicitySign?: string | null;
   selectedSingerTuneId?: number | null;
+  tags?: string[] | string | null;
 };
 
 type UpdateListItemBody = {
@@ -150,6 +151,7 @@ type UpdateListItemBody = {
   selectedTonicity?: string | null;
   selectedTonicitySign?: string | null;
   selectedSingerTuneId?: number | null;
+  tags?: string[] | string | null;
 };
 
 type UpdateListBody = {
@@ -669,6 +671,7 @@ export class ListsController {
       selectedTonicity: body.selectedTonicity,
       selectedTonicitySign: body.selectedTonicitySign,
       selectedSingerTuneId: body.selectedSingerTuneId,
+      tags: body.tags,
     });
   }
 
@@ -721,6 +724,7 @@ export class ListsController {
       selectedTonicity: body.selectedTonicity,
       selectedTonicitySign: body.selectedTonicitySign,
       selectedSingerTuneId: body.selectedSingerTuneId,
+      tags: body.tags,
     });
   }
 

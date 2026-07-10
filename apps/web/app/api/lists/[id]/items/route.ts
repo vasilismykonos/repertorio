@@ -8,6 +8,7 @@ type AddListItemBody = {
   selectedTonicity?: string | null;
   selectedTonicitySign?: "+" | "-" | null;
   selectedSingerTuneId?: number | null;
+  tags?: string[] | string | null;
 };
 
 type AddListItemResponse = {
@@ -15,6 +16,7 @@ type AddListItemResponse = {
   listId: number;
   sortId: number;
   songId: number | null;
+  tags: string[];
   songOriginalKey: string | null;
   songOriginalKeySign: "+" | "-" | null;
   selectedTonicity: string | null;
@@ -90,6 +92,10 @@ export async function POST(
               : Number.isFinite(Number(body?.selectedSingerTuneId))
                 ? Number(body?.selectedSingerTuneId)
                 : undefined,
+          tags:
+            body?.tags === null || typeof body?.tags === "string" || Array.isArray(body?.tags)
+              ? body.tags
+              : undefined,
         }),
       },
     );

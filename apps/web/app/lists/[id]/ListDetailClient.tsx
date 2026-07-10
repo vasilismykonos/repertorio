@@ -53,6 +53,35 @@ function nullableText(value: unknown): string | null {
   return text ? text : null;
 }
 
+function normalizeListItemTags(value: unknown): string[] {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,\n]/)
+      : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const item of source) {
+    const tag = String(item ?? "")
+      .trim()
+      .replace(/\s+/g, " ");
+    if (!tag) continue;
+
+    const key = tag.toLocaleLowerCase("el");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag.slice(0, 48));
+    if (out.length >= 12) break;
+  }
+
+  return out;
+}
+
+function tagKey(value: string) {
+  return String(value ?? "").trim().toLocaleLowerCase("el");
+}
+
 function lyricsPreviewText(value: unknown): string | null {
   const text = nullableText(value);
   if (!text) return null;
@@ -166,6 +195,7 @@ function rememberRecentList(id: any) {
 }
 
 function roleLabel(role: Role) {
+  if (role === "ADMIN") return "Προβολή ως admin";
   if (role === "OWNER") return "Δημιουργός";
   if (role === "LIST_EDITOR") return "Διαχειριστής";
   if (role === "SONGS_EDITOR") return "Συντάκτης";
@@ -173,6 +203,7 @@ function roleLabel(role: Role) {
 }
 
 function roleHint(role: Role) {
+  if (role === "ADMIN") return "Βλέπετε αυτή τη λίστα με δικαίωμα διαχειριστή, χωρίς να είστε μέλος.";
   if (role === "OWNER") return "Ορίζει δικαιώματα και διαχειρίζεται τη λίστα.";
   if (role === "LIST_EDITOR") return "Μπορεί να αλλάζει ρυθμίσεις/τίτλο και να διαχειρίζεται μέλη.";
   if (role === "SONGS_EDITOR") return "Μπορεί να επεξεργάζεται μόνο τα τραγούδια της λίστας.";
@@ -180,6 +211,7 @@ function roleHint(role: Role) {
 }
 
 function roleIcon(role: Role): React.ReactNode {
+  if (role === "ADMIN") return <Shield size={14} />;
   if (role === "OWNER") return <Crown size={14} />;
   if (role === "LIST_EDITOR") return <Shield size={14} />;
   if (role === "SONGS_EDITOR") return <Music2 size={14} />;
@@ -189,6 +221,7 @@ function roleIcon(role: Role): React.ReactNode {
 type RoleTone = "gold" | "blue" | "violet" | "gray";
 
 function roleTone(role: Role): RoleTone {
+  if (role === "ADMIN") return "blue";
   if (role === "OWNER") return "gold";
   if (role === "LIST_EDITOR") return "blue";
   if (role === "SONGS_EDITOR") return "violet";
@@ -295,6 +328,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [selectedPreviewListItemId, setSelectedPreviewListItemId] = useState<number | null>(null);
   const [items, setItems] = useState<ListItemRow[]>(() => data.items ?? []);
+  const [activeItemTag, setActiveItemTag] = useState<string | null>(null);
   const [toneSavingListItemId, setToneSavingListItemId] = useState<number | null>(null);
   const [toneStatus, setToneStatus] = useState<string | null>(null);
 
@@ -321,9 +355,40 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
   }, [data, groupTitle]);
   const groupMetaLabel = groupLabels.length ? `Tags: ${groupLabels.join(", ")}` : "";
 
-  const canEdit = role === "OWNER" || role === "LIST_EDITOR" || role === "SONGS_EDITOR";
-  const canShareList = role === "OWNER" || role === "LIST_EDITOR";
-  const canLeaveList = role !== "OWNER" && Number(viewerUserId) > 0;
+  const allItemTags = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+
+    for (const item of items ?? []) {
+      for (const tag of normalizeListItemTags((item as any).tags)) {
+        const key = tagKey(tag);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(tag);
+      }
+    }
+
+    return out.sort((a, b) => a.localeCompare(b, "el", { sensitivity: "base" }));
+  }, [items]);
+
+  useEffect(() => {
+    if (!activeItemTag) return;
+    const activeKey = tagKey(activeItemTag);
+    if (!allItemTags.some((tag) => tagKey(tag) === activeKey)) setActiveItemTag(null);
+  }, [activeItemTag, allItemTags]);
+
+  const visibleItems = useMemo(() => {
+    if (!activeItemTag) return items;
+    const activeKey = tagKey(activeItemTag);
+    return (items ?? []).filter((item: any) =>
+      normalizeListItemTags(item?.tags).some((tag) => tagKey(tag) === activeKey),
+    );
+  }, [items, activeItemTag]);
+
+  const isAdminView = role === "ADMIN" || Boolean((data as any).adminView);
+  const canEdit = isAdminView || role === "OWNER" || role === "LIST_EDITOR" || role === "SONGS_EDITOR";
+  const canShareList = isAdminView || role === "OWNER" || role === "LIST_EDITOR";
+  const canLeaveList = !isAdminView && role !== "OWNER" && Number(viewerUserId) > 0;
   const headerTitle = title || `Λίστα #${listId}`;
 
   const singerSuggestions = useMemo<ListItemSingerSuggestion[]>(() => {
@@ -979,15 +1044,41 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
         </div>
       ) : null}
 
+      {allItemTags.length ? (
+        <div className="list-item-tag-filters" aria-label="Φίλτρο tags τραγουδιών λίστας">
+          <button
+            type="button"
+            className={!activeItemTag ? "is-active" : ""}
+            onClick={() => setActiveItemTag(null)}
+          >
+            Όλα
+          </button>
+          {allItemTags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              className={activeItemTag && tagKey(activeItemTag) === tagKey(tag) ? "is-active" : ""}
+              onClick={() => setActiveItemTag(tag)}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       <div className="list-detail-content">
         <div className="list-detail-list-panel">
           {!items || items.length === 0 ? (
             <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 16 }}>
               Η λίστα δεν περιέχει τραγούδια.
             </p>
+          ) : visibleItems.length === 0 ? (
+            <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 16 }}>
+              Δεν υπάρχουν τραγούδια με αυτό το tag.
+            </p>
           ) : (
             <ul style={{ listStyleType: "none", padding: 0, margin: 0, display: "grid", gap: 8, maxWidth: "100%", minWidth: 0 }}>
-          {items.map((item: any) => {
+          {visibleItems.map((item: any) => {
             const listItemId = Number(item.listItemId);
             const sortId = item.sortId ?? "";
             const titleText = item.title || `(αντικείμενο #${listItemId})`;
@@ -998,6 +1089,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             const previewItem = songPreviewByListItemId.get(listItemId) ?? null;
             const isSelectedPreview = effectiveSelectedPreviewListItemId === listItemId;
             const lyricsPreview = lyricsPreviewText((item as any).lyrics);
+            const itemTags = normalizeListItemTags((item as any).tags);
             const selectedTonicityLabel = info?.selectedTonicity
               ? `${info.selectedTonicity}${info.selectedTonicitySign ?? ""}`
               : null;
@@ -1152,8 +1244,25 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
                       >
                         <span className="list-song-title-text" style={titleTextStyle}>{titleText}</span>
                       </span>
-                      {lyricsPreview ? (
-                        <span className="list-song-lyrics-preview">{lyricsPreview}</span>
+                      {lyricsPreview || itemTags.length ? (
+                        <span className="list-song-subline">
+                          {lyricsPreview ? (
+                            <span className="list-song-lyrics-preview">{lyricsPreview}</span>
+                          ) : null}
+                          {itemTags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="list-song-item-tag"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setActiveItemTag(tag);
+                              }}
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </span>
                       ) : null}
                     </Link>
                     {toneControlVisible ? (
@@ -1634,11 +1743,48 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
           line-height: 18px;
         }
 
-        .list-song-lyrics-preview {
+        .list-item-tag-filters {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin: 0 0 12px;
+          max-width: 100%;
+        }
+
+        .list-item-tag-filters button {
+          border: 1px solid rgba(255, 255, 255, 0.24);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.08);
+          color: rgba(255, 255, 255, 0.88);
+          padding: 6px 10px;
+          font-size: 13px;
+          font-weight: 900;
+          line-height: 16px;
+          cursor: pointer;
+          max-width: 100%;
+        }
+
+        .list-item-tag-filters button.is-active {
+          background: #ff4d55;
+          border-color: rgba(255, 255, 255, 0.25);
+          color: #fff;
+        }
+
+        .list-song-subline {
           grid-area: lyrics;
-          display: block;
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 5px;
           min-width: 0;
           margin-top: 1px;
+          overflow: hidden;
+        }
+
+        .list-song-lyrics-preview {
+          display: inline-block;
+          min-width: 0;
+          max-width: 100%;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -1647,6 +1793,26 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
           line-height: 16px;
           font-weight: 600;
           text-shadow: none;
+        }
+
+        .list-song-item-tag {
+          display: inline-flex;
+          align-items: center;
+          max-width: 100%;
+          min-width: 0;
+          border: 1px solid rgba(255, 255, 255, 0.22);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.08);
+          color: rgba(255, 255, 255, 0.72);
+          padding: 1px 6px;
+          font-size: 11.5px;
+          line-height: 15px;
+          font-weight: 800;
+          text-shadow: none;
+          cursor: pointer;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .list-song-selection {

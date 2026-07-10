@@ -7,6 +7,7 @@ import { getCurrentUserFromApi, type UserRole } from "@/lib/currentUser";
 
 import ActionBar from "@/app/components/ActionBar";
 import { LinkButton } from "@/app/components/buttons";
+import SealabsComposerSongsClient from "./SealabsComposerSongsClient";
 
 type ArtistDetail = {
   id: number;
@@ -112,6 +113,7 @@ export default async function ArtistPage({ params }: PageProps) {
   const currentUser = await getCurrentUserFromApi().catch(() => null);
   const allowedRoles: UserRole[] = ["ADMIN", "EDITOR"];
   const canEdit = !!currentUser && allowedRoles.includes(currentUser.role as UserRole);
+  const isAdmin = currentUser?.role === "ADMIN";
 
   const displayName =
     artist.firstName || artist.lastName
@@ -283,6 +285,8 @@ export default async function ArtistPage({ params }: PageProps) {
     ))}
   </div>
 )}
+
+      {isAdmin ? <SealabsComposerSongsClient artistId={artist.id} /> : null}
 
 
       {artist.biography ? (
