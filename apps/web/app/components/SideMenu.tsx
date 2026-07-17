@@ -23,6 +23,7 @@ import {
   CheckCheck,
   History,
   Monitor,
+  MonitorSmartphone,
   Paperclip,
   Smartphone,
 } from "lucide-react";
@@ -642,6 +643,42 @@ export default function SideMenu(props: Props) {
         </div>
 
 
+        <div className="smh-view-mode">
+          <div className="smh-view-mode-options" role="group" aria-label="Επιβολή προβολής">
+            {(["auto", "mobile", "desktop"] as const).map((mode) => {
+              const label = mode === "desktop" ? "Desktop" : mode === "mobile" ? "Mobile" : "Auto";
+              const icon =
+                mode === "desktop" ? (
+                  <Monitor size={16} aria-hidden="true" />
+                ) : mode === "mobile" ? (
+                  <Smartphone size={16} aria-hidden="true" />
+                ) : (
+                  <MonitorSmartphone size={16} aria-hidden="true" />
+                );
+
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  className={cx("smh-view-mode-btn", viewMode === mode && "active")}
+                  onClick={() => handleViewModeClick(mode)}
+                  aria-pressed={viewMode === mode}
+                  title={
+                    mode === "desktop"
+                      ? "Επιβολή desktop προβολής"
+                      : mode === "mobile"
+                        ? "Επιβολή mobile προβολής"
+                        : "Αυτόματη προβολή ανάλογα με τη συσκευή"
+                  }
+                >
+                  {icon}
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {offlineStatus ? (
           <div className="smh-offline" title={offlineStatus.error || undefined}>
             <div className="smh-offline-row strong">
@@ -795,39 +832,6 @@ export default function SideMenu(props: Props) {
             </div>
           </div>
         ) : null}
-
-        <div className="smh-view-mode">
-          <div className="smh-view-mode-head">
-            <span className="smh-view-mode-title">
-              {viewMode === "mobile" ? <Smartphone size={15} /> : <Monitor size={15} />}
-              <span>Προβολή</span>
-            </span>
-            <span className="smh-view-mode-current">
-              {viewMode === "desktop" ? "Desktop" : viewMode === "mobile" ? "Mobile" : "Auto"}
-            </span>
-          </div>
-
-          <div className="smh-view-mode-options" role="group" aria-label="Επιβολή προβολής">
-            {(["auto", "mobile", "desktop"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className={cx("smh-view-mode-btn", viewMode === mode && "active")}
-                onClick={() => handleViewModeClick(mode)}
-                aria-pressed={viewMode === mode}
-                title={
-                  mode === "desktop"
-                    ? "Επιβολή desktop προβολής"
-                    : mode === "mobile"
-                      ? "Επιβολή mobile προβολής"
-                      : "Αυτόματη προβολή ανάλογα με τη συσκευή"
-                }
-              >
-                {mode === "desktop" ? "Desktop" : mode === "mobile" ? "Mobile" : "Auto"}
-              </button>
-            ))}
-          </div>
-        </div>
 
         {versionHistoryOpen ? (
           <div className="smh-version-history" role="dialog" aria-label="Ιστορικό αλλαγών">
@@ -1515,9 +1519,7 @@ export default function SideMenu(props: Props) {
 
           .smh-view-mode {
             margin-top: 10px;
-            display: grid;
-            gap: 8px;
-            padding: 9px;
+            padding: 7px;
             border-radius: 14px;
             border: 1px solid rgba(255, 255, 255, 0.12);
             background: rgba(255, 255, 255, 0.045);
@@ -1525,42 +1527,17 @@ export default function SideMenu(props: Props) {
             overflow: hidden;
           }
 
-          .smh-view-mode-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            min-width: 0;
-          }
-
-          .smh-view-mode-title,
-          .smh-view-mode-current {
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            min-width: 0;
-            color: rgba(255, 255, 255, 0.82);
-            font-size: 12px;
-            font-weight: 900;
-            line-height: 1;
-          }
-
-          .smh-view-mode-current {
-            color: rgba(255, 255, 255, 0.56);
-            font-size: 11px;
-          }
-
           .smh-view-mode-options {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 4px;
+            gap: 6px;
             min-width: 0;
           }
 
           .smh-view-mode-btn {
             min-width: 0;
-            height: 30px;
-            border-radius: 999px;
+            height: 48px;
+            border-radius: 10px;
             border: 1px solid rgba(255, 255, 255, 0.14);
             background: rgba(0, 0, 0, 0.18);
             color: rgba(255, 255, 255, 0.78);
@@ -1568,10 +1545,15 @@ export default function SideMenu(props: Props) {
             font-size: 10.5px;
             font-weight: 900;
             line-height: 1;
-            padding: 0 4px;
+            padding: 5px 4px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
           }
 
           .smh-view-mode-btn.active {

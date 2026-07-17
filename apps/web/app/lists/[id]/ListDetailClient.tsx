@@ -23,6 +23,7 @@ type Role = ListDetailDto["role"];
 const LAST_VIEWED_LIST_KEY = "repertorio:lastViewedListId";
 const RECENT_LISTS_KEY = "repertorio:recentListIds";
 const RECENT_GROUPS_KEY = "repertorio:recentGroupIds";
+const LIST_SONG_PREVIEW_MEDIA_QUERY = "(min-width: 769px)";
 
 type Props = {
   listId: number;
@@ -40,7 +41,7 @@ function navigateDocumentWhenOffline(event: React.MouseEvent<HTMLAnchorElement>,
 }
 
 function canUseListSongPreview() {
-  return typeof window !== "undefined" && window.matchMedia("(min-width: 1100px)").matches;
+  return typeof window !== "undefined" && window.matchMedia(LIST_SONG_PREVIEW_MEDIA_QUERY).matches;
 }
 
 function songPreviewHref(href: string) {
@@ -1886,11 +1887,11 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
           text-align: center;
         }
 
-        @media (min-width: 1100px) {
+        @media (min-width: 769px) {
           .list-detail-content {
             display: grid;
-            grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
-            gap: 16px;
+            grid-template-columns: minmax(280px, 36vw) minmax(0, 1fr);
+            gap: 12px;
             align-items: start;
           }
 
@@ -1898,7 +1899,7 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             position: sticky;
             top: 12px;
             height: calc(100vh - 24px);
-            min-height: 620px;
+            min-height: min(620px, calc(100vh - 24px));
             overflow-x: hidden;
             overflow-y: auto;
             padding-right: 4px;
@@ -1911,12 +1912,19 @@ export default function ListDetailClient({ listId, viewerUserId, data }: Props) 
             position: sticky;
             top: 12px;
             height: calc(100vh - 24px);
-            min-height: 620px;
+            min-height: min(620px, calc(100vh - 24px));
             overflow: hidden;
             border: 1px solid rgba(255, 255, 255, 0.18);
             border-radius: 18px;
             background: #000;
             box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+          }
+        }
+
+        @media (min-width: 1100px) {
+          .list-detail-content {
+            grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
+            gap: 16px;
           }
         }
 

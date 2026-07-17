@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.159";
+export const APP_VERSION = "3.0.160";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.160",
+    date: "2026-07-17",
+    level: "patch",
+    title: "Responsive list and view controls",
+    items: [
+      "List song previews now use the two-column layout on tablets as well as larger screens.",
+      "Forced desktop mode no longer pushes the side menu outside compact screens.",
+      "View controls now use clear device icons and appear above the Online/Offline panel.",
+    ],
+  },
   {
     version: "3.0.159",
     date: "2026-07-11",
