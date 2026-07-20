@@ -6,9 +6,18 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.162";
+export const APP_VERSION = "3.0.163";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.163",
+    date: "2026-07-20",
+    level: "patch",
+    title: "Reliable signed-out lists page",
+    items: [
+      "Opening Lists while signed out now shows the sign-in requirement instead of a client-side application error.",
+    ],
+  },
   {
     version: "3.0.162",
     date: "2026-07-20",

@@ -418,15 +418,6 @@ export default function ListsPageClient({
     };
   }, [shouldLoadOfflineLists, sessionStatus, currentUserEmail, search, groupId, currentPage, pageSize, lastViewedListId]);
 
-  if (requiresLogin && sessionStatus === "unauthenticated") {
-    return (
-      <section className="lists-index-page">
-        <h1>Λίστες</h1>
-        <p>Πρέπει να είστε συνδεδεμένος για να δείτε τις λίστες σας.</p>
-      </section>
-    );
-  }
-
   const items = useMemo(() => (Array.isArray(activeData.items) ? activeData.items : []), [activeData.items]);
 
   const listSections = useMemo(() => {
@@ -478,6 +469,15 @@ export default function ListsPageClient({
 
     return { recentLists, popularLists, pinnedLists, otherLists };
   }, [items, recentListIds, lastViewedListId]);
+
+  if (requiresLogin && sessionStatus === "unauthenticated") {
+    return (
+      <section className="lists-index-page">
+        <h1>Λίστες</h1>
+        <p>Πρέπει να είστε συνδεδεμένος για να δείτε τις λίστες σας.</p>
+      </section>
+    );
+  }
 
   const facetTotal = activeFacets.total ?? 0;
 
