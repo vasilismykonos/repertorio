@@ -9,6 +9,13 @@ export default function Footer() {
           © {year} Repertorio.net — All rights reserved.
         </span>
 
+        <a
+          href="/privacy"
+          style={{ color: "#d5d5d5", textDecoration: "underline", textUnderlineOffset: 3 }}
+        >
+          Πολιτική απορρήτου
+        </a>
+
         <span className="footer-follow">
           <span className="footer-follow-label">Follow us:</span>
 

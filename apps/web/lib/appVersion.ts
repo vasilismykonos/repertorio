@@ -6,9 +6,20 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.160";
+export const APP_VERSION = "3.0.161";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.161",
+    date: "2026-07-20",
+    level: "patch",
+    title: "Privacy and Android publishing readiness",
+    items: [
+      "A public privacy policy now documents account, content, activity, chat, notification, and offline data handling.",
+      "The footer provides permanent access to the privacy policy.",
+      "Android Digital Asset Links now include the Google Play app-signing certificate.",
+    ],
+  },
   {
     version: "3.0.160",
     date: "2026-07-17",

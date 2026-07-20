@@ -4,7 +4,11 @@
     "target": {
       "namespace": "android_app",
       "package_name": "net.repertorio.twa",
-      "sha256_cert_fingerprints": ["00:3F:A6:BF:35:C0:C8:F4:C7:A5:7B:02:88:50:D9:FB:77:DD:02:D9:52:8D:A5:AC:F4:7D:D0:BE:F6:9A:C1:14"]
+      "sha256_cert_fingerprints": [
+        "00:3F:A6:BF:35:C0:C8:F4:C7:A5:7B:02:88:50:D9:FB:77:DD:02:D9:52:8D:A5:AC:F4:7D:D0:BE:F6:9A:C1:14",
+        "0C:55:ED:56:E8:CB:A2:4C:9D:3E:9B:EE:4C:C1:B5:AC:2A:A1:9D:F5:7F:28:2D:E6:63:DE:7E:64:DF:64:11:4F",
+        "7A:C4:27:08:E5:98:C9:27:EB:58:B6:FE:3A:B7:9D:E4:F4:E1:03:B2:CC:56:30:AF:21:F1:58:BB:27:FC:26:53"
+      ]
     }
   }
 ]
