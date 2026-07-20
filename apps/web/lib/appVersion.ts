@@ -6,9 +6,19 @@ export type AppVersionChange = {
   items: string[];
 };
 
-export const APP_VERSION = "3.0.161";
+export const APP_VERSION = "3.0.162";
 
 export const APP_CHANGELOG: AppVersionChange[] = [
+  {
+    version: "3.0.162",
+    date: "2026-07-20",
+    level: "patch",
+    title: "Account deletion transparency",
+    items: [
+      "A dedicated public page now explains how to request full account or selected data deletion.",
+      "The deletion page documents processing time, retained backups, anonymized shared content, and offline device data.",
+    ],
+  },
   {
     version: "3.0.161",
     date: "2026-07-20",
